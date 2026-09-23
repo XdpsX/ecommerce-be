@@ -19,13 +19,13 @@ class EcommerceApplicationTests {
     @DisplayName("Test Cloudinary Connection")
     //    @Test
     public void testCloudinaryConnection() throws Exception {
-        // Kiểm tra xem Cloudinary bean có được khởi tạo không
+        // Kiá»ƒm tra xem Cloudinary bean cÃ³ Ä‘Æ°á»£c khá»Ÿi táº¡o khÃ´ng
         assertNotNull(cloudinary);
 
-        // Thực hiện một yêu cầu đơn giản để kiểm tra kết nối
+        // Thá»±c hiá»‡n má»™t yÃªu cáº§u Ä‘Æ¡n giáº£n Ä‘á»ƒ kiá»ƒm tra káº¿t ná»‘i
         Map<String, Object> response = cloudinary.api().resources(ObjectUtils.asMap("max_results", 1));
 
-        // Kiểm tra xem phản hồi có hợp lệ không
+        // Kiá»ƒm tra xem pháº£n há»“i cÃ³ há»£p lá»‡ khÃ´ng
         assertNotNull(response);
         System.out.println("Cloudinary connection successful: " + response);
     }

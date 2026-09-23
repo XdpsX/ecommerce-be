@@ -195,15 +195,22 @@
 				</executions>
 				<configuration>
 					<includes>
-						<include>com/xdpsx/ecommerce/controllers/**</include>
-						<include>com/xdpsx/ecommerce/services/impl/**</include>
-						<include>com/xdpsx/ecommerce/repositories/specs/**</include>
-						<include>com/xdpsx/ecommerce/validations/validators/**</include>
-						<include>com/xdpsx/ecommerce/utils/**</include>
-						<include>com/xdpsx/ecommerce/scheduled/**</include>
+						<include>com/xdpsx/ecommerce/**/*Controller*</include>
+						<include>com/xdpsx/ecommerce/**/*ServiceImpl*</include>
+						<include>com/xdpsx/ecommerce/**/AbstractImageUpdatableService*</include>
+						<include>com/xdpsx/ecommerce/**/CryptoService*</include>
+						<include>com/xdpsx/ecommerce/**/VNPayIpnHandler*</include>
+						<include>com/xdpsx/ecommerce/**/VNPayService*</include>
+						<include>com/xdpsx/ecommerce/**/*Specification*</include>
+						<include>com/xdpsx/ecommerce/**/FileTypeValidator*</include>
+						<include>com/xdpsx/ecommerce/**/CloudinaryUploader*</include>
+						<include>com/xdpsx/ecommerce/**/DateUtil*</include>
+						<include>com/xdpsx/ecommerce/**/EncodingUtil*</include>
+						<include>com/xdpsx/ecommerce/**/RequestUtil*</include>
+						<include>com/xdpsx/ecommerce/**/MediaCleanUpScheduler*</include>
 					</includes>
 					<excludes>
-						<exclude>com/xdpsx/ecommerce/controllers/docs/**</exclude>
+						<exclude>com/xdpsx/ecommerce/**/*ControllerApi*</exclude>
 					</excludes>
 				</configuration>
 			</plugin>
