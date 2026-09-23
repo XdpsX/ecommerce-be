@@ -5,7 +5,6 @@ import java.time.LocalDateTime;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
-import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryUploader;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 

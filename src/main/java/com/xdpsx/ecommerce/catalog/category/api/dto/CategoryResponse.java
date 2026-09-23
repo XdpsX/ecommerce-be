@@ -13,6 +13,7 @@ import lombok.*;
 public class CategoryResponse {
     private Integer id;
     private String name;
+
     @Builder.Default
     private List<CategoryResponse> children = new ArrayList<>();
 }

@@ -3,10 +3,10 @@ package com.xdpsx.ecommerce.catalog.brand.api.dto;
 import com.xdpsx.ecommerce.common.pagination.AbstractPageParams;
 
 import lombok.AllArgsConstructor;
-import lombok.experimental.SuperBuilder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import lombok.experimental.SuperBuilder;
 
 @Setter
 @Getter

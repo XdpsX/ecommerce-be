@@ -5,17 +5,16 @@ import java.util.List;
 import org.springdoc.core.annotations.ParameterObject;
 
 import com.xdpsx.ecommerce.catalog.category.api.dto.*;
-import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.CheckExistResponse;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
 import com.xdpsx.ecommerce.common.api.APIResponse;
-import com.xdpsx.ecommerce.common.error.ErrorDetailsDTO;
 import com.xdpsx.ecommerce.common.error.ErrorDTO;
+import com.xdpsx.ecommerce.common.error.ErrorDetailsDTO;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
-import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 

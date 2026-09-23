@@ -10,7 +10,6 @@ import org.springframework.data.repository.query.Param;
 
 import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
 
-
 public interface BrandRepository extends JpaRepository<Brand, Integer>, JpaSpecificationExecutor<Brand> {
     boolean existsByName(String name);
 

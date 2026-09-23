@@ -13,7 +13,6 @@ import com.xdpsx.ecommerce.common.error.SMessage;
 import com.xdpsx.ecommerce.media.api.dto.CreateMediaDTO;
 import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
 import com.xdpsx.ecommerce.media.application.MediaService;
-import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaResourceType;
 
 import lombok.RequiredArgsConstructor;

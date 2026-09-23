@@ -11,7 +11,6 @@ import org.springframework.data.repository.query.Param;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaResourceType;
 
-
 public interface MediaRepository extends CrudRepository<Media, String> {
     @Query("SELECT m FROM Media m WHERE m.deleteFlg = true")
     List<Media> findDeletedMedia();

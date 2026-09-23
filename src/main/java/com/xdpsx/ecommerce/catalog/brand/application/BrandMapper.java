@@ -1,8 +1,8 @@
 package com.xdpsx.ecommerce.catalog.brand.application;
 
-import org.mapstruct.factory.Mappers;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
+import org.mapstruct.factory.Mappers;
 
 import com.xdpsx.ecommerce.catalog.brand.api.dto.AdminBrandResponse;
 import com.xdpsx.ecommerce.catalog.brand.api.dto.BrandDetailResponse;

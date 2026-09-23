@@ -10,7 +10,6 @@ import org.springframework.data.jpa.repository.Query;
 
 import com.xdpsx.ecommerce.order.domain.Order;
 
-
 public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecificationExecutor<Order> {
     @Query("SELECT o FROM Order o WHERE o.user.id = :userId "
             + "ORDER BY CASE WHEN o.updatedAt IS NOT NULL THEN o.updatedAt ELSE o.createdAt END DESC")

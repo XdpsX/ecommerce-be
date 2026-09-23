@@ -7,7 +7,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryUploader;
 import com.xdpsx.ecommerce.user.api.dto.UserProfile;
 import com.xdpsx.ecommerce.user.domain.AuthProvider;
-import com.xdpsx.ecommerce.user.domain.Role;
 import com.xdpsx.ecommerce.user.domain.User;
 
 @Mapper(componentModel = "spring")

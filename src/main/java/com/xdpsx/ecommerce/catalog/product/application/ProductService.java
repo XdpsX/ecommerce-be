@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.Map;
 
 import com.xdpsx.ecommerce.catalog.product.api.dto.*;
-import com.xdpsx.ecommerce.catalog.product.domain.Product;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 
 public interface ProductService {

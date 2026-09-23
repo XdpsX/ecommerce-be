@@ -1,7 +1,7 @@
 package com.xdpsx.ecommerce.media.application;
 
-import org.mapstruct.factory.Mappers;
 import org.mapstruct.Mapper;
+import org.mapstruct.factory.Mappers;
 
 import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
 import com.xdpsx.ecommerce.media.domain.Media;

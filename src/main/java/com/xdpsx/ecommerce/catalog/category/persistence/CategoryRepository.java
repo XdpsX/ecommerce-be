@@ -9,7 +9,6 @@ import org.springframework.data.repository.query.Param;
 
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
 
-
 public interface CategoryRepository extends JpaRepository<Category, Integer>, JpaSpecificationExecutor<Category> {
     boolean existsByName(String name);
 

@@ -12,7 +12,6 @@ import com.xdpsx.ecommerce.order.api.dto.OrderDetailsDTO;
 import com.xdpsx.ecommerce.order.api.dto.OrderItemResponse;
 import com.xdpsx.ecommerce.order.api.dto.OrderRequest;
 import com.xdpsx.ecommerce.order.domain.Order;
-import com.xdpsx.ecommerce.order.domain.OrderItem;
 
 @Mapper(componentModel = "spring")
 public abstract class OrderMapper {

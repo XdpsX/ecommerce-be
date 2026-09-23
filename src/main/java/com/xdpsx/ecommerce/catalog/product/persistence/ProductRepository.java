@@ -8,7 +8,6 @@ import org.springframework.data.jpa.repository.Query;
 
 import com.xdpsx.ecommerce.catalog.product.domain.Product;
 
-
 public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpecificationExecutor<Product> {
     boolean existsBySlug(String slug);
 

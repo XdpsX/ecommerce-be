@@ -5,6 +5,7 @@ import static com.xdpsx.ecommerce.config.security.SecurityConstants.PUBLIC_GET_E
 
 import java.util.Collections;
 import java.util.List;
+import javax.crypto.spec.SecretKeySpec;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -36,8 +37,6 @@ import com.nimbusds.jose.JWSAlgorithm;
 import com.xdpsx.ecommerce.auth.infrastructure.security.oauth2.CustomAuthenticationSuccessHandler;
 import com.xdpsx.ecommerce.auth.infrastructure.security.oauth2.CustomOAuth2FailureHandler;
 import com.xdpsx.ecommerce.auth.infrastructure.security.oauth2.CustomOAuth2UserService;
-
-import javax.crypto.spec.SecretKeySpec;
 
 @Configuration
 @EnableWebSecurity

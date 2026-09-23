@@ -2,6 +2,7 @@ package com.xdpsx.ecommerce.media.application;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import javax.imageio.ImageIO;
 
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -13,11 +14,10 @@ import com.xdpsx.ecommerce.media.api.dto.CreateMediaDTO;
 import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaResourceType;
-import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryUploader;
 import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryUploadResponse;
+import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryUploader;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
-import javax.imageio.ImageIO;
 import lombok.RequiredArgsConstructor;
 
 @Service

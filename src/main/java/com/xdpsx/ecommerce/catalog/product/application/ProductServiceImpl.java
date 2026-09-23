@@ -29,8 +29,8 @@ import com.xdpsx.ecommerce.common.error.BadRequestException;
 import com.xdpsx.ecommerce.common.error.DuplicateException;
 import com.xdpsx.ecommerce.common.error.NotFoundException;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
-import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryUploader;
 import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryUploadResponse;
+import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryUploader;
 
 import lombok.RequiredArgsConstructor;
 

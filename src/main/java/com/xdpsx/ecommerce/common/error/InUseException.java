@@ -1,6 +1,5 @@
 package com.xdpsx.ecommerce.common.error;
 
-
 public class InUseException extends APIException {
     public InUseException(String message, Object... args) {
         super(message, args);

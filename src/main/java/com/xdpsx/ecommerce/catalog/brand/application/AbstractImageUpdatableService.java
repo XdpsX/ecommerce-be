@@ -1,6 +1,5 @@
 package com.xdpsx.ecommerce.catalog.brand.application;
 
-import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
 import com.xdpsx.ecommerce.catalog.brand.domain.HasImage;
 import com.xdpsx.ecommerce.common.error.EMessage;
 import com.xdpsx.ecommerce.common.error.NotFoundException;

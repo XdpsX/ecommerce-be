@@ -9,12 +9,13 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Optional;
+import javax.imageio.ImageIO;
 
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
-import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.xdpsx.ecommerce.common.error.BadRequestException;
@@ -24,11 +25,9 @@ import com.xdpsx.ecommerce.media.api.dto.CreateMediaDTO;
 import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaResourceType;
-import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryUploader;
 import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryUploadResponse;
+import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryUploader;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
-
-import javax.imageio.ImageIO;
 
 @ExtendWith(MockitoExtension.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)

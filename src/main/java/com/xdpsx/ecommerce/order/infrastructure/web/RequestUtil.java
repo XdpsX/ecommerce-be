@@ -2,8 +2,6 @@ package com.xdpsx.ecommerce.order.infrastructure.web;
 
 import jakarta.servlet.http.HttpServletRequest;
 
-import com.xdpsx.ecommerce.order.domain.Order;
-
 public class RequestUtil {
     public static String getIpAddress(HttpServletRequest request) {
         String xForwardedForHeader = request.getHeader("X-Forwarded-For");

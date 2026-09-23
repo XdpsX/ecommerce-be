@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import javax.imageio.ImageIO;
 
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,11 +23,8 @@ import com.xdpsx.ecommerce.common.error.SMessage;
 import com.xdpsx.ecommerce.media.api.dto.CreateMediaDTO;
 import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
 import com.xdpsx.ecommerce.media.application.MediaService;
-import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaResourceType;
 import com.xdpsx.ecommerce.testsupport.SecurityConfigForControllerTests;
-
-import javax.imageio.ImageIO;
 
 @WebMvcTest(controllers = MediaController.class)
 @Import(SecurityConfigForControllerTests.class)

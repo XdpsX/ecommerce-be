@@ -11,7 +11,6 @@ import org.springframework.web.bind.annotation.*;
 
 import com.xdpsx.ecommerce.catalog.product.api.dto.*;
 import com.xdpsx.ecommerce.catalog.product.application.ProductService;
-import com.xdpsx.ecommerce.catalog.product.domain.Product;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 
 import lombok.RequiredArgsConstructor;

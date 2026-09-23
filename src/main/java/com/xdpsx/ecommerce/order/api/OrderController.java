@@ -11,7 +11,6 @@ import org.springframework.web.bind.annotation.*;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.order.api.dto.*;
 import com.xdpsx.ecommerce.order.application.OrderService;
-import com.xdpsx.ecommerce.order.domain.Order;
 import com.xdpsx.ecommerce.order.domain.OrderStatus;
 import com.xdpsx.ecommerce.order.infrastructure.web.RequestUtil;
 import com.xdpsx.ecommerce.payment.domain.PaymentStatus;

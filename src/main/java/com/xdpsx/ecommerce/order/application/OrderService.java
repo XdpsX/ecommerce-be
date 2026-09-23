@@ -2,7 +2,6 @@ package com.xdpsx.ecommerce.order.application;
 
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.order.api.dto.*;
-import com.xdpsx.ecommerce.order.domain.Order;
 import com.xdpsx.ecommerce.order.domain.OrderStatus;
 import com.xdpsx.ecommerce.payment.domain.PaymentStatus;
 

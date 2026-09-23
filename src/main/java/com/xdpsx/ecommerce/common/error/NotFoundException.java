@@ -1,6 +1,5 @@
 package com.xdpsx.ecommerce.common.error;
 
-
 public class NotFoundException extends APIException {
     public NotFoundException(String message, Object... args) {
         super(message, args);

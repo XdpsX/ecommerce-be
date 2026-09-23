@@ -3,6 +3,7 @@ package com.xdpsx.ecommerce.catalog.product.api.validation;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.util.List;
+import javax.imageio.ImageIO;
 
 import jakarta.validation.ConstraintValidator;
 import jakarta.validation.ConstraintValidatorContext;
@@ -10,8 +11,6 @@ import jakarta.validation.ConstraintValidatorContext;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.xdpsx.ecommerce.common.validation.FileConstants;
-
-import javax.imageio.ImageIO;
 
 public class ImgValidator implements ConstraintValidator<ImgConstraint, Object> {
     private int minWidth;

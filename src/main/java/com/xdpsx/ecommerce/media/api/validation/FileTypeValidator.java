@@ -2,13 +2,13 @@ package com.xdpsx.ecommerce.media.api.validation;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import javax.imageio.ImageIO;
 
 import jakarta.validation.ConstraintValidator;
 import jakarta.validation.ConstraintValidatorContext;
 
 import org.springframework.web.multipart.MultipartFile;
 
-import javax.imageio.ImageIO;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j

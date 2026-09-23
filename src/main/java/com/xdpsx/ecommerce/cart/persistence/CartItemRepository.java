@@ -11,7 +11,6 @@ import org.springframework.transaction.annotation.Transactional;
 import com.xdpsx.ecommerce.cart.domain.CartItem;
 import com.xdpsx.ecommerce.cart.domain.CartItemId;
 
-
 public interface CartItemRepository extends JpaRepository<CartItem, CartItemId> {
     @Query("SELECT ci FROM CartItem ci WHERE ci.user.id = :userId " + "ORDER BY ci.createdAt DESC")
     List<CartItem> findNewestByUserId(@Param("userId") Long userId);

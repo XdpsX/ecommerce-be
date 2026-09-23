@@ -12,8 +12,8 @@ import com.xdpsx.ecommerce.payment.api.dto.InitPaymentRequest;
 import com.xdpsx.ecommerce.payment.api.dto.InitPaymentResponse;
 import com.xdpsx.ecommerce.payment.application.PaymentService;
 
-import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service

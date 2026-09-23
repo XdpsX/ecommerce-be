@@ -11,7 +11,6 @@ import org.springframework.data.jpa.domain.Specification;
 
 import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
 
-
 class BrandSpecificationTest {
 
     private BrandSpecification brandSpecification;

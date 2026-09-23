@@ -7,8 +7,8 @@ import org.springframework.stereotype.Service;
 import com.xdpsx.ecommerce.common.error.BadRequestException;
 import com.xdpsx.ecommerce.order.application.OrderService;
 
-import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service

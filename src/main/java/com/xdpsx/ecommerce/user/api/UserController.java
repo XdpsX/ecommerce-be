@@ -8,7 +8,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.xdpsx.ecommerce.user.api.dto.UserProfile;
 import com.xdpsx.ecommerce.user.application.UserService;
-import com.xdpsx.ecommerce.user.domain.User;
 
 import lombok.RequiredArgsConstructor;
 

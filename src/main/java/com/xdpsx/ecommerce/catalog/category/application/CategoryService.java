@@ -3,7 +3,6 @@ package com.xdpsx.ecommerce.catalog.category.application;
 import java.util.List;
 
 import com.xdpsx.ecommerce.catalog.category.api.dto.*;
-import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.CheckExistResponse;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
