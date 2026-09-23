@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>3.2.9</version>
+		<version>4.1.1</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.xdpsx</groupId>
@@ -15,14 +15,13 @@
 	<description>Backend system for Ecommerce</description>
 	<properties>
 		<revision>0.0.1-SNAPSHOT</revision>
-		<java.version>17</java.version>
-		<springdoc-openapi.version>2.5.0</springdoc-openapi.version>
-		<mapstruct.version>1.5.5.Final</mapstruct.version>
-		<cloudinary.version>1.39.0</cloudinary.version>
+		<java.version>25</java.version>
+		<springdoc-openapi.version>3.1.1</springdoc-openapi.version>
+		<mapstruct.version>1.6.3</mapstruct.version>
+		<cloudinary.version>2.4.0</cloudinary.version>
 		<lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
-		<jacoco.version>0.8.12</jacoco.version>
-		<spotless.version>2.46.1</spotless.version>
-    	<palantir-java-format.version>2.71.0</palantir-java-format.version>
+		<jacoco.version>0.8.15</jacoco.version>
+		<spotless.version>3.10.2</spotless.version>
 	</properties>
 	<dependencies>
 		<!-- Spring	-->
@@ -36,15 +35,15 @@
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-web</artifactId>
+			<artifactId>spring-boot-starter-webmvc</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-oauth2-client</artifactId>
+			<artifactId>spring-boot-starter-security-oauth2-client</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+			<artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springdoc</groupId>
@@ -61,8 +60,8 @@
 
 		<!-- Liquibase -->
 		<dependency>
-			<groupId>org.liquibase</groupId>
-			<artifactId>liquibase-core</artifactId>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-liquibase</artifactId>
 		</dependency>
 
 		<!-- Lombok	-->
@@ -82,30 +81,14 @@
 		<!-- Cloudinary	-->
 		<dependency>
 			<groupId>com.cloudinary</groupId>
-			<artifactId>cloudinary-core</artifactId>
+			<artifactId>cloudinary-http5</artifactId>
 			<version>${cloudinary.version}</version>
-		</dependency>
-		<dependency>
-			<groupId>com.cloudinary</groupId>
-			<artifactId>cloudinary-http45</artifactId>
-			<version>${cloudinary.version}</version>
-			<exclusions>
-				<exclusion>
-					<groupId>commons-logging</groupId>
-					<artifactId>commons-logging</artifactId>
-				</exclusion>
-			</exclusions>
 		</dependency>
 
 		<!-- Testing -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-test</artifactId>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
-			<groupId>org.springframework.security</groupId>
-			<artifactId>spring-security-test</artifactId>
+			<artifactId>spring-boot-starter-webmvc-test</artifactId>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>
@@ -231,9 +214,7 @@
 							<spacesPerTab>4</spacesPerTab>
 						</indent>
 
-						<palantirJavaFormat>
-							<version>${palantir-java-format.version}</version>
-						</palantirJavaFormat>
+						<palantirJavaFormat />
 
 						<importOrder>
 							<order>java,jakarta,org,com,com.diffplug,</order>

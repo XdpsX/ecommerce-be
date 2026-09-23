@@ -25,7 +25,7 @@ public class ProductSpecification extends BasicSpecification<Product> {
             Boolean inStock,
             Integer categoryId,
             Integer brandId) {
-        return Specification.where(hasName(name))
+        return hasName(name)
                 .and(getSortSpec(sort))
                 .and(hasPublished(hasPublished))
                 .and(hasMinPrice(minPrice))

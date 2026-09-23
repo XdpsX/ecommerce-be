@@ -13,13 +13,12 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xdpsx.ecommerce.catalog.brand.api.dto.*;
 import com.xdpsx.ecommerce.catalog.brand.application.BrandService;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.CheckExistResponse;
@@ -29,6 +28,8 @@ import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
 import com.xdpsx.ecommerce.testsupport.SecurityConfigForControllerTests;
 
+import tools.jackson.databind.ObjectMapper;
+
 @WebMvcTest(controllers = BrandController.class)
 @Import(SecurityConfigForControllerTests.class)
 class BrandControllerTest {
@@ -36,7 +37,7 @@ class BrandControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
-    @MockBean
+    @MockitoBean
     private BrandService brandService;
 
     @Autowired

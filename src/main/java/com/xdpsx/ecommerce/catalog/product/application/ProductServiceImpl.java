@@ -207,16 +207,14 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public PageResponse<ProductResponse> getDiscountProducts(int pageNum, int pageSize) {
-        Specification<Product> prodSpec =
-                Specification.where(spec.hasDiscount(true)).and(spec.hasPublished(true));
+        Specification<Product> prodSpec = spec.hasDiscount(true).and(spec.hasPublished(true));
         Page<Product> productPage = productRepository.findAll(prodSpec, PageRequest.of(pageNum - 1, pageSize));
         return pageMapper.toProductPageResponse(productPage);
     }
 
     @Override
     public PageResponse<ProductResponse> getLatestProducts(int pageNum, int pageSize) {
-        Specification<Product> prodSpec =
-                Specification.where(spec.getSortSpec("-date")).and(spec.hasPublished(true));
+        Specification<Product> prodSpec = spec.getSortSpec("-date").and(spec.hasPublished(true));
         Page<Product> productPage = productRepository.findAll(prodSpec, PageRequest.of(pageNum - 1, pageSize));
         return pageMapper.toProductPageResponse(productPage);
     }
@@ -233,7 +231,7 @@ public class ProductServiceImpl implements ProductService {
         Category category = categoryRepository
                 .findById(categoryId)
                 .orElseThrow(() -> new NotFoundException("Category with id=%s not found!".formatted(categoryId)));
-        Specification<Product> prodSpec = Specification.where(spec.belongsToCategory(categoryId))
+        Specification<Product> prodSpec = spec.belongsToCategory(categoryId)
                 .and(spec.belongsToBrands(brandIds))
                 .and(spec.hasPublished(true))
                 .and(spec.getSortSpec(sort))

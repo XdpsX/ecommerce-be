@@ -6,7 +6,7 @@ Spring Boot backend for a personal E-commerce learning project.
 
 Requirements:
 
-- Java 17
+- Java 25
 - Docker with Docker Compose
 
 Create the local environment file:

@@ -13,18 +13,19 @@ import org.springdoc.core.properties.SpringDocConfigProperties;
 import org.springdoc.webmvc.core.configuration.SpringDocWebMvcConfiguration;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xdpsx.ecommerce.catalog.category.api.CategoryController;
 import com.xdpsx.ecommerce.catalog.category.application.CategoryService;
 import com.xdpsx.ecommerce.media.api.MediaController;
 import com.xdpsx.ecommerce.media.application.MediaService;
 import com.xdpsx.ecommerce.testsupport.SecurityConfigForControllerTests;
+
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Guards that documentation-only interfaces ({@code CategoryControllerApi}, {@code MediaControllerApi}) are still
@@ -46,10 +47,10 @@ class OpenApiDocumentationTest {
     @Autowired
     private MockMvc mockMvc;
 
-    @MockBean
+    @MockitoBean
     private CategoryService categoryService;
 
-    @MockBean
+    @MockitoBean
     private MediaService mediaService;
 
     @Autowired
@@ -84,7 +85,7 @@ class OpenApiDocumentationTest {
         JsonNode parameters = openApi.at("/paths/~1admin~1categories/get/parameters");
 
         assertThat(parameters.isArray()).isTrue();
-        assertThat(parameters.findValuesAsText("name"))
+        assertThat(parameters.findValuesAsString("name"))
                 .contains("name", "publicFlg", "sort", "level", "pageNum", "pageSize");
         parameters.forEach(
                 parameter -> assertThat(parameter.path("in").asText()).isEqualTo("query"));

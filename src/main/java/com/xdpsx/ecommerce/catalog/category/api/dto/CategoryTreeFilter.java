@@ -5,4 +5,5 @@ import jakarta.validation.constraints.Min;
 
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
 
-public record CategoryTreeFilter(@Min(1) @Max(Category.MAX_DEPTH) Integer maxLevel, String sort) {}
+public record CategoryTreeFilter(
+        @Min(1) @Max(Category.MAX_DEPTH) Integer maxLevel, String sort) {}

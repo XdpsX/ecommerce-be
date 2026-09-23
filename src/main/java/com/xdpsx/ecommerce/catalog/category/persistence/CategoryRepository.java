@@ -21,15 +21,12 @@ public interface CategoryRepository extends JpaRepository<Category, Integer>, Jp
     @Query("SELECT c FROM Category c WHERE c.id = :id AND c.publicFlg = true")
     Optional<Category> findPublicById(@Param("id") Integer id);
 
-    @Query(
-            value =
-                    """
+    @Query(value = """
 		SELECT COUNT(*) FROM (
 			SELECT category_id FROM category_brands WHERE category_id = ?1
 			UNION ALL
 			SELECT category_id FROM products WHERE category_id = ?1
 		) AS combined
-	""",
-            nativeQuery = true)
+	""", nativeQuery = true)
     long countCategoriesInOtherTables(Integer categoryId);
 }

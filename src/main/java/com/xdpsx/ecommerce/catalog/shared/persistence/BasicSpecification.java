@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class BasicSpecification<T> {
     public Specification<T> getFiltersSpec(String name, String sort) {
-        return Specification.where(hasName(name)).and(getSortSpec(sort));
+        return hasName(name).and(getSortSpec(sort));
     }
 
     public Specification<T> getSortSpec(String sort) {
