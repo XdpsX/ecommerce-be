@@ -1,4 +1,4 @@
-CREATE DATABASE onlineshop;
+CREATE DATABASE ecommerce;
 
-GRANT ALL PRIVILEGES ON onlineshop.* TO 'xdpsx'@'%';
+GRANT ALL PRIVILEGES ON ecommerce.* TO 'xdpsx'@'%';
 FLUSH PRIVILEGES;

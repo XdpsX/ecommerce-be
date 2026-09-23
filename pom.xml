@@ -9,10 +9,10 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.xdpsx</groupId>
-	<artifactId>onlineshop-api</artifactId>
+	<artifactId>ecommerce-api</artifactId>
 	<version>${revision}</version>
-	<name>onlineshop</name>
-	<description>Backend system for Online Shop</description>
+	<name>ecommerce</name>
+	<description>Backend system for Ecommerce</description>
 	<properties>
 		<revision>0.0.1-SNAPSHOT</revision>
 		<java.version>17</java.version>
@@ -77,11 +77,6 @@
 			<artifactId>mapstruct</artifactId>
 			<version>${mapstruct.version}</version>
 		</dependency>
-		<dependency>
-			<groupId>org.mapstruct</groupId>
-			<artifactId>mapstruct-processor</artifactId>
-			<version>${mapstruct.version}</version>
-		</dependency>
 
 		<!-- Cloudinary	-->
 		<dependency>
@@ -133,8 +128,7 @@
 				<artifactId>maven-compiler-plugin</artifactId>
 				<version>${maven-compiler-plugin.version}</version>
 				<configuration>
-					<source>${java.version}</source>
-					<target>${java.version}</target>
+					<release>${java.version}</release>
 					<annotationProcessorPaths>
 						<path>
 							<groupId>org.projectlombok</groupId>
@@ -177,18 +171,39 @@
 							<goal>report</goal>
 						</goals>
 					</execution>
+					<execution>
+						<id>coverage-check</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>check</goal>
+						</goals>
+						<configuration>
+							<rules>
+								<rule>
+									<element>BUNDLE</element>
+									<limits>
+										<limit>
+											<counter>LINE</counter>
+											<value>COVEREDRATIO</value>
+											<minimum>0.50</minimum>
+										</limit>
+									</limits>
+								</rule>
+							</rules>
+						</configuration>
+					</execution>
 				</executions>
 				<configuration>
 					<includes>
-						<include>com/xdpsx/onlineshop/controllers/**</include>
-						<include>com/xdpsx/onlineshop/services/impl/**</include>
-						<include>com/xdpsx/onlineshop/repositories/specs/**</include>
-						<include>com/xdpsx/onlineshop/validations/validators/**</include>
-						<include>com/xdpsx/onlineshop/utils/**</include>
-						<include>com/xdpsx/onlineshop/scheduled/**</include>
+						<include>com/xdpsx/ecommerce/controllers/**</include>
+						<include>com/xdpsx/ecommerce/services/impl/**</include>
+						<include>com/xdpsx/ecommerce/repositories/specs/**</include>
+						<include>com/xdpsx/ecommerce/validations/validators/**</include>
+						<include>com/xdpsx/ecommerce/utils/**</include>
+						<include>com/xdpsx/ecommerce/scheduled/**</include>
 					</includes>
 					<excludes>
-						<exclude>com/xdpsx/onlineshop/controllers/docs/**</exclude>
+						<exclude>com/xdpsx/ecommerce/controllers/docs/**</exclude>
 					</excludes>
 				</configuration>
 			</plugin>
@@ -213,14 +228,6 @@
 						</importOrder>
 					</java>
 				</configuration>
-				<executions>
-					<execution>
-						<phase>compile</phase>
-						<goals>
-							<goal>apply</goal>
-						</goals>
-					</execution>
-				</executions>
 			</plugin>
 		</plugins>
 	</build>

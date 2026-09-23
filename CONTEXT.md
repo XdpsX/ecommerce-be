@@ -50,6 +50,23 @@ Catalog, products, categories, brands, product variants/SKUs, inventory, pricing
 
 The exact scope should be determined by inspecting the existing implementation rather than blindly implementing a generic E-commerce feature checklist.
 
+## Work Order
+
+Complete the small repository-baseline tasks directly on the M1 phase branch, without creating separate issues:
+
+1. Fix the build lifecycle so compilation never modifies source files; keep `spotless:apply` manual and use `spotless:check` for verification.
+2. Add a minimal CI pipeline using Java 17 that runs formatting checks and tests.
+3. Clean the development configuration and profiles only enough to make local and CI setup predictable.
+4. Add minimal repository guidance where it is useful, especially a short README for local setup.
+5. Review Maven dependencies and build configuration, changing only concrete problems rather than performing a general upgrade.
+
+Improve the test baseline alongside each business change. Add representative tests for the touched behavior instead of trying to backfill exhaustive coverage for the whole repository.
+
+Treat repository-wide changes as optional, separate work:
+
+* Keep the `ecommerce` project naming consistent when adding modules or configuration.
+* Move toward package-by-feature while changing a domain. Do not reorganize every package upfront. If a structural change spans many domains, plan it in a separate issue and branch.
+
 ## Technical Constraint
 
 This milestone should introduce **little to no new infrastructure or technology unless a concrete business requirement requires it**.

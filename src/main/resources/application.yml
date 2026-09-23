@@ -1,12 +1,13 @@
 server:
-  port: 8080
+  port: ${SERVER_PORT:8080}
 #  compression: # Using GZIP to compress API data
 #    enabled: true
 #    mime-types: application/json
 
 spring:
   application:
-    name: onlineshop
+    name: ecommerce
+  config:
+    import: optional:file:.env[.properties]
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
-

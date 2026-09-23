@@ -17,6 +17,8 @@ main
 - Open the PR back into that phase branch.
 - Merge the phase branch into `main` when the milestone is complete.
 - Keep one issue per CR where practical.
+- Small, low-risk phase setup tasks may be completed directly on the phase branch without an issue.
+- Use a separate issue and branch for structural, risky, or independently reviewable changes.
 
 ## 1. Plan
 
@@ -42,7 +44,7 @@ main
 
 ## 4. Pull request
 
-- Link the issue and target the phase branch.
+- Link the issue when one exists and target the phase branch.
 - Summarize the change and verification performed.
 - Merge after acceptance criteria pass and blocking review findings are resolved.
 

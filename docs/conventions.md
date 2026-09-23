@@ -25,8 +25,11 @@ Windows PowerShell:
 
 ```powershell
 .\mvnw.cmd spotless:apply
+.\mvnw.cmd spotless:check
 .\mvnw.cmd test
 ```
+
+Run `spotless:apply` explicitly when formatting is needed. Maven build phases must not modify source files; use `spotless:check` for verification.
 
 Focused test example:
 
