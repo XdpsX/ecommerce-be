@@ -21,7 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.xdpsx.ecommerce.media.api.dto.CreateMediaDTO;
 import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
 import com.xdpsx.ecommerce.media.application.MediaService;
-import com.xdpsx.ecommerce.media.domain.MediaResourceType;
+import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 import com.xdpsx.ecommerce.testsupport.SecurityConfigForControllerTests;
 
 @WebMvcTest(controllers = MediaController.class)
@@ -42,7 +42,7 @@ class MediaControllerTest {
         return new MockMultipartFile("file", filename, contentType, baos.toByteArray());
     }
 
-    private final String validResource = MediaResourceType.PRODUCT.resource();
+    private final String validResource = MediaPurpose.PRODUCT_IMAGE.resource();
 
     @Nested
     @DisplayName("1. createMedia")
@@ -58,7 +58,7 @@ class MediaControllerTest {
 
             ViewMediaDTO expectedViewMedia = new ViewMediaDTO("mediaId", "Test caption", "caption", "url");
 
-            when(mediaService.createMedia(any(CreateMediaDTO.class), eq(MediaResourceType.PRODUCT)))
+            when(mediaService.createMedia(any(CreateMediaDTO.class), eq(MediaPurpose.PRODUCT_IMAGE)))
                     .thenReturn(expectedViewMedia);
 
             // Act + Assert
@@ -71,7 +71,7 @@ class MediaControllerTest {
                     .andExpect(jsonPath("$.caption").value("Test caption"))
                     .andExpect(jsonPath("$.url").value("url"));
 
-            verify(mediaService).createMedia(any(CreateMediaDTO.class), eq(MediaResourceType.PRODUCT));
+            verify(mediaService).createMedia(any(CreateMediaDTO.class), eq(MediaPurpose.PRODUCT_IMAGE));
         }
 
         @DisplayName("1.2 should return unprocessable entity when invalid resource")

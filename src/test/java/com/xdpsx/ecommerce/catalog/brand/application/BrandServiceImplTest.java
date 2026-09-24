@@ -28,7 +28,8 @@ import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.domain.Media;
-import com.xdpsx.ecommerce.media.domain.MediaResourceType;
+import com.xdpsx.ecommerce.media.domain.MediaPurpose;
+import com.xdpsx.ecommerce.media.domain.MediaStatus;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
 @ExtendWith(MockitoExtension.class)
@@ -82,11 +83,11 @@ class BrandServiceImplTest {
         // Arrange
         String imageId = "img123";
         Set<Integer> categoryIds = Set.of(1, 2);
-        Media media = Media.builder().id(imageId).tempFlg(true).build();
+        Media media = Media.builder().id(imageId).status(MediaStatus.TEMPORARY).build();
 
         CreateBrandRequest request = new CreateBrandRequest("Puma", true, imageId, categoryIds);
         when(brandRepository.existsByName("Puma")).thenReturn(false);
-        when(mediaRepository.findPublicTempMediaById(imageId, MediaResourceType.BRAND))
+        when(mediaRepository.findAttachableById(imageId, MediaPurpose.BRAND_LOGO))
                 .thenReturn(Optional.of(media));
         when(categoryRepository.findPublicById(anyInt())).thenReturn(Optional.of(new Category()));
         when(brandRepository.save(any(Brand.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -96,7 +97,7 @@ class BrandServiceImplTest {
 
         // Assert
         assertEquals("Puma", response.name());
-        assertFalse(media.isTempFlg());
+        assertEquals(MediaStatus.ACTIVE, media.getStatus());
         verify(brandRepository).save(any(Brand.class));
     }
 
@@ -112,7 +113,7 @@ class BrandServiceImplTest {
                 .id(brandId)
                 .name("OldName")
                 .publicFlg(false)
-                .image(Media.builder().id(oldImageId).build())
+                .image(Media.builder().id(oldImageId).status(MediaStatus.ACTIVE).build())
                 .updatedAt(updatedAt)
                 .build();
 
@@ -121,9 +122,11 @@ class BrandServiceImplTest {
 
         when(brandRepository.findById(brandId)).thenReturn(Optional.of(brand));
         when(brandRepository.existsByName(request.name())).thenReturn(false);
-        when(mediaRepository.findPublicTempMediaById(newImageId, MediaResourceType.BRAND))
-                .thenReturn(
-                        Optional.of(Media.builder().id(newImageId).tempFlg(true).build()));
+        when(mediaRepository.findAttachableById(newImageId, MediaPurpose.BRAND_LOGO))
+                .thenReturn(Optional.of(Media.builder()
+                        .id(newImageId)
+                        .status(MediaStatus.TEMPORARY)
+                        .build()));
         when(categoryRepository.findPublicById(1)).thenReturn(Optional.of(new Category()));
         when(brandRepository.save(any(Brand.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -143,7 +146,7 @@ class BrandServiceImplTest {
         LocalDateTime updatedAt = LocalDateTime.now().minusDays(1);
         ModifyExclusiveDTO request = new ModifyExclusiveDTO(updatedAt.plusMinutes(1));
 
-        Media image = Media.builder().id("img123").deleteFlg(false).build();
+        Media image = Media.builder().id("img123").status(MediaStatus.ACTIVE).build();
         Brand brand =
                 Brand.builder().id(brandId).updatedAt(updatedAt).image(image).build();
 
@@ -153,7 +156,7 @@ class BrandServiceImplTest {
         brandService.deleteBrand(brandId, request);
 
         // Assert
-        assertTrue(image.isDeleteFlg());
+        assertEquals(MediaStatus.PENDING_DELETE, image.getStatus());
         verify(mediaRepository).save(image);
         verify(brandRepository).delete(brand);
     }

@@ -21,7 +21,7 @@ import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.media.domain.Media;
-import com.xdpsx.ecommerce.media.domain.MediaResourceType;
+import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -97,16 +97,11 @@ public class CategoryServiceImpl implements CategoryService {
 
         if (request.imageId() != null) {
             Media image = mediaRepository
-                    .findById(request.imageId())
+                    .findAttachableById(request.imageId(), MediaPurpose.CATEGORY_IMAGE)
                     .orElseThrow(() -> new ApplicationException(
                             ErrorCode.RESOURCE_NOT_FOUND,
                             Map.of("resourceType", "media", "resourceId", request.imageId())));
-            if (!image.getResourceType().equals(MediaResourceType.CATEGORY)) {
-                throw new ApplicationException(
-                        ErrorCode.INVALID_MEDIA_RESOURCE_TYPE,
-                        Map.of("expectedResourceType", MediaResourceType.CATEGORY.resource()));
-            }
-            image.setTempFlg(false);
+            image.activate();
             category.setImage(image);
         }
 
@@ -182,7 +177,7 @@ public class CategoryServiceImpl implements CategoryService {
         // 1. No new image (newImageId == null) => Delete old image
         // 2. New image != old image => Delete old image
         if (oldImage != null && !oldImage.getId().equals(newImageId)) {
-            oldImage.setDeleteFlg(true);
+            oldImage.markPendingDeletion();
             mediaRepository.save(oldImage);
             category.setImage(null);
         }
@@ -190,16 +185,11 @@ public class CategoryServiceImpl implements CategoryService {
         // if have new image and new image != old image => Update image
         if (newImageId != null && (oldImage == null || !oldImage.getId().equals(newImageId))) {
             Media newImage = mediaRepository
-                    .findById(newImageId)
+                    .findAttachableById(newImageId, MediaPurpose.CATEGORY_IMAGE)
                     .orElseThrow(() -> new ApplicationException(
                             ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "media", "resourceId", newImageId)));
-            if (!newImage.getResourceType().equals(MediaResourceType.CATEGORY)) {
-                throw new ApplicationException(
-                        ErrorCode.INVALID_MEDIA_RESOURCE_TYPE,
-                        Map.of("expectedResourceType", MediaResourceType.CATEGORY.resource()));
-            }
 
-            newImage.setTempFlg(false);
+            newImage.activate();
             mediaRepository.save(newImage);
 
             category.setImage(newImage);
@@ -239,7 +229,7 @@ public class CategoryServiceImpl implements CategoryService {
         }
         if (category.getImage() != null) {
             Media image = category.getImage();
-            image.setDeleteFlg(true);
+            image.markPendingDeletion();
             mediaRepository.save(image);
         }
         categoryRepository.delete(category);

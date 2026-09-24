@@ -75,7 +75,7 @@ class CloudinaryUploaderTest {
     }
 
     @Test
-    void deleteFile_ShouldSucceed_WhenDestroyReturnsOk() throws IOException {
+    void deleteFile_ShouldReturnTrue_WhenDestroyReturnsOk() throws IOException {
         // Arrange
         Uploader uploader = mock(Uploader.class);
         when(cloudinary.uploader()).thenReturn(uploader);
@@ -86,24 +86,79 @@ class CloudinaryUploaderTest {
         when(uploader.destroy(eq("test_public_id"), any())).thenReturn(destroyResponse);
 
         // Act
-        cloudinaryUploader.deleteFile("test_public_id");
+        boolean deleted = cloudinaryUploader.deleteFile("test_public_id");
 
         // Assert
+        assertTrue(deleted);
         verify(uploader, times(1)).destroy(eq("test_public_id"), any());
     }
 
     @Test
-    void deleteFile_ShouldRetry_WhenDestroyThrowsIOException() throws IOException {
+    void deleteFile_ShouldReturnTrue_WhenAssetIsAlreadyGone() throws IOException {
+        // Arrange
+        Uploader uploader = mock(Uploader.class);
+        when(cloudinary.uploader()).thenReturn(uploader);
+
+        Map<String, Object> destroyResponse = new HashMap<>();
+        destroyResponse.put("result", "not found");
+
+        when(uploader.destroy(eq("missing_public_id"), any())).thenReturn(destroyResponse);
+
+        // Act
+        boolean deleted = cloudinaryUploader.deleteFile("missing_public_id");
+
+        // Assert
+        assertTrue(deleted);
+        verify(uploader, times(1)).destroy(eq("missing_public_id"), any());
+    }
+
+    @Test
+    void deleteFile_ShouldReturnFalse_AfterRetryingIOException() throws IOException {
         // Arrange
         Uploader uploader = mock(Uploader.class);
         when(cloudinary.uploader()).thenReturn(uploader);
         when(uploader.destroy(anyString(), any())).thenThrow(new IOException("Simulated IO error"));
 
         // Act
-        cloudinaryUploader.deleteFile("test_retry_public_id");
+        boolean deleted = cloudinaryUploader.deleteFile("test_retry_public_id");
 
         // Assert
+        assertFalse(deleted);
         verify(uploader, times(3)).destroy(eq("test_retry_public_id"), any());
+    }
+
+    @Test
+    void deleteFile_ShouldReturnFalse_WhenProviderResultIsUnexpected() throws IOException {
+        // Arrange
+        Uploader uploader = mock(Uploader.class);
+        when(cloudinary.uploader()).thenReturn(uploader);
+
+        Map<String, Object> destroyResponse = new HashMap<>();
+        destroyResponse.put("result", "pending");
+
+        when(uploader.destroy(eq("unexpected_public_id"), any())).thenReturn(destroyResponse);
+
+        // Act
+        boolean deleted = cloudinaryUploader.deleteFile("unexpected_public_id");
+
+        // Assert
+        assertFalse(deleted);
+        verify(uploader, times(3)).destroy(eq("unexpected_public_id"), any());
+    }
+
+    @Test
+    void deleteFile_ShouldReturnFalse_WhenProviderReturnsNoResult() throws IOException {
+        // Arrange
+        Uploader uploader = mock(Uploader.class);
+        when(cloudinary.uploader()).thenReturn(uploader);
+        when(uploader.destroy(eq("null_result_public_id"), any())).thenReturn(null);
+
+        // Act
+        boolean deleted = cloudinaryUploader.deleteFile("null_result_public_id");
+
+        // Assert
+        assertFalse(deleted);
+        verify(uploader, times(3)).destroy(eq("null_result_public_id"), any());
     }
 
     @Test

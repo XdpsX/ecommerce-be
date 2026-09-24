@@ -3,6 +3,7 @@ package com.xdpsx.ecommerce.media.application;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.util.Map;
+import java.util.UUID;
 import javax.imageio.ImageIO;
 
 import org.springframework.stereotype.Service;
@@ -12,10 +13,13 @@ import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.api.dto.CreateMediaDTO;
 import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
+import com.xdpsx.ecommerce.media.application.storage.MediaStorage;
+import com.xdpsx.ecommerce.media.application.storage.MediaStorageException;
+import com.xdpsx.ecommerce.media.application.storage.MediaUploadCommand;
+import com.xdpsx.ecommerce.media.application.storage.StoredMedia;
 import com.xdpsx.ecommerce.media.domain.Media;
-import com.xdpsx.ecommerce.media.domain.MediaResourceType;
-import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryUploadResponse;
-import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryUploader;
+import com.xdpsx.ecommerce.media.domain.MediaPurpose;
+import com.xdpsx.ecommerce.media.domain.MediaStatus;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -24,45 +28,49 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class MediaServiceImpl implements MediaService {
     private final MediaRepository mediaRepository;
-    private final CloudinaryUploader cloudinaryUploader;
+    private final MediaStorage mediaStorage;
 
     @Override
-    public ViewMediaDTO createMedia(CreateMediaDTO request, MediaResourceType resourceType) {
-        validateImageSize(request.file(), resourceType);
+    public ViewMediaDTO createMedia(CreateMediaDTO request, MediaPurpose purpose) {
+        validateImageSize(request.file(), purpose);
 
-        // Only a confirmed media-provider upload failure becomes MEDIA_UPLOAD_FAILED.
-        CloudinaryUploadResponse response;
+        // Only a confirmed media-provider failure becomes MEDIA_UPLOAD_FAILED.
+        StoredMedia storedMedia;
         try {
-            response = cloudinaryUploader.uploadFile(request.file(), resourceType.getUploadOptions());
-        } catch (RuntimeException e) {
+            storedMedia = mediaStorage.upload(new MediaUploadCommand(request.file(), purpose));
+        } catch (MediaStorageException e) {
             // Keep the cause internally; never expose the provider message to the client.
             throw new ApplicationException(ErrorCode.MEDIA_UPLOAD_FAILED, e);
         }
 
+        Media media = Media.builder()
+                .id(UUID.randomUUID().toString())
+                .externalId(storedMedia.externalId())
+                .url(storedMedia.url())
+                .caption(request.caption())
+                .contentType(request.file().getContentType())
+                .purpose(purpose)
+                .status(MediaStatus.TEMPORARY)
+                .build();
+
+        Media savedMedia;
         try {
-            Media media = Media.builder()
-                    .id(response.displayName())
-                    .externalId(response.publicId())
-                    .url(response.url())
-                    .caption(request.caption())
-                    .contentType(request.file().getContentType())
-                    .resourceType(resourceType)
-                    .tempFlg(true)
-                    .deleteFlg(false)
-                    .build();
-            Media savedMedia = mediaRepository.save(media);
-            return MediaMapper.INSTANCE.toViewMediaDTO(savedMedia);
+            savedMedia = mediaRepository.save(media);
         } catch (RuntimeException e) {
-            // Persistence or mapping failure: clean up the uploaded file preserving the original cause,
-            // then let the original failure propagate (handled as INTERNAL_ERROR at the API boundary).
-            cleanupQuietly(response.publicId(), e);
+            // Never persisted, so the uploaded asset is unreachable: remove it, preserving the original cause
+            // (surfaced as INTERNAL_ERROR at the API boundary).
+            cleanupQuietly(storedMedia.externalId(), e);
             throw e;
         }
+
+        // Mapping happens after a successful insert and must not trigger compensation: the persisted row
+        // already references the asset, and a temporary upload is cleaned up by TTL if it is never returned.
+        return MediaMapper.INSTANCE.toViewMediaDTO(savedMedia);
     }
 
-    private void cleanupQuietly(String publicId, RuntimeException cause) {
+    private void cleanupQuietly(String externalId, RuntimeException cause) {
         try {
-            cloudinaryUploader.deleteFile(publicId);
+            mediaStorage.delete(externalId);
         } catch (RuntimeException cleanupFailure) {
             cause.addSuppressed(cleanupFailure);
         }
@@ -70,16 +78,17 @@ public class MediaServiceImpl implements MediaService {
 
     @Override
     public void deleteMedia(String id) {
+        // Only temporary uploads may be discarded through the Media API; active Media belongs to an aggregate.
         Media media = mediaRepository
-                .findPublicMediaById(id)
+                .findByIdAndStatus(id, MediaStatus.TEMPORARY)
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "media", "resourceId", id)));
-        media.setDeleteFlg(true);
+        media.markPendingDeletion();
         mediaRepository.save(media);
     }
 
-    private void validateImageSize(MultipartFile file, MediaResourceType resourceType) {
-        if (resourceType.minWidth() == null) {
+    private void validateImageSize(MultipartFile file, MediaPurpose purpose) {
+        if (purpose.minWidth() == null) {
             return;
         }
         try {
@@ -89,9 +98,8 @@ public class MediaServiceImpl implements MediaService {
             }
 
             int width = image.getWidth();
-            if (width < resourceType.minWidth()) {
-                throw new ApplicationException(
-                        ErrorCode.INVALID_IMAGE_WIDTH, Map.of("minWidth", resourceType.minWidth()));
+            if (width < purpose.minWidth()) {
+                throw new ApplicationException(ErrorCode.INVALID_IMAGE_WIDTH, Map.of("minWidth", purpose.minWidth()));
             }
 
         } catch (IOException e) {
