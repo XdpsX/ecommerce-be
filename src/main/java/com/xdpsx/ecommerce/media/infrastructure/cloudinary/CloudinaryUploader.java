@@ -29,41 +29,45 @@ public class CloudinaryUploader {
         }
     }
 
-    public void deleteFile(String publicId) {
+    /**
+     * Deletes the given asset, retrying transient failures.
+     *
+     * <p>Provider results {@code ok} and {@code not found} both count as success: an asset that is
+     * already absent is the desired end state, which lets a retried cleanup finish its bookkeeping.
+     *
+     * @return {@code true} when the asset is confirmed gone, {@code false} after all attempts failed
+     */
+    public boolean deleteFile(String publicId) {
         int maxRetries = 3;
         int attempt = 0;
-        boolean success = false;
 
         while (attempt < maxRetries) {
             try {
                 Map result = cloudinary.uploader().destroy(publicId, ObjectUtils.emptyMap());
-                String destroyResult = (String) result.get("result");
-                if (destroyResult.equals("ok") || destroyResult.equals("not found")) {
-                    success = true;
-                    break;
-                } else {
-                    log.warn("Unexpected result when deleting publicId {}: {}", publicId, destroyResult);
+                Object destroyResult = (result == null) ? null : result.get("result");
+                if ("ok".equals(destroyResult) || "not found".equals(destroyResult)) {
+                    return true;
                 }
+                log.warn("Unexpected result when deleting publicId {}: {}", publicId, destroyResult);
             } catch (IOException io) {
                 log.error(
                         "IOException when deleting publicId {}: attempt {}/{}", publicId, attempt + 1, maxRetries, io);
             }
             attempt++;
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException ignored) {
+
+            if (attempt < maxRetries) {
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    log.error("Interrupted while waiting to retry deletion of publicId {}", publicId);
+                    return false;
+                }
             }
         }
 
-        if (!success) {
-            log.error("Failed to delete image in Cloudinary after {} attempts, publicId {}", maxRetries, publicId);
-            savePendingDeletion(publicId);
-        }
-    }
-
-    private void savePendingDeletion(String publicId) {
-        // TODO: Implement a mechanism to save the publicId for later deletion retry
-        log.info("Saving publicId {} for later deletion retry", publicId);
+        log.error("Failed to delete image in Cloudinary after {} attempts, publicId {}", maxRetries, publicId);
+        return false;
     }
 
     public String getFileUrl(String publicId) {

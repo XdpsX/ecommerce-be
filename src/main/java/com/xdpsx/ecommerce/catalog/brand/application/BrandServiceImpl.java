@@ -24,7 +24,7 @@ import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.media.domain.Media;
-import com.xdpsx.ecommerce.media.domain.MediaResourceType;
+import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
 @Service
@@ -69,11 +69,11 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
 
         if (request.imageId() != null) {
             Media image = mediaRepository
-                    .findPublicTempMediaById(request.imageId(), MediaResourceType.BRAND)
+                    .findAttachableById(request.imageId(), MediaPurpose.BRAND_LOGO)
                     .orElseThrow(() -> new ApplicationException(
                             ErrorCode.RESOURCE_NOT_FOUND,
                             Map.of("resourceType", "media", "resourceId", request.imageId())));
-            image.setTempFlg(false);
+            image.activate();
             brand.setImage(image);
         }
         if (request.categoryIds() != null) {
@@ -111,7 +111,7 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
         brand.setPublicFlg(request.publicFlg());
 
         // Update image
-        updateImage(brand, request.imageId(), MediaResourceType.BRAND);
+        updateImage(brand, request.imageId(), MediaPurpose.BRAND_LOGO);
 
         // Update categories
         if (request.categoryIds() != null) {
@@ -135,7 +135,7 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
         }
         if (brand.getImage() != null) {
             Media image = brand.getImage();
-            image.setDeleteFlg(true);
+            image.markPendingDeletion();
             mediaRepository.save(image);
         }
         brandRepository.delete(brand);
