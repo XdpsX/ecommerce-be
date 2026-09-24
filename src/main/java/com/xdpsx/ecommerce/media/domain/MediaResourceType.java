@@ -53,6 +53,5 @@ public enum MediaResourceType {
                 .filter(type -> type.resource.equalsIgnoreCase(resource))
                 .findFirst()
                 .orElse(null);
-        //                .orElseThrow(() -> new BadRequestException("Invalid media resource type: " + resource));
     }
 }

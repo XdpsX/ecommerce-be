@@ -1,18 +1,18 @@
 package com.xdpsx.ecommerce.catalog.category.api;
 
+import java.net.URI;
 import java.util.List;
 
 import jakarta.validation.Valid;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import com.xdpsx.ecommerce.catalog.category.api.dto.*;
 import com.xdpsx.ecommerce.catalog.category.application.CategoryService;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.CheckExistResponse;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
-import com.xdpsx.ecommerce.common.api.APIResponse;
-import com.xdpsx.ecommerce.common.error.SMessage;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 
 import lombok.RequiredArgsConstructor;
@@ -23,46 +23,40 @@ public class CategoryController implements CategoryControllerApi {
     private final CategoryService categoryService;
 
     @GetMapping("/admin/categories")
-    public APIResponse<PageResponse<AdminCategoryResponse>> getAdminCategories(@Valid AdminCategoryFilter filter) {
-        PageResponse<AdminCategoryResponse> data = categoryService.getAdminCategories(filter);
-        return APIResponse.ok(data);
+    public PageResponse<AdminCategoryResponse> getAdminCategories(@Valid AdminCategoryFilter filter) {
+        return categoryService.getAdminCategories(filter);
     }
 
     @GetMapping("/categories/{category-id}")
-    public APIResponse<AdminCategoryResponse> getCategory(@PathVariable("category-id") Integer categoryId) {
-        AdminCategoryResponse data = categoryService.getCategory(categoryId);
-        return APIResponse.ok(data);
+    public AdminCategoryResponse getCategory(@PathVariable("category-id") Integer categoryId) {
+        return categoryService.getCategory(categoryId);
     }
 
     @GetMapping("/categories/tree")
-    public APIResponse<List<CategoryTreeResponse>> getCategoryTree(@Valid CategoryTreeFilter filter) {
-        List<CategoryTreeResponse> data = categoryService.getCategoryTree(filter);
-        return APIResponse.ok(data);
+    public List<CategoryTreeResponse> getCategoryTree(@Valid CategoryTreeFilter filter) {
+        return categoryService.getCategoryTree(filter);
     }
 
     @PostMapping("/categories/create")
-    @ResponseStatus(HttpStatus.CREATED)
-    public APIResponse<CategoryResponse> createCategory(@Valid @RequestBody CreateCategoryRequest request) {
+    public ResponseEntity<CategoryResponse> createCategory(@Valid @RequestBody CreateCategoryRequest request) {
         CategoryResponse data = categoryService.createCategory(request);
-        return new APIResponse<>(HttpStatus.CREATED, data, SMessage.CREATE_SUCCESSFULLY);
+        return ResponseEntity.created(URI.create("/categories/" + data.getId())).body(data);
     }
 
     @PostMapping("/categories/exists")
-    public APIResponse<CheckExistResponse> checkCategoryExist(@Valid @RequestBody CategoryExistRequest request) {
-        CheckExistResponse data = categoryService.checkCategoryExist(request);
-        return APIResponse.ok(data);
+    public CheckExistResponse checkCategoryExist(@Valid @RequestBody CategoryExistRequest request) {
+        return categoryService.checkCategoryExist(request);
     }
 
     @PutMapping("/categories/{id}/update")
-    public APIResponse<CategoryResponse> updateCategory(
+    public CategoryResponse updateCategory(
             @PathVariable Integer id, @Valid @RequestBody UpdateCategoryRequest request) {
-        CategoryResponse data = categoryService.updateCategory(id, request);
-        return APIResponse.ok(data, SMessage.UPDATE_SUCCESSFULLY);
+        return categoryService.updateCategory(id, request);
     }
 
     @DeleteMapping("/categories/{id}/delete")
-    public APIResponse<Void> deleteCategory(@PathVariable Integer id, @Valid @RequestBody ModifyExclusiveDTO request) {
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteCategory(@PathVariable Integer id, @Valid @RequestBody ModifyExclusiveDTO request) {
         categoryService.deleteCategory(id, request);
-        return APIResponse.noContent(SMessage.DELETE_SUCCESSFULLY);
     }
 }

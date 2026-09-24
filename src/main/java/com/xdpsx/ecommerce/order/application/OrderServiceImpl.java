@@ -3,6 +3,7 @@ package com.xdpsx.ecommerce.order.application;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
@@ -15,8 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.xdpsx.ecommerce.cart.domain.CartItem;
 import com.xdpsx.ecommerce.cart.persistence.CartItemRepository;
-import com.xdpsx.ecommerce.common.error.BadRequestException;
-import com.xdpsx.ecommerce.common.error.NotFoundException;
+import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.order.api.dto.*;
 import com.xdpsx.ecommerce.order.domain.Order;
@@ -52,7 +53,7 @@ public class OrderServiceImpl implements OrderService {
         User user = getUser(userEmail);
         List<CartItem> cartItems = cartItemRepository.findInStockCartByUserId(user.getId());
         if (cartItems.isEmpty()) {
-            throw new BadRequestException("Cart item is empty");
+            throw new ApplicationException(ErrorCode.CART_EMPTY);
         }
         Order order = orderMapper.fromRequestToEntity(orderRequest);
         BigDecimal totalAmount = BigDecimal.ZERO;
@@ -105,9 +106,11 @@ public class OrderServiceImpl implements OrderService {
         User user = getUser(userEmail);
         Order order = orderRepository
                 .findById(orderId)
-                .orElseThrow(() -> new NotFoundException("Order id=%s not found".formatted(orderId)));
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "order", "resourceId", orderId)));
         if (!user.getId().equals(order.getUser().getId())) {
-            throw new BadRequestException("You are not authorized to pay this order");
+            throw new ApplicationException(
+                    ErrorCode.ACCESS_DENIED, Map.of("resourceType", "order", "resourceId", orderId));
         }
         Payment payment = order.getPayment();
         payment.setStatus(PaymentStatus.PAID);
@@ -123,13 +126,12 @@ public class OrderServiceImpl implements OrderService {
         Page<Order> orderPage = orderRepository.findByUser(user.getId(), PageRequest.of(pageNum - 1, pageSize));
         List<OrderDTO> responses =
                 orderPage.getContent().stream().map(this::convertToDTO).toList();
-        return PageResponse.<OrderDTO>builder()
-                .items(responses)
-                .pageNum(orderPage.getNumber() + 1)
-                .pageSize(orderPage.getSize())
-                .totalItems(orderPage.getTotalElements())
-                .totalPages(orderPage.getTotalPages())
-                .build();
+        return PageResponse.of(
+                responses,
+                orderPage.getNumber() + 1,
+                orderPage.getSize(),
+                orderPage.getTotalElements(),
+                orderPage.getTotalPages());
     }
 
     @PreAuthorize("hasRole('ADMIN')")
@@ -137,7 +139,8 @@ public class OrderServiceImpl implements OrderService {
     public OrderDetailsDTO getOrderById(Long orderId) {
         Order order = orderRepository
                 .findById(orderId)
-                .orElseThrow(() -> new NotFoundException("Order with id=%s not found".formatted(orderId)));
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "order", "resourceId", orderId)));
         return orderMapper.fromEntityToDetails(order);
     }
 
@@ -149,20 +152,20 @@ public class OrderServiceImpl implements OrderService {
         Page<Order> orderPage = orderRepository.findAll(spec, pageable);
         List<OrderDTO> responses =
                 orderPage.getContent().stream().map(this::convertToDTO).toList();
-        return PageResponse.<OrderDTO>builder()
-                .items(responses)
-                .pageNum(orderPage.getNumber() + 1)
-                .pageSize(orderPage.getSize())
-                .totalItems(orderPage.getTotalElements())
-                .totalPages(orderPage.getTotalPages())
-                .build();
+        return PageResponse.of(
+                responses,
+                orderPage.getNumber() + 1,
+                orderPage.getSize(),
+                orderPage.getTotalElements(),
+                orderPage.getTotalPages());
     }
 
     @Override
     public OrderDTO updateOrderStatus(Long id, OrderStatusUpdate request) {
         Order order = orderRepository
                 .findById(id)
-                .orElseThrow(() -> new NotFoundException("Order with id=%s not found".formatted(id)));
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "order", "resourceId", id)));
         order.setStatus(request.getStatus());
         if (request.getStatus().equals(OrderStatus.DELIVERED)) {
             order.setDeliveredAt(LocalDateTime.now());
@@ -176,15 +179,17 @@ public class OrderServiceImpl implements OrderService {
         User user = getUser(name);
         Order order = orderRepository
                 .findByUserIdAndTrackingNumber(user.getId(), trackingNumber)
-                .orElseThrow(() ->
-                        new NotFoundException("Order with tracking number=%s not found".formatted(trackingNumber)));
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND,
+                        Map.of("resourceType", "order", "trackingNumber", trackingNumber)));
         return orderMapper.fromEntityToDetails(order);
     }
 
     private User getUser(String userEmail) {
         return userRepository
                 .findByEmail(userEmail)
-                .orElseThrow(() -> new NotFoundException("User with email=%s not found".formatted(userEmail)));
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "user", "email", userEmail)));
     }
 
     private OrderDTO convertToDTO(Order savedOrder) {

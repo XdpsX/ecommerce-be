@@ -25,12 +25,7 @@ public class PageMapper {
 
     public static <T, R> PageResponse<R> toPageResponse(Page<T> page, Function<T, R> mapper) {
         List<R> items = page.getContent().stream().map(mapper).collect(Collectors.toList());
-        return PageResponse.<R>builder()
-                .items(items)
-                .pageNum(page.getNumber() + 1)
-                .pageSize(page.getSize())
-                .totalItems(page.getTotalElements())
-                .totalPages(page.getTotalPages())
-                .build();
+        return PageResponse.of(
+                items, page.getNumber() + 1, page.getSize(), page.getTotalElements(), page.getTotalPages());
     }
 }

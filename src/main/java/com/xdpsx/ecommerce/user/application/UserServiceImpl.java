@@ -1,8 +1,11 @@
 package com.xdpsx.ecommerce.user.application;
 
+import java.util.Map;
+
 import org.springframework.stereotype.Service;
 
-import com.xdpsx.ecommerce.common.error.NotFoundException;
+import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.user.api.dto.UserProfile;
 import com.xdpsx.ecommerce.user.domain.User;
 import com.xdpsx.ecommerce.user.persistence.UserRepository;
@@ -19,7 +22,8 @@ public class UserServiceImpl implements UserService {
     public UserProfile getUserByEmail(String email) {
         User user = userRepository
                 .findByEmail(email)
-                .orElseThrow(() -> new NotFoundException("User with email=%s not found".formatted(email)));
+                .orElseThrow(
+                        () -> new ApplicationException(ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "user")));
         return userMapper.fromEntityToProfile(user);
     }
 }

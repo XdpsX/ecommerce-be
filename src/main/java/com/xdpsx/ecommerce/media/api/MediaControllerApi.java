@@ -2,9 +2,8 @@ package com.xdpsx.ecommerce.media.api;
 
 import org.springframework.http.MediaType;
 
-import com.xdpsx.ecommerce.common.api.APIResponse;
-import com.xdpsx.ecommerce.common.error.ErrorDTO;
-import com.xdpsx.ecommerce.common.error.ErrorDetailsDTO;
+import com.xdpsx.ecommerce.common.error.ApiProblemSchema;
+import com.xdpsx.ecommerce.common.error.ValidationProblemSchema;
 import com.xdpsx.ecommerce.media.api.dto.CreateMediaDTO;
 import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
 
@@ -31,24 +30,37 @@ public interface MediaControllerApi {
                                             mediaType = MediaType.MULTIPART_FORM_DATA_VALUE,
                                             schema = @Schema(implementation = CreateMediaDTO.class))),
             responses = {
-                @ApiResponse(
-                        responseCode = "201",
-                        description = "Created",
-                        content = @Content(schema = @Schema(implementation = CreateMediaVM.class))),
+                @ApiResponse(responseCode = "201", description = "Created"),
                 @ApiResponse(
                         responseCode = "400",
                         description = "Validation error / Invalid image width",
                         content =
                                 @Content(
                                         mediaType = "application/json",
-                                        schema = @Schema(oneOf = {ErrorDTO.class, ErrorDetailsDTO.class}))),
+                                        schema =
+                                                @Schema(
+                                                        oneOf = {ValidationProblemSchema.class, ApiProblemSchema.class
+                                                        }))),
+                @ApiResponse(
+                        responseCode = "422",
+                        description = "Media resource type is invalid",
+                        content =
+                                @Content(
+                                        mediaType = "application/json",
+                                        schema = @Schema(implementation = ApiProblemSchema.class))),
+                @ApiResponse(
+                        responseCode = "502",
+                        description = "Media provider upload failed",
+                        content =
+                                @Content(
+                                        mediaType = "application/json",
+                                        schema = @Schema(implementation = ApiProblemSchema.class))),
                 @ApiResponse(
                         responseCode = "500",
                         description = "Internal Server Error",
-                        content = @Content(schema = @Schema(implementation = ErrorDTO.class)))
+                        content = @Content(schema = @Schema(implementation = ApiProblemSchema.class)))
             })
-    APIResponse<ViewMediaDTO> createMedia(
-            @Parameter(description = "category, brand,...") String resource, CreateMediaDTO request);
+    ViewMediaDTO createMedia(@Parameter(description = "category, brand,...") String resource, CreateMediaDTO request);
 
     @Operation(
             summary = "Delete media",
@@ -58,13 +70,11 @@ public interface MediaControllerApi {
                 @ApiResponse(
                         responseCode = "404",
                         description = "Not Found",
-                        content = @Content(schema = @Schema(implementation = ErrorDTO.class))),
+                        content = @Content(schema = @Schema(implementation = ApiProblemSchema.class))),
                 @ApiResponse(
                         responseCode = "500",
                         description = "Internal Server Error",
-                        content = @Content(schema = @Schema(implementation = ErrorDTO.class)))
+                        content = @Content(schema = @Schema(implementation = ApiProblemSchema.class)))
             })
-    APIResponse<Void> deleteMedia(@Parameter(description = "ID of the media to be deleted") String id);
-
-    class CreateMediaVM extends APIResponse<ViewMediaDTO> {}
+    void deleteMedia(@Parameter(description = "ID of the media to be deleted") String id);
 }

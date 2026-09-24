@@ -1,18 +1,16 @@
 package com.xdpsx.ecommerce.common.pagination;
 
-import java.util.Collection;
+import java.util.List;
 
-import lombok.*;
+public record PageResponse<T>(List<T> data, PageMetadata meta) {
 
-@Setter
-@Getter
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
-public class PageResponse<T> {
-    private Collection<T> items;
-    private int pageNum;
-    private int pageSize;
-    private long totalItems;
-    private int totalPages;
+    public PageResponse {
+        data = List.copyOf(data);
+    }
+
+    public static <T> PageResponse<T> of(List<T> data, int page, int size, long totalElements, int totalPages) {
+        return new PageResponse<>(data, new PageMetadata(page, size, totalElements, totalPages));
+    }
+
+    public record PageMetadata(int page, int size, long totalElements, int totalPages) {}
 }

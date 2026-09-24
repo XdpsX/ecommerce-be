@@ -18,9 +18,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.multipart.MultipartFile;
 
-import com.xdpsx.ecommerce.common.error.BadRequestException;
-import com.xdpsx.ecommerce.common.error.EMessage;
-import com.xdpsx.ecommerce.common.error.NotFoundException;
+import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.api.dto.CreateMediaDTO;
 import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
 import com.xdpsx.ecommerce.media.domain.Media;
@@ -128,9 +127,10 @@ class MediaServiceImplTest {
             CreateMediaDTO request = new CreateMediaDTO("test caption", mockFile);
 
             // When - Then
-            BadRequestException ex =
-                    assertThrows(BadRequestException.class, () -> mediaService.createMedia(request, resourceType));
-            assertEquals(EMessage.INVALID_IMAGE_WIDTH.message(), ex.getMessage());
+            ApplicationException ex =
+                    assertThrows(ApplicationException.class, () -> mediaService.createMedia(request, resourceType));
+            assertEquals(ErrorCode.INVALID_IMAGE_WIDTH, ex.getCode());
+            assertEquals(resourceType.minWidth(), ex.getParameters().get("minWidth"));
         }
 
         @DisplayName("1.4 should create media fail when upload file failed")
@@ -145,9 +145,12 @@ class MediaServiceImplTest {
                     .thenThrow(new RuntimeException("Upload failed"));
 
             // When - Then
-            RuntimeException ex =
-                    assertThrows(RuntimeException.class, () -> mediaService.createMedia(request, resourceType));
-            assertEquals(EMessage.UPLOAD_IMAGE_FAILED.message(), ex.getMessage());
+            ApplicationException ex =
+                    assertThrows(ApplicationException.class, () -> mediaService.createMedia(request, resourceType));
+            assertEquals(ErrorCode.MEDIA_UPLOAD_FAILED, ex.getCode());
+            // The provider failure message must not leak into the exposed message.
+            assertFalse(ex.getMessage().contains("Upload failed"));
+            assertNotNull(ex.getCause());
         }
 
         @DisplayName("1.5 should throw exception when image is not valid")
@@ -186,7 +189,7 @@ class MediaServiceImplTest {
             assertInstanceOf(IOException.class, exception.getCause());
         }
 
-        @DisplayName("1.7 should delete uploaded file when saving media fails")
+        @DisplayName("1.7 should delete uploaded file and propagate original failure when saving media fails")
         @Order(7)
         @Test
         void createMedia_ShouldDeleteUploadedFile_WhenSavingMediaFails() throws Exception {
@@ -201,10 +204,13 @@ class MediaServiceImplTest {
             when(mediaRepository.save(any(Media.class))).thenThrow(new RuntimeException("DB error"));
 
             // Act & Assert
+            // A persistence failure is NOT an upload failure: the original exception propagates
+            // (surfaced as INTERNAL_ERROR at the API boundary), and the uploaded file is cleaned up.
             RuntimeException exception =
                     assertThrows(RuntimeException.class, () -> mediaService.createMedia(request, resourceType));
 
-            assertEquals(EMessage.UPLOAD_IMAGE_FAILED.message(), exception.getMessage());
+            assertFalse(exception instanceof ApplicationException);
+            assertEquals("DB error", exception.getMessage());
 
             verify(cloudinaryUploader).deleteFile(uploadResponse.publicId());
             verify(cloudinaryUploader).uploadFile(eq(mockFile), anyMap());
@@ -236,18 +242,20 @@ class MediaServiceImplTest {
             verify(mediaRepository).save(media);
         }
 
-        @DisplayName("2.2 should throw NotFoundException when media does not exist")
+        @DisplayName("2.2 should throw ApplicationException(RESOURCE_NOT_FOUND) when media does not exist")
         @Order(2)
         @Test
-        void deleteMedia_ShouldThrowNotFoundException_WhenMediaDoesNotExist() {
+        void deleteMedia_ShouldThrowResourceNotFound_WhenMediaDoesNotExist() {
             // Arrange
             when(mediaRepository.findPublicMediaById(mediaId)).thenReturn(Optional.empty());
 
             // Act & Assert
-            NotFoundException exception =
-                    assertThrows(NotFoundException.class, () -> mediaService.deleteMedia(mediaId));
+            ApplicationException exception =
+                    assertThrows(ApplicationException.class, () -> mediaService.deleteMedia(mediaId));
 
-            assertEquals(EMessage.NOT_FOUND.message(), exception.getMessage());
+            assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
+            assertEquals("media", exception.getParameters().get("resourceType"));
+            assertEquals(mediaId, exception.getParameters().get("resourceId"));
             verify(mediaRepository, never()).save(any());
         }
     }

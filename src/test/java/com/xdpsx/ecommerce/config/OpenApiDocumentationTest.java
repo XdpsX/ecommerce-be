@@ -72,12 +72,12 @@ class OpenApiDocumentationTest {
         JsonNode operation = openApi.at("/paths/~1categories~1{category-id}/get");
 
         assertThat(operation.isMissingNode()).isFalse();
-        assertThat(operation.path("summary").asText()).isEqualTo("Get category by ID");
-        assertThat(operation.path("tags").get(0).asText()).isEqualTo("Category API");
+        assertThat(operation.path("summary").asString()).isEqualTo("Get category by ID");
+        assertThat(operation.path("tags").get(0).asString()).isEqualTo("Category API");
 
         JsonNode pathParameter = operation.path("parameters").get(0);
-        assertThat(pathParameter.path("name").asText()).isEqualTo("category-id");
-        assertThat(pathParameter.path("in").asText()).isEqualTo("path");
+        assertThat(pathParameter.path("name").asString()).isEqualTo("category-id");
+        assertThat(pathParameter.path("in").asString()).isEqualTo("path");
     }
 
     @Test
@@ -88,7 +88,7 @@ class OpenApiDocumentationTest {
         assertThat(parameters.findValuesAsString("name"))
                 .contains("name", "publicFlg", "sort", "level", "pageNum", "pageSize");
         parameters.forEach(
-                parameter -> assertThat(parameter.path("in").asText()).isEqualTo("query"));
+                parameter -> assertThat(parameter.path("in").asString()).isEqualTo("query"));
     }
 
     @Test
@@ -96,7 +96,7 @@ class OpenApiDocumentationTest {
         JsonNode operation = openApi.at("/paths/~1media~1image-upload/post");
 
         assertThat(operation.isMissingNode()).isFalse();
-        assertThat(operation.path("summary").asText()).isEqualTo("Upload image");
+        assertThat(operation.path("summary").asString()).isEqualTo("Upload image");
         assertThat(operation.path("requestBody").path("content").has("multipart/form-data"))
                 .isTrue();
         assertThat(operation
@@ -105,23 +105,54 @@ class OpenApiDocumentationTest {
                         .path("multipart/form-data")
                         .path("schema")
                         .path("$ref")
-                        .asText())
+                        .asString())
                 .isEqualTo("#/components/schemas/CreateMediaDTO");
 
         JsonNode resourceParameter = operation.path("parameters").get(0);
-        assertThat(resourceParameter.path("name").asText()).isEqualTo("resource");
-        assertThat(resourceParameter.path("description").asText()).isEqualTo("category, brand,...");
+        assertThat(resourceParameter.path("name").asString()).isEqualTo("resource");
+        assertThat(resourceParameter.path("description").asString()).isEqualTo("category, brand,...");
     }
 
     @Test
-    void categoryTree_shouldReferenceConcreteWrapperSchema() {
-        String schemaRef = openApi.at(
-                        "/paths/~1categories~1tree/get/responses/200/content/application~1json/schema/$ref")
-                .asText();
+    void categoryTree_shouldReturnArrayOfDtoSchemaWithoutWrapper() {
+        JsonNode schema = openApi.at("/paths/~1categories~1tree/get/responses/200/content/*~1*/schema");
 
-        assertThat(schemaRef).isEqualTo("#/components/schemas/GetCategoryTreeVM");
-        assertThat(openApi.at("/components/schemas/GetCategoryTreeVM").isMissingNode())
+        assertThat(schema.path("type").asString()).isEqualTo("array");
+        assertThat(schema.path("items").path("$ref").asString()).isEqualTo("#/components/schemas/CategoryTreeResponse");
+        assertThat(openApi.at("/components/schemas/CategoryTreeResponse").isMissingNode())
                 .isFalse();
+    }
+
+    @Test
+    void paginatedList_shouldSeparateDataAndPaginationMetadata() {
+        JsonNode properties = openApi.at("/components/schemas/PageResponseAdminCategoryResponse")
+                .path("properties");
+
+        assertThat(properties.has("data")).isTrue();
+        assertThat(properties.path("data").path("type").asString()).isEqualTo("array");
+        assertThat(properties.path("meta").path("$ref").asString()).isEqualTo("#/components/schemas/PageMetadata");
+
+        JsonNode metadataProperties = openApi.at("/components/schemas/PageMetadata/properties");
+        assertThat(metadataProperties.has("page")).isTrue();
+        assertThat(metadataProperties.has("size")).isTrue();
+        assertThat(metadataProperties.has("totalElements")).isTrue();
+        assertThat(metadataProperties.has("totalPages")).isTrue();
+    }
+
+    @Test
+    void mediaUpload_shouldReferenceDtoSchemaDirectlyForCreated() {
+        JsonNode schema = openApi.at("/paths/~1media~1image-upload/post/responses/201/content/*~1*/schema");
+
+        assertThat(schema.path("$ref").asString()).isEqualTo("#/components/schemas/ViewMediaDTO");
+    }
+
+    @Test
+    void mediaDelete_shouldDocumentNoContent() {
+        JsonNode response = openApi.at("/paths/~1media~1{id}/delete/responses/204");
+
+        assertThat(response.isMissingNode()).isFalse();
+        assertThat(response.path("description").asString()).isEqualTo("No Content");
+        assertThat(response.path("content").isMissingNode()).isTrue();
     }
 
     @Test
@@ -129,7 +160,7 @@ class OpenApiDocumentationTest {
         JsonNode operation = openApi.at("/paths/~1media~1{id}/delete");
 
         assertThat(operation.isMissingNode()).isFalse();
-        assertThat(operation.path("summary").asText()).isEqualTo("Delete media");
-        assertThat(operation.path("tags").get(0).asText()).isEqualTo("Media API");
+        assertThat(operation.path("summary").asString()).isEqualTo("Delete media");
+        assertThat(operation.path("tags").get(0).asString()).isEqualTo("Media API");
     }
 }

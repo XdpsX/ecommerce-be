@@ -25,10 +25,8 @@ import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.CheckExistResponse;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
-import com.xdpsx.ecommerce.common.error.DuplicateException;
-import com.xdpsx.ecommerce.common.error.EMessage;
-import com.xdpsx.ecommerce.common.error.ModifyExclusiveException;
-import com.xdpsx.ecommerce.common.error.NotFoundException;
+import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaResourceType;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
@@ -161,32 +159,35 @@ class BrandServiceImplTest {
     }
 
     @Test
-    void testGetAdminBrandDetail_shouldThrowNotFoundExceptionWhenBrandDoesNotExist() {
+    void testGetAdminBrandDetail_shouldThrowNotFound_WhenBrandDoesNotExist() {
         // Arrange
         int brandId = 1;
         when(brandRepository.findDetailById(brandId)).thenReturn(Optional.empty());
 
         // Act & Assert
-        NotFoundException exception =
-                assertThrows(NotFoundException.class, () -> brandService.getAdminBrandDetail(brandId));
-        assertEquals(EMessage.NOT_FOUND.message(), exception.getMessage());
+        ApplicationException exception =
+                assertThrows(ApplicationException.class, () -> brandService.getAdminBrandDetail(brandId));
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
+        assertEquals("brand", exception.getParameters().get("resourceType"));
+        assertEquals(brandId, exception.getParameters().get("resourceId"));
         verify(brandRepository).findDetailById(brandId);
     }
 
     @Test
-    void testCreateBrand_shouldThrowDuplicateExceptionWhenBrandNameExists() {
+    void testCreateBrand_shouldThrowAlreadyExists_WhenBrandNameExists() {
         // Arrange
         CreateBrandRequest request = new CreateBrandRequest("Puma", true, null, null);
         when(brandRepository.existsByName("Puma")).thenReturn(true);
 
         // Act & Assert
-        DuplicateException exception = assertThrows(DuplicateException.class, () -> brandService.createBrand(request));
-        assertEquals(EMessage.DATA_EXISTS.message(), exception.getMessage());
+        ApplicationException exception =
+                assertThrows(ApplicationException.class, () -> brandService.createBrand(request));
+        assertEquals(ErrorCode.RESOURCE_ALREADY_EXISTS, exception.getCode());
         verify(brandRepository).existsByName("Puma");
     }
 
     @Test
-    void testUpdateBrand_shouldThrowModifyExclusiveExceptionWhenLastRetrievedAtIsInvalid() {
+    void testUpdateBrand_shouldThrowConcurrentModification_WhenLastRetrievedAtIsInvalid() {
         // Arrange
         int brandId = 1;
         LocalDateTime updatedAt = LocalDateTime.now().minusDays(1);
@@ -196,14 +197,14 @@ class BrandServiceImplTest {
         when(brandRepository.findById(brandId)).thenReturn(Optional.of(brand));
 
         // Act & Assert
-        ModifyExclusiveException exception =
-                assertThrows(ModifyExclusiveException.class, () -> brandService.updateBrand(brandId, request));
-        assertEquals(EMessage.MODIFY_EXCLUSIVE.message(), exception.getMessage());
+        ApplicationException exception =
+                assertThrows(ApplicationException.class, () -> brandService.updateBrand(brandId, request));
+        assertEquals(ErrorCode.CONCURRENT_MODIFICATION, exception.getCode());
         verify(brandRepository).findById(brandId);
     }
 
     @Test
-    void testDeleteBrand_shouldThrowModifyExclusiveExceptionWhenLastRetrievedAtIsInvalid() {
+    void testDeleteBrand_shouldThrowConcurrentModification_WhenLastRetrievedAtIsInvalid() {
         // Arrange
         int brandId = 1;
         LocalDateTime updatedAt = LocalDateTime.now().minusDays(1);
@@ -213,14 +214,14 @@ class BrandServiceImplTest {
         when(brandRepository.findById(brandId)).thenReturn(Optional.of(brand));
 
         // Act & Assert
-        ModifyExclusiveException exception =
-                assertThrows(ModifyExclusiveException.class, () -> brandService.deleteBrand(brandId, request));
-        assertEquals(EMessage.MODIFY_EXCLUSIVE.message(), exception.getMessage());
+        ApplicationException exception =
+                assertThrows(ApplicationException.class, () -> brandService.deleteBrand(brandId, request));
+        assertEquals(ErrorCode.CONCURRENT_MODIFICATION, exception.getCode());
         verify(brandRepository).findById(brandId);
     }
 
     @Test
-    void testDeleteBrand_shouldThrowNotFoundExceptionWhenMediaDoesNotExist() {
+    void testDeleteBrand_shouldThrowNotFound_WhenBrandDoesNotExist() {
         // Arrange
         int brandId = 1;
         LocalDateTime updatedAt = LocalDateTime.now();
@@ -229,9 +230,9 @@ class BrandServiceImplTest {
         when(brandRepository.findById(brandId)).thenReturn(Optional.empty());
 
         // Act & Assert
-        NotFoundException exception =
-                assertThrows(NotFoundException.class, () -> brandService.deleteBrand(brandId, request));
-        assertEquals(EMessage.NOT_FOUND.message(), exception.getMessage());
+        ApplicationException exception =
+                assertThrows(ApplicationException.class, () -> brandService.deleteBrand(brandId, request));
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
         verify(brandRepository).findById(brandId);
     }
 
@@ -256,16 +257,17 @@ class BrandServiceImplTest {
     }
 
     @Test
-    void testFetchCategories_shouldThrowNotFoundExceptionWhenCategoryDoesNotExist() {
+    void testFetchCategories_shouldThrowNotFound_WhenCategoryDoesNotExist() {
         // Arrange
         Set<Integer> categoryIds = Set.of(1, 2);
         when(categoryRepository.findPublicById(anyInt())).thenReturn(Optional.empty());
 
         // Act & Assert
-        NotFoundException exception = assertThrows(
-                NotFoundException.class,
+        ApplicationException exception = assertThrows(
+                ApplicationException.class,
                 () -> brandService.createBrand(new CreateBrandRequest("Puma", true, null, categoryIds)));
-        assertEquals(EMessage.NOT_FOUND.message(), exception.getMessage());
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
+        assertEquals("category", exception.getParameters().get("resourceType"));
         verify(categoryRepository).findPublicById(anyInt());
     }
 }

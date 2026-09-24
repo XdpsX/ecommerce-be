@@ -1,6 +1,7 @@
 package com.xdpsx.ecommerce.catalog.brand.application;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -19,10 +20,8 @@ import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.CheckExistResponse;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
 import com.xdpsx.ecommerce.catalog.shared.application.PageMapper;
-import com.xdpsx.ecommerce.common.error.DuplicateException;
-import com.xdpsx.ecommerce.common.error.EMessage;
-import com.xdpsx.ecommerce.common.error.ModifyExclusiveException;
-import com.xdpsx.ecommerce.common.error.NotFoundException;
+import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaResourceType;
@@ -51,8 +50,10 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
 
     @Override
     public BrandDetailResponse getAdminBrandDetail(Integer id) {
-        Brand brand =
-                brandRepository.findDetailById(id).orElseThrow(() -> new NotFoundException(EMessage.NOT_FOUND, id));
+        Brand brand = brandRepository
+                .findDetailById(id)
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "brand", "resourceId", id)));
         return BrandMapper.INSTANCE.toBrandDetailResponse(brand);
     }
 
@@ -61,13 +62,17 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
     public BrandDetailResponse createBrand(CreateBrandRequest request) {
         Brand brand = BrandMapper.INSTANCE.toEntity(request);
         if (brandRepository.existsByName(request.name())) {
-            throw new DuplicateException(EMessage.DATA_EXISTS, request.name());
+            throw new ApplicationException(
+                    ErrorCode.RESOURCE_ALREADY_EXISTS,
+                    Map.of("resourceType", "brand", "field", "name", "value", request.name()));
         }
 
         if (request.imageId() != null) {
             Media image = mediaRepository
                     .findPublicTempMediaById(request.imageId(), MediaResourceType.BRAND)
-                    .orElseThrow(() -> new NotFoundException(EMessage.NOT_FOUND, request.imageId()));
+                    .orElseThrow(() -> new ApplicationException(
+                            ErrorCode.RESOURCE_NOT_FOUND,
+                            Map.of("resourceType", "media", "resourceId", request.imageId())));
             image.setTempFlg(false);
             brand.setImage(image);
         }
@@ -83,16 +88,22 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
     @Transactional
     @Override
     public BrandDetailResponse updateBrand(Integer id, UpdateBrandRequest request) {
-        Brand brand = brandRepository.findById(id).orElseThrow(() -> new NotFoundException(EMessage.NOT_FOUND, id));
+        Brand brand = brandRepository
+                .findById(id)
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "brand", "resourceId", id)));
 
         if (brand.getUpdatedAt() != null && !request.lastRetrievedAt().isAfter(brand.getUpdatedAt())) {
-            throw new ModifyExclusiveException(EMessage.MODIFY_EXCLUSIVE);
+            throw new ApplicationException(
+                    ErrorCode.CONCURRENT_MODIFICATION, Map.of("resourceType", "brand", "resourceId", id));
         }
 
         // Update name
         if (!brand.getName().equals(request.name())) {
             if (brandRepository.existsByName(request.name())) {
-                throw new DuplicateException(EMessage.DATA_EXISTS, request.name());
+                throw new ApplicationException(
+                        ErrorCode.RESOURCE_ALREADY_EXISTS,
+                        Map.of("resourceType", "brand", "field", "name", "value", request.name()));
             }
             brand.setName(request.name());
         }
@@ -114,14 +125,14 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
     @Transactional
     @Override
     public void deleteBrand(Integer id, ModifyExclusiveDTO request) {
-        Brand brand = brandRepository.findById(id).orElseThrow(() -> new NotFoundException(EMessage.NOT_FOUND, id));
+        Brand brand = brandRepository
+                .findById(id)
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "brand", "resourceId", id)));
         if (!request.lastRetrievedAt().isAfter(brand.getUpdatedAt())) {
-            throw new ModifyExclusiveException(EMessage.MODIFY_EXCLUSIVE);
+            throw new ApplicationException(
+                    ErrorCode.CONCURRENT_MODIFICATION, Map.of("resourceType", "brand", "resourceId", id));
         }
-        //        long countBrands = brandRepository.countBrandsInOtherTables(id);
-        //        if (countBrands > 0){
-        //            throw new BadRequestException(i18nUtils.getBrandCannotDeleteMsg(existingBrand.getName()));
-        //        }
         if (brand.getImage() != null) {
             Media image = brand.getImage();
             image.setDeleteFlg(true);
@@ -139,7 +150,9 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
         return categoryIds.stream()
                 .map(categoryId -> categoryRepository
                         .findPublicById(categoryId)
-                        .orElseThrow(() -> new NotFoundException(EMessage.NOT_FOUND, categoryId)))
+                        .orElseThrow(() -> new ApplicationException(
+                                ErrorCode.RESOURCE_NOT_FOUND,
+                                Map.of("resourceType", "category", "resourceId", categoryId))))
                 .collect(Collectors.toList());
     }
 }

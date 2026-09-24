@@ -2,14 +2,14 @@ package com.xdpsx.ecommerce.media.application;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.util.Map;
 import javax.imageio.ImageIO;
 
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import com.xdpsx.ecommerce.common.error.BadRequestException;
-import com.xdpsx.ecommerce.common.error.EMessage;
-import com.xdpsx.ecommerce.common.error.NotFoundException;
+import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.api.dto.CreateMediaDTO;
 import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
 import com.xdpsx.ecommerce.media.domain.Media;
@@ -29,9 +29,17 @@ public class MediaServiceImpl implements MediaService {
     @Override
     public ViewMediaDTO createMedia(CreateMediaDTO request, MediaResourceType resourceType) {
         validateImageSize(request.file(), resourceType);
-        CloudinaryUploadResponse response = null;
+
+        // Only a confirmed media-provider upload failure becomes MEDIA_UPLOAD_FAILED.
+        CloudinaryUploadResponse response;
         try {
             response = cloudinaryUploader.uploadFile(request.file(), resourceType.getUploadOptions());
+        } catch (RuntimeException e) {
+            // Keep the cause internally; never expose the provider message to the client.
+            throw new ApplicationException(ErrorCode.MEDIA_UPLOAD_FAILED, e);
+        }
+
+        try {
             Media media = Media.builder()
                     .id(response.displayName())
                     .externalId(response.publicId())
@@ -44,11 +52,19 @@ public class MediaServiceImpl implements MediaService {
                     .build();
             Media savedMedia = mediaRepository.save(media);
             return MediaMapper.INSTANCE.toViewMediaDTO(savedMedia);
-        } catch (Exception e) {
-            if (response != null) {
-                cloudinaryUploader.deleteFile(response.publicId());
-            }
-            throw new RuntimeException(EMessage.UPLOAD_IMAGE_FAILED.message());
+        } catch (RuntimeException e) {
+            // Persistence or mapping failure: clean up the uploaded file preserving the original cause,
+            // then let the original failure propagate (handled as INTERNAL_ERROR at the API boundary).
+            cleanupQuietly(response.publicId(), e);
+            throw e;
+        }
+    }
+
+    private void cleanupQuietly(String publicId, RuntimeException cause) {
+        try {
+            cloudinaryUploader.deleteFile(publicId);
+        } catch (RuntimeException cleanupFailure) {
+            cause.addSuppressed(cleanupFailure);
         }
     }
 
@@ -56,7 +72,8 @@ public class MediaServiceImpl implements MediaService {
     public void deleteMedia(String id) {
         Media media = mediaRepository
                 .findPublicMediaById(id)
-                .orElseThrow(() -> new NotFoundException(EMessage.NOT_FOUND, id));
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "media", "resourceId", id)));
         media.setDeleteFlg(true);
         mediaRepository.save(media);
     }
@@ -73,7 +90,8 @@ public class MediaServiceImpl implements MediaService {
 
             int width = image.getWidth();
             if (width < resourceType.minWidth()) {
-                throw new BadRequestException(EMessage.INVALID_IMAGE_WIDTH, resourceType.minWidth());
+                throw new ApplicationException(
+                        ErrorCode.INVALID_IMAGE_WIDTH, Map.of("minWidth", resourceType.minWidth()));
             }
 
         } catch (IOException e) {

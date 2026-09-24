@@ -1,5 +1,7 @@
 package com.xdpsx.ecommerce.auth.application;
 
+import java.util.Map;
+
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -11,7 +13,8 @@ import com.xdpsx.ecommerce.auth.api.dto.RegisterRequest;
 import com.xdpsx.ecommerce.auth.api.dto.TokenResponse;
 import com.xdpsx.ecommerce.auth.infrastructure.security.CustomUserDetails;
 import com.xdpsx.ecommerce.auth.infrastructure.security.TokenProvider;
-import com.xdpsx.ecommerce.common.error.DuplicateException;
+import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.user.domain.AuthProvider;
 import com.xdpsx.ecommerce.user.domain.Role;
 import com.xdpsx.ecommerce.user.domain.User;
@@ -30,7 +33,8 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public TokenResponse register(RegisterRequest request) {
         if (userRepository.existsByEmail(request.getEmail())) {
-            throw new DuplicateException("Email %s is already in use".formatted(request.getEmail()));
+            throw new ApplicationException(
+                    ErrorCode.RESOURCE_ALREADY_EXISTS, Map.of("resourceType", "user", "field", "email"));
         }
         User user = User.builder()
                 .name(request.getName())

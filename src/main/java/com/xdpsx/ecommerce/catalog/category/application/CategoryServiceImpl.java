@@ -1,6 +1,7 @@
 package com.xdpsx.ecommerce.catalog.category.application;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.springframework.data.domain.Page;
@@ -16,8 +17,8 @@ import com.xdpsx.ecommerce.catalog.category.persistence.CategorySpecification;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.CheckExistResponse;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
 import com.xdpsx.ecommerce.catalog.shared.application.PageMapper;
-import com.xdpsx.ecommerce.common.error.*;
-import com.xdpsx.ecommerce.common.error.EMessage;
+import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaResourceType;
@@ -44,7 +45,8 @@ public class CategoryServiceImpl implements CategoryService {
     public AdminCategoryResponse getCategory(Integer categoryId) {
         Category category = categoryRepository
                 .findPublicByIdWithParent(categoryId)
-                .orElseThrow(() -> new NotFoundException(EMessage.NOT_FOUND, categoryId));
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", categoryId)));
         return CategoryMapper.INSTANCE.toAdminCategoryResponse(category);
     }
 
@@ -78,13 +80,17 @@ public class CategoryServiceImpl implements CategoryService {
         Category category = CategoryMapper.INSTANCE.toEntity(request);
 
         if (categoryRepository.existsByName(request.name())) {
-            throw new DuplicateException(EMessage.DATA_EXISTS, request.name());
+            throw new ApplicationException(
+                    ErrorCode.RESOURCE_ALREADY_EXISTS,
+                    Map.of("resourceType", "category", "field", "name", "value", request.name()));
         }
 
         if (request.parentId() != null) {
             Category parent = categoryRepository
                     .findPublicByIdWithParent(request.parentId())
-                    .orElseThrow(() -> new NotFoundException(EMessage.NOT_FOUND, request.parentId()));
+                    .orElseThrow(() -> new ApplicationException(
+                            ErrorCode.RESOURCE_NOT_FOUND,
+                            Map.of("resourceType", "category", "resourceId", request.parentId())));
             checkCategoryDepth(parent);
             category.setParent(parent);
         }
@@ -92,9 +98,13 @@ public class CategoryServiceImpl implements CategoryService {
         if (request.imageId() != null) {
             Media image = mediaRepository
                     .findById(request.imageId())
-                    .orElseThrow(() -> new NotFoundException(EMessage.NOT_FOUND, request.imageId()));
+                    .orElseThrow(() -> new ApplicationException(
+                            ErrorCode.RESOURCE_NOT_FOUND,
+                            Map.of("resourceType", "media", "resourceId", request.imageId())));
             if (!image.getResourceType().equals(MediaResourceType.CATEGORY)) {
-                throw new InvalidResourceTypeException(EMessage.INVALID_RESOURCE_TYPE);
+                throw new ApplicationException(
+                        ErrorCode.INVALID_MEDIA_RESOURCE_TYPE,
+                        Map.of("expectedResourceType", MediaResourceType.CATEGORY.resource()));
             }
             image.setTempFlg(false);
             category.setImage(image);
@@ -114,16 +124,20 @@ public class CategoryServiceImpl implements CategoryService {
     public CategoryResponse updateCategory(Integer id, UpdateCategoryRequest request) {
         Category category = categoryRepository
                 .findByIdWithParent(id)
-                .orElseThrow(() -> new NotFoundException(EMessage.NOT_FOUND, id));
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", id)));
 
         if (category.getUpdatedAt() != null && !request.lastRetrievedAt().isAfter(category.getUpdatedAt())) {
-            throw new ModifyExclusiveException(EMessage.MODIFY_EXCLUSIVE);
+            throw new ApplicationException(
+                    ErrorCode.CONCURRENT_MODIFICATION, Map.of("resourceType", "category", "resourceId", id));
         }
 
         // Update name
         if (!category.getName().equals(request.name())) {
             if (categoryRepository.existsByName(request.name())) {
-                throw new DuplicateException(EMessage.DATA_EXISTS, request.name());
+                throw new ApplicationException(
+                        ErrorCode.RESOURCE_ALREADY_EXISTS,
+                        Map.of("resourceType", "category", "field", "name", "value", request.name()));
             }
             category.setName(request.name());
         }
@@ -155,7 +169,7 @@ public class CategoryServiceImpl implements CategoryService {
     private void checkCategoryDepth(Category category) {
         int depth = getDepth(category);
         if (depth >= Category.MAX_DEPTH) {
-            throw new BadRequestException(EMessage.INVALID_DEPTH, Category.MAX_DEPTH);
+            throw new ApplicationException(ErrorCode.INVALID_CATEGORY_DEPTH, Map.of("maxDepth", Category.MAX_DEPTH));
         }
     }
 
@@ -177,9 +191,12 @@ public class CategoryServiceImpl implements CategoryService {
         if (newImageId != null && (oldImage == null || !oldImage.getId().equals(newImageId))) {
             Media newImage = mediaRepository
                     .findById(newImageId)
-                    .orElseThrow(() -> new NotFoundException(EMessage.NOT_FOUND, newImageId));
+                    .orElseThrow(() -> new ApplicationException(
+                            ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "media", "resourceId", newImageId)));
             if (!newImage.getResourceType().equals(MediaResourceType.CATEGORY)) {
-                throw new InvalidResourceTypeException(EMessage.INVALID_RESOURCE_TYPE);
+                throw new ApplicationException(
+                        ErrorCode.INVALID_MEDIA_RESOURCE_TYPE,
+                        Map.of("expectedResourceType", MediaResourceType.CATEGORY.resource()));
             }
 
             newImage.setTempFlg(false);
@@ -199,20 +216,26 @@ public class CategoryServiceImpl implements CategoryService {
                 ? null
                 : categoryRepository
                         .findPublicByIdWithParent(parentId)
-                        .orElseThrow(() -> new NotFoundException(EMessage.NOT_FOUND, parentId));
+                        .orElseThrow(() -> new ApplicationException(
+                                ErrorCode.RESOURCE_NOT_FOUND,
+                                Map.of("resourceType", "category", "resourceId", parentId)));
     }
 
     @Override
     @Transactional
     public void deleteCategory(Integer id, ModifyExclusiveDTO request) {
-        Category category =
-                categoryRepository.findById(id).orElseThrow(() -> new NotFoundException(EMessage.NOT_FOUND, id));
+        Category category = categoryRepository
+                .findById(id)
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", id)));
         if (!request.lastRetrievedAt().isAfter(category.getUpdatedAt())) {
-            throw new ModifyExclusiveException(EMessage.MODIFY_EXCLUSIVE);
+            throw new ApplicationException(
+                    ErrorCode.CONCURRENT_MODIFICATION, Map.of("resourceType", "category", "resourceId", id));
         }
         long countCategories = categoryRepository.countCategoriesInOtherTables(id);
         if (countCategories > 0) {
-            throw new InUseException(EMessage.IN_USE);
+            throw new ApplicationException(
+                    ErrorCode.RESOURCE_IN_USE, Map.of("resourceType", "category", "resourceId", id));
         }
         if (category.getImage() != null) {
             Media image = category.getImage();

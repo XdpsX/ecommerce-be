@@ -4,7 +4,8 @@ import java.util.Map;
 
 import org.springframework.stereotype.Service;
 
-import com.xdpsx.ecommerce.common.error.BadRequestException;
+import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.order.application.OrderService;
 
 import lombok.RequiredArgsConstructor;
@@ -21,7 +22,7 @@ public class VNPayIpnHandler implements IpnHandler {
     @Override
     public String process(Map<String, String> params, String userEmail) {
         if (!vnPayService.verifyIpn(params)) {
-            throw new BadRequestException("Ipn is not valid");
+            throw new ApplicationException(ErrorCode.MALFORMED_REQUEST);
         }
 
         var txnRef = params.get(VNPayParams.TXN_REF);

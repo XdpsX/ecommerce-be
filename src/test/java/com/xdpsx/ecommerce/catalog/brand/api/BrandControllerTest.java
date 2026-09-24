@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import java.time.LocalDateTime;
-import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
@@ -23,7 +22,6 @@ import com.xdpsx.ecommerce.catalog.brand.api.dto.*;
 import com.xdpsx.ecommerce.catalog.brand.application.BrandService;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.CheckExistResponse;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
-import com.xdpsx.ecommerce.common.error.SMessage;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
 import com.xdpsx.ecommerce.testsupport.SecurityConfigForControllerTests;
@@ -44,15 +42,9 @@ class BrandControllerTest {
     private ObjectMapper objectMapper;
 
     @Test
-    void getAdminBrands_shouldReturnWrappedApiResponse() throws Exception {
+    void getAdminBrands_shouldReturnPageResponse() throws Exception {
         // Arrange
-        PageResponse<AdminBrandResponse> mockPage = PageResponse.<AdminBrandResponse>builder()
-                .items(Collections.emptyList())
-                .pageNum(1)
-                .pageSize(10)
-                .totalItems(0)
-                .totalPages(0)
-                .build();
+        PageResponse<AdminBrandResponse> mockPage = PageResponse.of(List.of(), 1, 10, 0, 0);
 
         Mockito.when(brandService.getAdminBrands(any(AdminBrandFilter.class))).thenReturn(mockPage);
 
@@ -62,16 +54,16 @@ class BrandControllerTest {
                         .param("pageSize", "10")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value(200))
-                .andExpect(jsonPath("$.message").value(SMessage.SUCCESS.message()))
-                .andExpect(jsonPath("$.data.pageNum").value(1))
-                .andExpect(jsonPath("$.data.pageSize").value(10))
-                .andExpect(jsonPath("$.data.items").isArray())
-                .andExpect(jsonPath("$.data.items").isEmpty());
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data").isEmpty())
+                .andExpect(jsonPath("$.meta.page").value(1))
+                .andExpect(jsonPath("$.meta.size").value(10))
+                .andExpect(jsonPath("$.meta.totalElements").value(0))
+                .andExpect(jsonPath("$.meta.totalPages").value(0));
     }
 
     @Test
-    void getAdminBrandDetail_shouldReturnWrappedBrandDetail() throws Exception {
+    void getAdminBrandDetail_shouldReturnBrandDetail() throws Exception {
         // Arrange
         ViewMediaDTO media =
                 new ViewMediaDTO("media-123", "Brand logo", "image/png", "http://example.com/media/brand.png");
@@ -86,20 +78,18 @@ class BrandControllerTest {
         // Act & Assert
         mockMvc.perform(get("/admin/brands/100").contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value(200))
-                .andExpect(jsonPath("$.message").value(SMessage.SUCCESS.message()))
-                .andExpect(jsonPath("$.data.id").value(100))
-                .andExpect(jsonPath("$.data.name").value("Nike"))
-                .andExpect(jsonPath("$.data.publicFlg").value(true))
-                .andExpect(jsonPath("$.data.image.id").value("media-123"))
-                .andExpect(jsonPath("$.data.image.caption").value("Brand logo"))
-                .andExpect(jsonPath("$.data.image.contentType").value("image/png"))
-                .andExpect(jsonPath("$.data.image.url").value("http://example.com/media/brand.png"))
-                .andExpect(jsonPath("$.data.categories").isArray())
-                .andExpect(jsonPath("$.data.categories[0].id").value(1))
-                .andExpect(jsonPath("$.data.categories[0].name").value("Electronics"))
-                .andExpect(jsonPath("$.data.categories[1].id").value(2))
-                .andExpect(jsonPath("$.data.categories[1].name").value("Fashion"));
+                .andExpect(jsonPath("$.id").value(100))
+                .andExpect(jsonPath("$.name").value("Nike"))
+                .andExpect(jsonPath("$.publicFlg").value(true))
+                .andExpect(jsonPath("$.image.id").value("media-123"))
+                .andExpect(jsonPath("$.image.caption").value("Brand logo"))
+                .andExpect(jsonPath("$.image.contentType").value("image/png"))
+                .andExpect(jsonPath("$.image.url").value("http://example.com/media/brand.png"))
+                .andExpect(jsonPath("$.categories").isArray())
+                .andExpect(jsonPath("$.categories[0].id").value(1))
+                .andExpect(jsonPath("$.categories[0].name").value("Electronics"))
+                .andExpect(jsonPath("$.categories[1].id").value(2))
+                .andExpect(jsonPath("$.categories[1].name").value("Fashion"));
     }
 
     @Test
@@ -122,10 +112,9 @@ class BrandControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.status").value(201))
-                .andExpect(jsonPath("$.message").value(SMessage.CREATE_SUCCESSFULLY.message()))
-                .andExpect(jsonPath("$.data.id").value(101))
-                .andExpect(jsonPath("$.data.name").value("Adidas"));
+                .andExpect(header().string("Location", "/admin/brands/101"))
+                .andExpect(jsonPath("$.id").value(101))
+                .andExpect(jsonPath("$.name").value("Adidas"));
     }
 
     @Test
@@ -149,10 +138,8 @@ class BrandControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value(200))
-                .andExpect(jsonPath("$.message").value(SMessage.SUCCESS.message()))
-                .andExpect(jsonPath("$.data.id").value(101))
-                .andExpect(jsonPath("$.data.name").value("Adidas Updated"));
+                .andExpect(jsonPath("$.id").value(101))
+                .andExpect(jsonPath("$.name").value("Adidas Updated"));
     }
 
     @Test
@@ -166,9 +153,8 @@ class BrandControllerTest {
         mockMvc.perform(delete("/101/delete")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value(200))
-                .andExpect(jsonPath("$.message").value(SMessage.DELETE_SUCCESSFULLY.message()));
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
     }
 
     @Test
@@ -184,9 +170,7 @@ class BrandControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value(200))
-                .andExpect(jsonPath("$.message").value(SMessage.SUCCESS.message()))
-                .andExpect(jsonPath("$.data.field").value("name"))
-                .andExpect(jsonPath("$.data.exists").value(true));
+                .andExpect(jsonPath("$.field").value("name"))
+                .andExpect(jsonPath("$.exists").value(true));
     }
 }

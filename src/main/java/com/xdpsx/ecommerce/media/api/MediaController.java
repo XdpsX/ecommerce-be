@@ -1,15 +1,15 @@
 package com.xdpsx.ecommerce.media.api;
 
+import java.util.Map;
+
 import jakarta.validation.Valid;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 
-import com.xdpsx.ecommerce.common.api.APIResponse;
-import com.xdpsx.ecommerce.common.error.BadRequestException;
-import com.xdpsx.ecommerce.common.error.EMessage;
-import com.xdpsx.ecommerce.common.error.SMessage;
+import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.api.dto.CreateMediaDTO;
 import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
 import com.xdpsx.ecommerce.media.application.MediaService;
@@ -24,19 +24,17 @@ public class MediaController implements MediaControllerApi {
 
     @PostMapping(path = "/media/image-upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
-    public APIResponse<ViewMediaDTO> createMedia(
-            @RequestParam String resource, @Valid @ModelAttribute CreateMediaDTO request) {
+    public ViewMediaDTO createMedia(@RequestParam String resource, @Valid @ModelAttribute CreateMediaDTO request) {
         MediaResourceType resourceType = MediaResourceType.fromResource(resource);
         if (resourceType == null) {
-            throw new BadRequestException(EMessage.INVALID_RESOURCE_TYPE, resource);
+            throw new ApplicationException(ErrorCode.INVALID_MEDIA_RESOURCE_TYPE, Map.of("resource", resource));
         }
-        ViewMediaDTO data = mediaService.createMedia(request, resourceType);
-        return new APIResponse<>(HttpStatus.CREATED, data, SMessage.CREATE_SUCCESSFULLY);
+        return mediaService.createMedia(request, resourceType);
     }
 
     @DeleteMapping("/media/{id}")
-    public APIResponse<Void> deleteMedia(@PathVariable String id) {
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteMedia(@PathVariable String id) {
         mediaService.deleteMedia(id);
-        return APIResponse.noContent(SMessage.DELETE_SUCCESSFULLY);
     }
 }

@@ -25,9 +25,8 @@ import com.xdpsx.ecommerce.catalog.product.domain.ProductImage;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductSpecification;
 import com.xdpsx.ecommerce.catalog.shared.application.PageMapper;
-import com.xdpsx.ecommerce.common.error.BadRequestException;
-import com.xdpsx.ecommerce.common.error.DuplicateException;
-import com.xdpsx.ecommerce.common.error.NotFoundException;
+import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryUploadResponse;
 import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryUploader;
@@ -72,7 +71,8 @@ public class ProductServiceImpl implements ProductService {
     public ProductDetailsDTO getProductById(Long id) {
         Product product = productRepository
                 .findProductById(id)
-                .orElseThrow(() -> new NotFoundException("Product with id=%s not found!".formatted(id)));
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "product", "resourceId", id)));
         return productMapper.fromEntityToDetailsDTO(product);
     }
 
@@ -80,23 +80,28 @@ public class ProductServiceImpl implements ProductService {
     public ProductDetailsDTO getProductBySlug(String slug) {
         Product product = productRepository
                 .findProductBySlug(slug)
-                .orElseThrow(() -> new NotFoundException("Product with slug=%s not found!".formatted(slug)));
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "product", "resourceId", slug)));
         return productMapper.fromEntityToDetailsDTO(product);
     }
 
     @Override
     public ProductResponse createProduct(ProductCreateRequest request) {
         if (productRepository.existsBySlug(request.getSlug())) {
-            throw new DuplicateException("Product with slug=%s already exists".formatted(request.getSlug()));
+            throw new ApplicationException(
+                    ErrorCode.RESOURCE_ALREADY_EXISTS,
+                    Map.of("resourceType", "product", "field", "slug", "value", request.getSlug()));
         }
         Category category = categoryRepository
                 .findById(request.getCategoryId())
-                .orElseThrow(() ->
-                        new NotFoundException("Category with id=%s not found!".formatted(request.getCategoryId())));
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND,
+                        Map.of("resourceType", "category", "resourceId", request.getCategoryId())));
         Brand brand = brandRepository
                 .findById(request.getBrandId())
-                .orElseThrow(
-                        () -> new NotFoundException("Brand with id=%s not found!".formatted(request.getBrandId())));
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND,
+                        Map.of("resourceType", "brand", "resourceId", request.getBrandId())));
 
         Product product = productMapper.fromCreateRequestToEntity(request);
         product.setCategory(category);
@@ -116,7 +121,8 @@ public class ProductServiceImpl implements ProductService {
     public ProductResponse updateProduct(Long id, ProductUpdateRequest request) {
         Product product = productRepository
                 .findProductById(id)
-                .orElseThrow(() -> new NotFoundException("Product with id=%s not found!".formatted(id)));
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "product", "resourceId", id)));
 
         product.setName(request.getName());
         product.setPrice(request.getPrice());
@@ -127,7 +133,9 @@ public class ProductServiceImpl implements ProductService {
 
         if (!request.getSlug().equals(product.getSlug())) {
             if (productRepository.existsBySlug(request.getSlug())) {
-                throw new DuplicateException("Product with slug=%s already exists".formatted(request.getSlug()));
+                throw new ApplicationException(
+                        ErrorCode.RESOURCE_ALREADY_EXISTS,
+                        Map.of("resourceType", "product", "field", "slug", "value", request.getSlug()));
             }
             product.setSlug(request.getSlug());
         }
@@ -135,22 +143,25 @@ public class ProductServiceImpl implements ProductService {
         if (request.getCategoryId() != null && !product.getCategory().getId().equals(request.getCategoryId())) {
             Category category = categoryRepository
                     .findById(request.getCategoryId())
-                    .orElseThrow(() ->
-                            new NotFoundException("Category with id=%s not found!".formatted(request.getCategoryId())));
+                    .orElseThrow(() -> new ApplicationException(
+                            ErrorCode.RESOURCE_NOT_FOUND,
+                            Map.of("resourceType", "category", "resourceId", request.getCategoryId())));
             product.setCategory(category);
         }
 
         if (request.getBrandId() != null && !product.getBrand().getId().equals(request.getBrandId())) {
             Brand brand = brandRepository
                     .findById(request.getBrandId())
-                    .orElseThrow(
-                            () -> new NotFoundException("Brand with id=%s not found!".formatted(request.getBrandId())));
+                    .orElseThrow(() -> new ApplicationException(
+                            ErrorCode.RESOURCE_NOT_FOUND,
+                            Map.of("resourceType", "brand", "resourceId", request.getBrandId())));
             product.setBrand(brand);
         }
 
         if (request.getImages() != null && !request.getImages().isEmpty()) {
             if (request.getImages().size() + product.getImages().size() > NUMBER_PRODUCT_IMAGES) {
-                throw new BadRequestException("Product can not have more than " + NUMBER_PRODUCT_IMAGES + " images");
+                throw new ApplicationException(
+                        ErrorCode.INVALID_PRODUCT_IMAGE_COUNT, Map.of("maxImages", NUMBER_PRODUCT_IMAGES));
             }
             uploadProductImages(request.getImages(), product);
         }
@@ -182,7 +193,8 @@ public class ProductServiceImpl implements ProductService {
     public void deleteProduct(Long id) {
         Product product = productRepository
                 .findProductById(id)
-                .orElseThrow(() -> new NotFoundException("Product with id=%s not found!".formatted(id)));
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "product", "resourceId", id)));
         productRepository.delete(product);
         for (ProductImage productImage : product.getImages()) {
             uploader.deleteFile(productImage.getUrl());
@@ -193,7 +205,8 @@ public class ProductServiceImpl implements ProductService {
     public void publishProduct(Long id, boolean status) {
         Product product = productRepository
                 .findProductById(id)
-                .orElseThrow(() -> new NotFoundException("Product with id=%s not found!".formatted(id)));
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "product", "resourceId", id)));
         product.setPublished(status);
         productRepository.save(product);
     }
@@ -230,7 +243,8 @@ public class ProductServiceImpl implements ProductService {
             Double maxPrice) {
         Category category = categoryRepository
                 .findById(categoryId)
-                .orElseThrow(() -> new NotFoundException("Category with id=%s not found!".formatted(categoryId)));
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", categoryId)));
         Specification<Product> prodSpec = spec.belongsToCategory(categoryId)
                 .and(spec.belongsToBrands(brandIds))
                 .and(spec.hasPublished(true))

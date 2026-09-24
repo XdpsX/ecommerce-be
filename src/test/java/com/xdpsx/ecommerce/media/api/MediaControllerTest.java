@@ -18,8 +18,6 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.xdpsx.ecommerce.common.error.EMessage;
-import com.xdpsx.ecommerce.common.error.SMessage;
 import com.xdpsx.ecommerce.media.api.dto.CreateMediaDTO;
 import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
 import com.xdpsx.ecommerce.media.application.MediaService;
@@ -70,18 +68,16 @@ class MediaControllerTest {
                             .param("caption", "Test caption")
                             .contentType(MediaType.MULTIPART_FORM_DATA))
                     .andExpect(status().isCreated())
-                    .andExpect(jsonPath("$.status").value(201))
-                    .andExpect(jsonPath("$.message").value(SMessage.CREATE_SUCCESSFULLY.message()))
-                    .andExpect(jsonPath("$.data.caption").value("Test caption"))
-                    .andExpect(jsonPath("$.data.url").value("url"));
+                    .andExpect(jsonPath("$.caption").value("Test caption"))
+                    .andExpect(jsonPath("$.url").value("url"));
 
             verify(mediaService).createMedia(any(CreateMediaDTO.class), eq(MediaResourceType.PRODUCT));
         }
 
-        @DisplayName("1.2 should return bad request when invalid resource")
+        @DisplayName("1.2 should return unprocessable entity when invalid resource")
         @Order(2)
         @Test
-        void createMedia_ShouldReturnBadRequest_WhenInvalidResource() throws Exception {
+        void createMedia_ShouldReturnUnprocessableEntity_WhenInvalidResource() throws Exception {
             // Arrange
             MockMultipartFile validImageFile = createValidImageFile("image.png", IMAGE_PNG_VALUE);
 
@@ -91,10 +87,11 @@ class MediaControllerTest {
                             .param("resource", "INVALID_RESOURCE")
                             .param("caption", "Test caption")
                             .contentType(MediaType.MULTIPART_FORM_DATA))
-                    .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.status").value(400))
-                    .andExpect(jsonPath("$.message").value(EMessage.INVALID_RESOURCE_TYPE.message()))
-                    .andExpect(jsonPath("$.args[0]").value("INVALID_RESOURCE"));
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
+                    .andExpect(jsonPath("$.status").value(422))
+                    .andExpect(jsonPath("$.code").value("INVALID_MEDIA_RESOURCE_TYPE"))
+                    .andExpect(jsonPath("$.parameters.resource").value("INVALID_RESOURCE"));
         }
 
         @DisplayName("1.3 should return bad request when invalid file type")
@@ -111,8 +108,10 @@ class MediaControllerTest {
                             .param("caption", "Test caption")
                             .contentType(MediaType.MULTIPART_FORM_DATA))
                     .andExpect(status().isBadRequest())
+                    .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
                     .andExpect(jsonPath("$.status").value(400))
-                    .andExpect(jsonPath("$.message").value(EMessage.BAD_VALIDATION.message()));
+                    .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                    .andExpect(jsonPath("$.errors[0].field").value("file"));
         }
 
         @DisplayName("1.4 should return bad request when file is null")
@@ -125,8 +124,10 @@ class MediaControllerTest {
                             .param("caption", "Test caption")
                             .contentType(MediaType.MULTIPART_FORM_DATA))
                     .andExpect(status().isBadRequest())
+                    .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
                     .andExpect(jsonPath("$.status").value(400))
-                    .andExpect(jsonPath("$.message").value(EMessage.BAD_VALIDATION.message()));
+                    .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                    .andExpect(jsonPath("$.errors[0].field").value("file"));
         }
     }
 
@@ -144,10 +145,8 @@ class MediaControllerTest {
 
             // Act + Assert
             mockMvc.perform(delete("/media/mediaId"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.status").value(200))
-                    .andExpect(jsonPath("$.message").value(SMessage.DELETE_SUCCESSFULLY.message()))
-                    .andExpect(jsonPath("$.data").doesNotExist());
+                    .andExpect(status().isNoContent())
+                    .andExpect(content().string(""));
 
             verify(mediaService).deleteMedia("mediaId");
         }
