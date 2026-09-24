@@ -1,6 +1,7 @@
 package com.xdpsx.ecommerce.cart.application;
 
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.stereotype.Service;
 
@@ -11,7 +12,8 @@ import com.xdpsx.ecommerce.cart.domain.CartItemId;
 import com.xdpsx.ecommerce.cart.persistence.CartItemRepository;
 import com.xdpsx.ecommerce.catalog.product.domain.Product;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
-import com.xdpsx.ecommerce.common.error.NotFoundException;
+import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.user.domain.User;
 import com.xdpsx.ecommerce.user.persistence.UserRepository;
 
@@ -57,7 +59,9 @@ public class CartServiceImpl implements CartService {
     private CartItem getCartItem(CartItemId cartItemId) {
         return cartItemRepository
                 .findById(cartItemId)
-                .orElseThrow(() -> new NotFoundException("Can not found Cart item"));
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND,
+                        Map.of("resourceType", "cartItem", "productId", cartItemId.getProductId())));
     }
 
     @Override
@@ -85,13 +89,15 @@ public class CartServiceImpl implements CartService {
     private Product getProduct(CartItemRequest request) {
         return productRepository
                 .findProductById(request.getProductId())
-                .orElseThrow(
-                        () -> new NotFoundException("Product with id=%s not found!".formatted(request.getProductId())));
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND,
+                        Map.of("resourceType", "product", "resourceId", request.getProductId())));
     }
 
     private User getUser(String userEmail) {
         return userRepository
                 .findByEmail(userEmail)
-                .orElseThrow(() -> new NotFoundException("User with email=%s not found".formatted(userEmail)));
+                .orElseThrow(() ->
+                        new ApplicationException(ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "user")));
     }
 }
