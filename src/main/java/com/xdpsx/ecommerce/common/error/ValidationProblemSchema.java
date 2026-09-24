@@ -25,6 +25,11 @@ public record ValidationProblemSchema(
         @Schema(description = "Request path", example = "/auth/register")
         String instance,
 
+        @Schema(
+                description = "Correlation id of the failing request, also returned in the X-Correlation-ID header",
+                example = "680461dd-851b-4f52-86ea-506fac28ea65")
+        String correlationId,
+
         @Schema(description = "Stable machine-readable error code", example = "VALIDATION_FAILED")
         String code,
 

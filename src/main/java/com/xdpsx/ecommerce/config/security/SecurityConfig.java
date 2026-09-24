@@ -37,6 +37,7 @@ import com.nimbusds.jose.JWSAlgorithm;
 import com.xdpsx.ecommerce.auth.infrastructure.security.oauth2.CustomAuthenticationSuccessHandler;
 import com.xdpsx.ecommerce.auth.infrastructure.security.oauth2.CustomOAuth2FailureHandler;
 import com.xdpsx.ecommerce.auth.infrastructure.security.oauth2.CustomOAuth2UserService;
+import com.xdpsx.ecommerce.common.observability.CorrelationIdFilter;
 
 @Configuration
 @EnableWebSecurity
@@ -64,7 +65,7 @@ public class SecurityConfig {
                     config.setAllowedMethods(Collections.singletonList("*"));
                     config.setAllowCredentials(true);
                     config.setAllowedHeaders(Collections.singletonList("*"));
-                    config.setExposedHeaders(List.of(HttpHeaders.AUTHORIZATION));
+                    config.setExposedHeaders(List.of(HttpHeaders.AUTHORIZATION, CorrelationIdFilter.HEADER_NAME));
                     config.setMaxAge(3600L);
                     return config;
                 }));

@@ -147,6 +147,17 @@ class OpenApiDocumentationTest {
     }
 
     @Test
+    void problemSchemas_shouldDocumentCorrelationId() {
+        JsonNode apiProblemProperties = openApi.at("/components/schemas/ApiProblem/properties");
+        JsonNode validationProblemProperties = openApi.at("/components/schemas/ValidationProblem/properties");
+
+        assertThat(apiProblemProperties.has("correlationId")).isTrue();
+        assertThat(validationProblemProperties.has("correlationId")).isTrue();
+        assertThat(apiProblemProperties.path("correlationId").path("example").asString())
+                .isNotBlank();
+    }
+
+    @Test
     void mediaDelete_shouldDocumentNoContent() {
         JsonNode response = openApi.at("/paths/~1media~1{id}/delete/responses/204");
 

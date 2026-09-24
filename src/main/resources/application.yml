@@ -11,3 +11,8 @@ spring:
     import: optional:file:.env[.properties]
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
+
+logging:
+  pattern:
+    # Renders the MDC value published by CorrelationIdFilter; empty when no request context is bound.
+    correlation: "[correlationId=%X{correlationId:-}] "

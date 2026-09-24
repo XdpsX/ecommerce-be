@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 
 import com.xdpsx.ecommerce.common.error.ApiProblemFactory;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
+import com.xdpsx.ecommerce.common.observability.CorrelationIdFilter;
 
 import tools.jackson.databind.ObjectMapper;
 
@@ -36,6 +37,7 @@ public class CustomAuthEntryPoint implements AuthenticationEntryPoint {
             throws IOException {
         ProblemDetail problem = ApiProblemFactory.create(ErrorCode.AUTHENTICATION_REQUIRED);
         problem.setInstance(URI.create(request.getRequestURI()));
+        CorrelationIdFilter.applyCorrelationId(problem, request);
 
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);

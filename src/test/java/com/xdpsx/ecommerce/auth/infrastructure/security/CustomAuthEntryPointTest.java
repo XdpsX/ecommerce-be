@@ -10,6 +10,8 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.authentication.BadCredentialsException;
 
+import com.xdpsx.ecommerce.common.observability.CorrelationIdFilter;
+
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
@@ -47,5 +49,20 @@ class CustomAuthEntryPointTest {
         assertEquals("/admin/brands", problem.path("instance").asString());
         assertFalse(problem.path("detail").asString().contains("secret-key"));
         assertFalse(problem.path("title").asString().contains("secret-key"));
+    }
+
+    @Test
+    @DisplayName("Includes the correlationId established for the request")
+    void commence_ShouldIncludeCorrelationId() throws Exception {
+        String correlationId = "680461dd-851b-4f52-86ea-506fac28ea65";
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/admin/brands");
+        request.setRequestURI("/admin/brands");
+        request.setAttribute(CorrelationIdFilter.REQUEST_ATTRIBUTE, correlationId);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        entryPoint.commence(request, response, new BadCredentialsException("expired"));
+
+        JsonNode problem = objectMapper.readTree(response.getContentAsString());
+        assertEquals(correlationId, problem.path("correlationId").asString());
     }
 }

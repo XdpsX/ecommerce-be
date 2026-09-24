@@ -13,17 +13,29 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.context.request.ServletWebRequest;
 
+import com.xdpsx.ecommerce.common.observability.CorrelationIdFilter;
+
 /**
  * Protects the centralized error contract: stable {@code code}, controlled {@code title}/{@code detail}, mapped
- * status, safe {@code parameters}, and {@code instance} derived from the request URI.
+ * status, safe {@code parameters}, {@code instance} derived from the request URI, and the {@code correlationId}
+ * request context.
  */
 class GlobalExceptionHandlerTest {
+
+    private static final String CORRELATION_ID = "680461dd-851b-4f52-86ea-506fac28ea65";
 
     private final GlobalExceptionHandler handler = new GlobalExceptionHandler();
 
     private ServletWebRequest request(String uri) {
+        return request(uri, null);
+    }
+
+    private ServletWebRequest request(String uri, String correlationId) {
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("GET", uri);
         servletRequest.setRequestURI(uri);
+        if (correlationId != null) {
+            servletRequest.setAttribute(CorrelationIdFilter.REQUEST_ATTRIBUTE, correlationId);
+        }
         return new ServletWebRequest(servletRequest);
     }
 
@@ -49,11 +61,36 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    @DisplayName("Problem carries the correlationId established by the request filter")
+    void handleApplicationException_ShouldIncludeCorrelationId() {
+        ApplicationException ex = new ApplicationException(ErrorCode.RESOURCE_NOT_FOUND);
+
+        ResponseEntity<Object> response =
+                handler.handleApplicationException(ex, request("/admin/brands/123", CORRELATION_ID));
+
+        ProblemDetail problem = (ProblemDetail) response.getBody();
+        assertNotNull(problem);
+        assertEquals(CORRELATION_ID, problem.getProperties().get(CorrelationIdFilter.CORRELATION_ID_KEY));
+    }
+
+    @Test
+    @DisplayName("Problem omits correlationId when no request context was established")
+    void handleApplicationException_ShouldOmitCorrelationIdWithoutRequestContext() {
+        ApplicationException ex = new ApplicationException(ErrorCode.RESOURCE_NOT_FOUND);
+
+        ResponseEntity<Object> response = handler.handleApplicationException(ex, request("/admin/brands/123"));
+
+        ProblemDetail problem = (ProblemDetail) response.getBody();
+        assertNotNull(problem);
+        assertFalse(problem.getProperties().containsKey(CorrelationIdFilter.CORRELATION_ID_KEY));
+    }
+
+    @Test
     @DisplayName("Framework client errors stay controlled 4xx instead of falling through to 500")
     void handleException_ShouldReturnControlledClientError_ForFrameworkException() throws Exception {
         HttpRequestMethodNotSupportedException ex = new HttpRequestMethodNotSupportedException("POST");
 
-        ResponseEntity<Object> response = handler.handleException(ex, request("/brands"));
+        ResponseEntity<Object> response = handler.handleException(ex, request("/brands", CORRELATION_ID));
 
         assertEquals(HttpStatus.METHOD_NOT_ALLOWED, response.getStatusCode());
         ProblemDetail problem = (ProblemDetail) response.getBody();
@@ -61,6 +98,7 @@ class GlobalExceptionHandlerTest {
         assertEquals("MALFORMED_REQUEST", problem.getProperties().get("code"));
         assertEquals(ErrorCode.MALFORMED_REQUEST.detail(), problem.getDetail());
         assertEquals("/brands", problem.getInstance().toString());
+        assertEquals(CORRELATION_ID, problem.getProperties().get(CorrelationIdFilter.CORRELATION_ID_KEY));
     }
 
     @Test

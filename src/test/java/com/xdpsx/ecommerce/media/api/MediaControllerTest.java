@@ -87,7 +87,7 @@ class MediaControllerTest {
                             .param("resource", "INVALID_RESOURCE")
                             .param("caption", "Test caption")
                             .contentType(MediaType.MULTIPART_FORM_DATA))
-                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(status().isUnprocessableContent())
                     .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
                     .andExpect(jsonPath("$.status").value(422))
                     .andExpect(jsonPath("$.code").value("INVALID_MEDIA_RESOURCE_TYPE"))

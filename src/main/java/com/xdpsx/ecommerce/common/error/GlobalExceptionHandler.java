@@ -4,6 +4,8 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -19,6 +21,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+
+import com.xdpsx.ecommerce.common.observability.CorrelationIdFilter;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -37,7 +41,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ResponseEntity<Object> handleApplicationException(ApplicationException ex, WebRequest request) {
         log.debug("Application error {}: {}", ex.getCode(), ex.getParameters());
         ProblemDetail problem = ApiProblemFactory.create(ex.getCode(), ex.getParameters());
-        applyInstance(problem, request);
+        applyRequestContext(problem, request);
         return new ResponseEntity<>(problem, HttpStatus.valueOf(problem.getStatus()));
     }
 
@@ -45,7 +49,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ResponseEntity<Object> handleAccessDeniedException(AccessDeniedException ex, WebRequest request) {
         log.debug("Access denied");
         ProblemDetail problem = ApiProblemFactory.create(ErrorCode.ACCESS_DENIED);
-        applyInstance(problem, request);
+        applyRequestContext(problem, request);
         return new ResponseEntity<>(problem, ApiProblemFactory.statusFor(ErrorCode.ACCESS_DENIED));
     }
 
@@ -53,7 +57,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ResponseEntity<Object> handleAuthenticationException(AuthenticationException ex, WebRequest request) {
         log.debug("Authentication failed");
         ProblemDetail problem = ApiProblemFactory.create(ErrorCode.INVALID_CREDENTIALS);
-        applyInstance(problem, request);
+        applyRequestContext(problem, request);
         return new ResponseEntity<>(problem, ApiProblemFactory.statusFor(ErrorCode.INVALID_CREDENTIALS));
     }
 
@@ -61,7 +65,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ResponseEntity<Object> handleUnexpectedException(Exception ex, WebRequest request) {
         log.error("Unhandled exception", ex);
         ProblemDetail problem = ApiProblemFactory.create(ErrorCode.INTERNAL_ERROR);
-        applyInstance(problem, request);
+        applyRequestContext(problem, request);
         return new ResponseEntity<>(problem, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
@@ -79,7 +83,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
         ProblemDetail problem = ApiProblemFactory.create(ErrorCode.VALIDATION_FAILED);
         problem.setProperty("errors", violations);
-        applyInstance(problem, request);
+        applyRequestContext(problem, request);
         return new ResponseEntity<>(problem, ApiProblemFactory.statusFor(ErrorCode.VALIDATION_FAILED));
     }
 
@@ -93,13 +97,15 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 : ErrorCode.MALFORMED_REQUEST;
         ProblemDetail problem = ApiProblemFactory.create(code);
         problem.setStatus(statusCode.value());
-        applyInstance(problem, request);
+        applyRequestContext(problem, request);
         return super.handleExceptionInternal(ex, problem, headers, statusCode, request);
     }
 
-    private void applyInstance(ProblemDetail problem, WebRequest request) {
+    private void applyRequestContext(ProblemDetail problem, WebRequest request) {
         if (request instanceof ServletWebRequest servletWebRequest) {
-            problem.setInstance(URI.create(servletWebRequest.getRequest().getRequestURI()));
+            HttpServletRequest servletRequest = servletWebRequest.getRequest();
+            problem.setInstance(URI.create(servletRequest.getRequestURI()));
+            CorrelationIdFilter.applyCorrelationId(problem, servletRequest);
         }
     }
 }
