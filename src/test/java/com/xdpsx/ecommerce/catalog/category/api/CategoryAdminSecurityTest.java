@@ -2,6 +2,8 @@ package com.xdpsx.ecommerce.catalog.category.api;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -70,11 +72,19 @@ class CategoryAdminSecurityTest {
 
     private String updateBody() throws Exception {
         return objectMapper.writeValueAsString(
-                new UpdateCategoryRequest("Laptops", CategoryStatus.ACTIVE, null, null, null, LocalDateTime.now()));
+                new UpdateCategoryRequest("Laptops", CategoryStatus.ACTIVE, null, null, LocalDateTime.now()));
     }
 
     private String deleteBody() throws Exception {
         return objectMapper.writeValueAsString(new ModifyExclusiveDTO(LocalDateTime.now()));
+    }
+
+    private String moveBody() throws Exception {
+        return objectMapper.writeValueAsString(new MoveCategoryRequest(7, 2));
+    }
+
+    private String reorderBody() throws Exception {
+        return objectMapper.writeValueAsString(new ReorderCategoriesRequest(null, List.of(3, 1, 2)));
     }
 
     @Test
@@ -136,6 +146,113 @@ class CategoryAdminSecurityTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody()))
                 .andExpect(status().isForbidden());
+
+        verifyNoInteractions(categoryService);
+    }
+
+    @Test
+    void moveCategory_ShouldRejectUnauthenticatedCaller() throws Exception {
+        mockMvc.perform(put("/admin/categories/1/parent")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(moveBody()))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(categoryService);
+    }
+
+    @Test
+    void moveCategory_ShouldRejectNonAdminCaller() throws Exception {
+        mockMvc.perform(put("/admin/categories/1/parent")
+                        .with(normalUser())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(moveBody()))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(categoryService);
+    }
+
+    @Test
+    void reorderCategories_ShouldRejectNonAdminCaller() throws Exception {
+        mockMvc.perform(put("/admin/categories/order")
+                        .with(normalUser())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(reorderBody()))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(categoryService);
+    }
+
+    @Test
+    void moveCategory_ShouldPassRequestToService_ForAdminCaller() throws Exception {
+        AdminCategoryResponse response = new AdminCategoryResponse(
+                3,
+                "Laptops",
+                "laptops",
+                CategoryStatus.ACTIVE,
+                2,
+                null,
+                new AdminCategoryResponse.CategoryDTO(7, "Electronics"));
+        when(categoryService.moveCategory(anyInt(), any(MoveCategoryRequest.class)))
+                .thenReturn(response);
+
+        mockMvc.perform(put("/admin/categories/3/parent")
+                        .with(admin())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(moveBody()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.displayOrder").value(2))
+                .andExpect(jsonPath("$.parent.id").value(7));
+    }
+
+    @Test
+    void reorderCategories_ShouldReturnNoContent_ForAdminCaller() throws Exception {
+        mockMvc.perform(put("/admin/categories/order")
+                        .with(admin())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(reorderBody()))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void moveCategory_ShouldRejectMissingPosition() throws Exception {
+        mockMvc.perform(put("/admin/categories/3/parent")
+                        .with(admin())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"parentId\":7}"))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(categoryService);
+    }
+
+    @Test
+    void moveCategory_ShouldRejectNegativePosition() throws Exception {
+        mockMvc.perform(put("/admin/categories/3/parent")
+                        .with(admin())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"position\":-1}"))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(categoryService);
+    }
+
+    @Test
+    void reorderCategories_ShouldRejectEmptyCategoryList() throws Exception {
+        mockMvc.perform(put("/admin/categories/order")
+                        .with(admin())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"parentId\":null,\"categoryIds\":[]}"))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(categoryService);
+    }
+
+    @Test
+    void reorderCategories_ShouldRejectNonPositiveCategoryId() throws Exception {
+        mockMvc.perform(put("/admin/categories/order")
+                        .with(admin())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"parentId\":null,\"categoryIds\":[0]}"))
+                .andExpect(status().isBadRequest());
 
         verifyNoInteractions(categoryService);
     }
@@ -204,5 +321,33 @@ class CategoryAdminSecurityTest {
                 .andExpect(status().isBadRequest());
 
         verifyNoInteractions(categoryService);
+    }
+
+    @Test
+    void updateCategory_ShouldIgnoreUnknownParentIdField() throws Exception {
+        // The parent is no longer part of the update contract; an old client payload must not change the hierarchy.
+        AdminCategoryResponse response =
+                new AdminCategoryResponse(3, "Laptops", "laptops", CategoryStatus.ACTIVE, 2, null, null);
+        when(categoryService.updateCategory(anyInt(), any(UpdateCategoryRequest.class)))
+                .thenReturn(response);
+        String body = """
+			{"name":"Laptops","status":"ACTIVE","parentId":99,"lastRetrievedAt":"2026-01-01T00:00:00"}
+		""";
+
+        mockMvc.perform(put("/admin/categories/3")
+                        .with(admin())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk());
+
+        verify(categoryService)
+                .updateCategory(
+                        eq(3),
+                        eq(new UpdateCategoryRequest(
+                                "Laptops",
+                                CategoryStatus.ACTIVE,
+                                null,
+                                null,
+                                LocalDateTime.parse("2026-01-01T00:00:00"))));
     }
 }

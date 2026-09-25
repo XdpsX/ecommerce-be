@@ -37,13 +37,16 @@ public final class ApiProblemFactory {
                     MALFORMED_REQUEST,
                     CART_EMPTY,
                     INVALID_CATEGORY_DEPTH,
+                    INVALID_CATEGORY_HIERARCHY,
+                    INVALID_CATEGORY_ORDER,
                     INVALID_CATEGORY_SLUG,
                     INVALID_PRODUCT_IMAGE_COUNT,
                     INVALID_IMAGE_WIDTH -> HttpStatus.BAD_REQUEST;
             case INVALID_CREDENTIALS, AUTHENTICATION_REQUIRED -> HttpStatus.UNAUTHORIZED;
             case ACCESS_DENIED -> HttpStatus.FORBIDDEN;
             case RESOURCE_NOT_FOUND -> HttpStatus.NOT_FOUND;
-            case RESOURCE_ALREADY_EXISTS, RESOURCE_IN_USE, CONCURRENT_MODIFICATION -> HttpStatus.CONFLICT;
+            case RESOURCE_ALREADY_EXISTS, RESOURCE_IN_USE, CONCURRENT_MODIFICATION, CONCURRENT_WRITE_CONFLICT ->
+                HttpStatus.CONFLICT;
             case INVALID_MEDIA_RESOURCE_TYPE -> HttpStatus.UNPROCESSABLE_CONTENT;
             case MEDIA_UPLOAD_FAILED -> HttpStatus.BAD_GATEWAY;
             case INTERNAL_ERROR -> HttpStatus.INTERNAL_SERVER_ERROR;

@@ -23,5 +23,17 @@ public interface CategoryService {
 
     AdminCategoryResponse updateCategory(Integer id, UpdateCategoryRequest request);
 
+    /**
+     * Moves a category to another sibling group or to another position inside its current group.
+     *
+     * @return the moved category with its new parent and order
+     */
+    AdminCategoryResponse moveCategory(Integer id, MoveCategoryRequest request);
+
+    /**
+     * Replaces the order of a whole sibling group. The request must contain exactly the IDs of that group.
+     */
+    void reorderCategories(ReorderCategoriesRequest request);
+
     void deleteCategory(Integer id, ModifyExclusiveDTO request);
 }
