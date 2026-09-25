@@ -17,8 +17,14 @@ public enum ErrorCode {
     RESOURCE_ALREADY_EXISTS("Resource already exists", "A resource with the same identifying value already exists"),
     RESOURCE_IN_USE("Resource in use", "The resource is still referenced and cannot be deleted"),
     CONCURRENT_MODIFICATION("Concurrent modification", "The resource was modified after it was retrieved"),
+    CONCURRENT_WRITE_CONFLICT(
+            "Concurrent write conflict", "A concurrent write could not be completed, the request can be retried"),
     CART_EMPTY("Cart is empty", "The cart does not contain any item eligible for checkout"),
     INVALID_CATEGORY_DEPTH("Invalid category depth", "The category hierarchy exceeds the maximum allowed depth"),
+    INVALID_CATEGORY_HIERARCHY(
+            "Invalid category hierarchy", "The requested parent would create an invalid category hierarchy"),
+    INVALID_CATEGORY_ORDER(
+            "Invalid category order", "The requested sibling position or order does not match the current hierarchy"),
     INVALID_CATEGORY_SLUG("Invalid category slug", "The category slug is empty or malformed after normalization"),
     INVALID_PRODUCT_IMAGE_COUNT(
             "Invalid product image count", "The number of product images exceeds the maximum allowed"),

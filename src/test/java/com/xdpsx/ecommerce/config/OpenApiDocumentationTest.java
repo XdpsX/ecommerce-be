@@ -109,6 +109,41 @@ class OpenApiDocumentationTest {
     }
 
     @Test
+    void adminCategoryHierarchyRoutes_shouldBeDocumentedSeparatelyFromUpdate() {
+        JsonNode move = openApi.at("/paths/~1admin~1categories~1{id}~1parent/put");
+        assertThat(move.isMissingNode()).isFalse();
+        assertThat(move.path("summary").asString()).isEqualTo("Move a category");
+        assertThat(move.path("requestBody")
+                        .path("content")
+                        .path("application/json")
+                        .path("schema")
+                        .path("$ref")
+                        .asString())
+                .isEqualTo("#/components/schemas/MoveCategoryRequest");
+        assertThat(move.path("responses").has("200")).isTrue();
+
+        JsonNode reorder = openApi.at("/paths/~1admin~1categories~1order/put");
+        assertThat(reorder.isMissingNode()).isFalse();
+        assertThat(reorder.path("summary").asString()).isEqualTo("Reorder a sibling group");
+        assertThat(reorder.path("responses").has("204")).isTrue();
+    }
+
+    @Test
+    void updateCategorySchema_shouldNotExposeParentId() {
+        JsonNode properties = openApi.at("/components/schemas/UpdateCategoryRequest/properties");
+
+        assertThat(properties.has("parentId")).isFalse();
+        assertThat(properties.has("name")).isTrue();
+
+        JsonNode moveProperties = openApi.at("/components/schemas/MoveCategoryRequest/properties");
+        assertThat(moveProperties.has("parentId")).isTrue();
+        assertThat(moveProperties.has("position")).isTrue();
+
+        JsonNode reorderProperties = openApi.at("/components/schemas/ReorderCategoriesRequest/properties");
+        assertThat(reorderProperties.has("categoryIds")).isTrue();
+    }
+
+    @Test
     void storefrontTree_shouldStaySeparateFromAdminResponses() {
         JsonNode schema = openApi.at("/paths/~1categories~1tree/get/responses/200/content/*~1*/schema");
 

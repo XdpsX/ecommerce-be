@@ -1,5 +1,7 @@
 package com.xdpsx.ecommerce.catalog.category.application;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -8,7 +10,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
 
 import com.xdpsx.ecommerce.catalog.category.api.dto.*;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
@@ -32,6 +34,13 @@ import lombok.RequiredArgsConstructor;
 public class CategoryServiceImpl implements CategoryService {
     private final CategoryRepository categoryRepository;
     private final MediaRepository mediaRepository;
+    private final CategoryHierarchy categoryHierarchy;
+
+    /**
+     * Opens one transaction per write attempt. Programmatic instead of {@code @Transactional} because the retry wrapper
+     * calls the attempt method on {@code this}, which would bypass the transaction proxy.
+     */
+    private final TransactionOperations transactionOperations;
 
     @Override
     public PageResponse<AdminCategoryResponse> getAdminCategories(AdminCategoryFilter filter) {
@@ -85,8 +94,14 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
-    @Transactional
     public AdminCategoryResponse createCategory(CreateCategoryRequest request) {
+        return categoryHierarchy.executeWithRetry(
+                () -> transactionOperations.execute(status -> createCategoryAttempt(request)));
+    }
+
+    private AdminCategoryResponse createCategoryAttempt(CreateCategoryRequest request) {
+        categoryHierarchy.lockHierarchy();
+
         if (categoryRepository.existsByName(request.name())) {
             throw new ApplicationException(
                     ErrorCode.RESOURCE_ALREADY_EXISTS,
@@ -111,17 +126,17 @@ public class CategoryServiceImpl implements CategoryService {
                 .build();
 
         if (request.parentId() != null) {
-            // Transitional: the parent is looked up by ID regardless of status, and only its depth is checked.
+            // The parent is looked up by ID regardless of status; effective visibility is a storefront concern.
             Category parent = requireCategory(request.parentId());
-            checkCategoryDepth(parent);
             category.setParent(parent);
+            categoryHierarchy.checkNewNodePlacement(parent);
         }
 
-        // A new node is appended to the end of its sibling group in the same transaction. Roots are a group too.
-        int maxOrder = request.parentId() == null
-                ? categoryRepository.findMaxDisplayOrderForRoots()
-                : categoryRepository.findMaxDisplayOrderByParentId(request.parentId());
-        category.setDisplayOrder(maxOrder + 1);
+        // Appending reads the locked sibling group instead of MAX(display_order) + 1, so two concurrent creates
+        // cannot take the same position. Roots are a group too.
+        List<Category> siblings = categoryHierarchy.lockSiblingGroup(request.parentId());
+        categoryHierarchy.normalizeSiblingOrder(siblings);
+        category.setDisplayOrder(siblings.size());
 
         if (request.imageId() != null) {
             category.setImage(activateCategoryImage(request.imageId()));
@@ -132,10 +147,122 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
-    @Transactional
+    public AdminCategoryResponse moveCategory(Integer id, MoveCategoryRequest request) {
+        return categoryHierarchy.executeWithRetry(
+                () -> transactionOperations.execute(status -> moveCategoryAttempt(id, request)));
+    }
+
+    private AdminCategoryResponse moveCategoryAttempt(Integer id, MoveCategoryRequest request) {
+        categoryHierarchy.lockHierarchy();
+
+        MoveTargets targets = lockForMove(id, request.parentId());
+        Category category = targets.moved();
+        Category newParent = targets.newParent();
+
+        // Cycle, self-parent and subtree-height checks run before any locked group is renumbered, so a rejected move
+        // leaves the hierarchy untouched. The chain lock below is an anchor read, not a mutating call.
+        categoryHierarchy.checkMoveAllowed(category, newParent);
+
+        CategoryHierarchy.MoveSnapshot snapshot = categoryHierarchy.lockGroupsForMove(category, request.parentId());
+
+        if (snapshot.isSameGroup()) {
+            // Reordering inside one group: the moved node was already removed, so the range is the final group size.
+            List<Category> group = snapshot.oldGroup();
+            group.add(categoryHierarchy.validateInsertPosition(request.position(), group.size()), category);
+            categoryHierarchy.normalizeSiblingOrder(group);
+        } else {
+            List<Category> oldGroup = snapshot.oldGroup();
+            List<Category> newGroup = snapshot.newGroup();
+            int position = categoryHierarchy.validateInsertPosition(request.position(), newGroup.size());
+            category.setParent(newParent);
+            newGroup.add(position, category);
+            categoryHierarchy.normalizeSiblingOrder(oldGroup);
+            categoryHierarchy.normalizeSiblingOrder(newGroup);
+        }
+
+        Category savedCategory = categoryRepository.save(category);
+        categoryRepository.flush();
+        return CategoryMapper.INSTANCE.toAdminCategoryResponse(savedCategory);
+    }
+
+    /**
+     * Locks the moved category and the target parent in ascending id order.
+     *
+     * <p>Two concurrent moves that reference each other (A under B and B under A) would otherwise take the same two
+     * row locks in opposite order and deadlock. The trade-off is that when both ids are missing, the parent error is
+     * reported instead of the category error.
+     */
+    private MoveTargets lockForMove(Integer categoryId, Integer parentId) {
+        if (parentId != null && parentId < categoryId) {
+            Category parent = requireCategoryForUpdate(parentId);
+            return new MoveTargets(requireCategoryForUpdate(categoryId), parent);
+        }
+        Category category = requireCategoryForUpdate(categoryId);
+        return new MoveTargets(category, parentId == null ? null : requireCategoryForUpdate(parentId));
+    }
+
+    private record MoveTargets(Category moved, Category newParent) {}
+
+    @Override
+    public void reorderCategories(ReorderCategoriesRequest request) {
+        categoryHierarchy.executeWithRetry(() -> transactionOperations.execute(status -> {
+            reorderCategoriesAttempt(request);
+            return null;
+        }));
+    }
+
+    private void reorderCategoriesAttempt(ReorderCategoriesRequest request) {
+        categoryHierarchy.lockHierarchy();
+
+        if (request.parentId() != null) {
+            requireCategory(request.parentId());
+        }
+
+        List<Category> group = categoryHierarchy.lockSiblingGroup(request.parentId());
+        List<Integer> requestedIds = request.categoryIds();
+
+        // Partial reorders are rejected: with no unique constraint on (parent_id, display_order) a partial list would
+        // leave the remaining nodes on orders the request did not account for.
+        if (new HashSet<>(requestedIds).size() != requestedIds.size()
+                || new HashSet<>(requestedIds).size() != group.size()) {
+            throw new ApplicationException(
+                    ErrorCode.INVALID_CATEGORY_ORDER,
+                    Map.of("parentId", String.valueOf(request.parentId()), "groupSize", group.size()));
+        }
+
+        Map<Integer, Category> byId = new HashMap<>();
+        for (Category sibling : group) {
+            byId.put(sibling.getId(), sibling);
+        }
+
+        for (int index = 0; index < requestedIds.size(); index++) {
+            Category sibling = byId.get(requestedIds.get(index));
+            if (sibling == null) {
+                throw new ApplicationException(
+                        ErrorCode.INVALID_CATEGORY_ORDER,
+                        Map.of("parentId", String.valueOf(request.parentId()), "categoryId", requestedIds.get(index)));
+            }
+            sibling.setDisplayOrder(index);
+        }
+
+        categoryRepository.flush();
+    }
+
+    @Override
     public AdminCategoryResponse updateCategory(Integer id, UpdateCategoryRequest request) {
+        return categoryHierarchy.executeWithRetry(
+                () -> transactionOperations.execute(status -> updateCategoryAttempt(id, request)));
+    }
+
+    private AdminCategoryResponse updateCategoryAttempt(Integer id, UpdateCategoryRequest request) {
+        // Locked like every other hierarchy write: Hibernate flushes the whole loaded entity, so an update that read
+        // the
+        // row before a concurrent move would write the old parent/displayOrder back over it. lastRetrievedAt is a
+        // pre-mutation check, not atomic optimistic locking. The hierarchy anchor is what serializes update against
+        // move; locking the row as well keeps this operation correct on its own if the anchor strategy ever changes.
+        categoryHierarchy.lockHierarchy();
         Category category = categoryRepository
-                .findByIdWithParent(id)
+                .findByIdForUpdate(id)
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", id)));
 
@@ -172,23 +299,23 @@ public class CategoryServiceImpl implements CategoryService {
 
         updateCategoryImage(category, request.imageId());
 
-        // Transitional parent mutation. It still does not reject self-parenting, descendant parents or an
-        // over-deep subtree; those invariants belong to the dedicated hierarchy operations.
-        if (!isSameParent(category, request.parentId())) {
-            Category newParent = request.parentId() == null ? null : requireCategory(request.parentId());
-            checkCategoryDepth(newParent);
-            category.setParent(newParent);
-        }
-
         Category savedCategory = categoryRepository.save(category);
         return CategoryMapper.INSTANCE.toAdminCategoryResponse(savedCategory);
     }
 
     @Override
-    @Transactional
     public void deleteCategory(Integer id, ModifyExclusiveDTO request) {
+        categoryHierarchy.executeWithRetry(() -> transactionOperations.execute(status -> {
+            deleteCategoryAttempt(id, request);
+            return null;
+        }));
+    }
+
+    private void deleteCategoryAttempt(Integer id, ModifyExclusiveDTO request) {
+        categoryHierarchy.lockHierarchy();
+
         Category category = categoryRepository
-                .findById(id)
+                .findByIdForUpdate(id)
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", id)));
         if (!request.lastRetrievedAt().isAfter(category.getUpdatedAt())) {
@@ -209,12 +336,21 @@ public class CategoryServiceImpl implements CategoryService {
                     ErrorCode.RESOURCE_IN_USE, Map.of("resourceType", "category", "resourceId", id));
         }
 
+        // Locking the sibling group keeps a concurrent create or reorder from writing an order that the renumbering
+        // below would then silently duplicate.
+        Integer parentId =
+                category.getParent() == null ? null : category.getParent().getId();
+        List<Category> siblings = categoryHierarchy.lockSiblingGroup(parentId);
+        siblings.removeIf(sibling -> sibling.getId().equals(category.getId()));
+
         if (category.getImage() != null) {
             Media image = category.getImage();
             image.markPendingDeletion();
             mediaRepository.save(image);
         }
         categoryRepository.delete(category);
+
+        categoryHierarchy.normalizeSiblingOrder(siblings);
     }
 
     private Category requireCategory(Integer categoryId) {
@@ -224,20 +360,15 @@ public class CategoryServiceImpl implements CategoryService {
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", categoryId)));
     }
 
-    private int getDepth(Category category) {
-        int depth = 0;
-        while (category != null) {
-            depth++;
-            category = category.getParent();
-        }
-        return depth;
-    }
-
-    private void checkCategoryDepth(Category category) {
-        int depth = getDepth(category);
-        if (depth >= Category.MAX_DEPTH) {
-            throw new ApplicationException(ErrorCode.INVALID_CATEGORY_DEPTH, Map.of("maxDepth", Category.MAX_DEPTH));
-        }
+    /**
+     * Resolves a parent inside a hierarchy write. The node is row-locked so a concurrent move cannot reparent it
+     * between the validation and the write.
+     */
+    private Category requireCategoryForUpdate(Integer categoryId) {
+        return categoryRepository
+                .findByIdForUpdate(categoryId)
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", categoryId)));
     }
 
     private Media activateCategoryImage(String imageId) {
@@ -270,10 +401,5 @@ public class CategoryServiceImpl implements CategoryService {
 
             category.setImage(newImage);
         }
-    }
-
-    private boolean isSameParent(Category category, Integer newParentId) {
-        return (category.getParent() == null && newParentId == null)
-                || (category.getParent() != null && category.getParent().getId().equals(newParentId));
     }
 }

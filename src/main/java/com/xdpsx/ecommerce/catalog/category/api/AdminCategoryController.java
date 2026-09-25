@@ -19,8 +19,8 @@ import lombok.RequiredArgsConstructor;
 /**
  * Platform admin boundary for Category. Every endpoint requires the {@code ADMIN} role.
  *
- * <p>{@code parentId} on create and update is a transitional contract for CR1: it keeps hierarchy management
- * possible before the dedicated move/reorder operations exist.
+ * <p>Metadata/lifecycle, hierarchy and order are separate operations: {@code PUT /{id}} never changes the parent,
+ * {@code PUT /{id}/parent} moves one node and {@code PUT /order} replaces a whole sibling group order.
  */
 @RestController
 @RequestMapping("/admin/categories")
@@ -50,6 +50,18 @@ public class AdminCategoryController implements AdminCategoryApiDocs {
     public AdminCategoryResponse updateCategory(
             @PathVariable Integer id, @Valid @RequestBody UpdateCategoryRequest request) {
         return categoryService.updateCategory(id, request);
+    }
+
+    @PutMapping("/{id}/parent")
+    public AdminCategoryResponse moveCategory(
+            @PathVariable Integer id, @Valid @RequestBody MoveCategoryRequest request) {
+        return categoryService.moveCategory(id, request);
+    }
+
+    @PutMapping("/order")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void reorderCategories(@Valid @RequestBody ReorderCategoriesRequest request) {
+        categoryService.reorderCategories(request);
     }
 
     @DeleteMapping("/{id}")
