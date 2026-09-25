@@ -6,7 +6,7 @@ public class SecurityConstants {
         "/categories/get-all",
         "/categories/*/brands",
         "/categories/*/products",
-        "/categories/*",
+        "/categories/tree",
         "/products/*",
         "/products",
         "/products/slug/*"

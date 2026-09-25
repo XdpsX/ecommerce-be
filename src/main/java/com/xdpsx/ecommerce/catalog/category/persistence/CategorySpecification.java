@@ -8,6 +8,7 @@ import jakarta.persistence.criteria.JoinType;
 import org.springframework.data.jpa.domain.Specification;
 
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
+import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.shared.persistence.BaseSpecification;
 import com.xdpsx.ecommerce.catalog.shared.persistence.SearchCriteria;
 import com.xdpsx.ecommerce.catalog.shared.persistence.SearchOperator;
@@ -23,18 +24,25 @@ public class CategorySpecification extends BaseSpecification<Category> {
     }
 
     public Specification<Category> buildAdminCategoriesSpec(
-            String name, Boolean publicFlg, String sort, Integer level) {
+            String name, CategoryStatus status, Integer parentId, String sort, Integer level) {
         List<SearchCriteria> criteriaList = new ArrayList<>();
 
         if (name != null && !name.isBlank()) {
             criteriaList.add(new SearchCriteria("name", name, SearchOperator.LIKE));
         }
 
-        if (publicFlg != null) {
-            criteriaList.add(new SearchCriteria("publicFlg", publicFlg, SearchOperator.EQUAL));
+        if (status != null) {
+            criteriaList.add(new SearchCriteria("status", status, SearchOperator.EQUAL));
         }
 
         Specification<Category> spec = build(criteriaList);
+
+        if (parentId != null) {
+            // The association cannot be compared to a raw id through the generic SearchCriteria path, which would
+            // compare the Category entity to an Integer. The id of the association is compared explicitly instead,
+            // which also makes this an inner join and therefore returns direct children only.
+            spec = spec.and(parentIdEquals(parentId));
+        }
 
         spec = applySort(spec, sort);
 
@@ -45,9 +53,17 @@ public class CategorySpecification extends BaseSpecification<Category> {
         return spec;
     }
 
+    private Specification<Category> parentIdEquals(Integer parentId) {
+        return (root, query, cb) -> cb.equal(root.get("parent").get("id"), parentId);
+    }
+
+    /**
+     * Storefront tree nodes. Filters on the stored status of the node itself; effective status across the
+     * ancestor chain is deferred, so a stored-active node under an inactive parent is still returned here.
+     */
     public Specification<Category> buildCategoryTreeSpec(Category parent, String sort) {
         List<SearchCriteria> criteriaList =
-                new ArrayList<>(List.of(new SearchCriteria("publicFlg", true, SearchOperator.EQUAL)));
+                new ArrayList<>(List.of(new SearchCriteria("status", CategoryStatus.ACTIVE, SearchOperator.EQUAL)));
 
         if (parent == null) {
             criteriaList.add(new SearchCriteria("parent", null, SearchOperator.IS_NULL));

@@ -16,6 +16,7 @@ import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
 import com.xdpsx.ecommerce.catalog.brand.persistence.BrandRepository;
 import com.xdpsx.ecommerce.catalog.brand.persistence.BrandSpecification;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
+import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.CheckExistResponse;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
@@ -149,7 +150,9 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
     private List<Category> fetchCategories(Set<Integer> categoryIds) {
         return categoryIds.stream()
                 .map(categoryId -> categoryRepository
-                        .findPublicById(categoryId)
+                        // Temporary behavior preservation: brands may still only attach a category stored as
+                        // ACTIVE. Effective status across the ancestor chain is not implemented yet.
+                        .findByIdAndStatus(categoryId, CategoryStatus.ACTIVE)
                         .orElseThrow(() -> new ApplicationException(
                                 ErrorCode.RESOURCE_NOT_FOUND,
                                 Map.of("resourceType", "category", "resourceId", categoryId))))

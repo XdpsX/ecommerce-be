@@ -1,5 +1,6 @@
 package com.xdpsx.ecommerce.catalog.category.api.dto;
 
+import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.common.pagination.AbstractPageParams;
 
 import lombok.*;
@@ -12,7 +13,8 @@ import lombok.experimental.SuperBuilder;
 @SuperBuilder
 public class AdminCategoryFilter extends AbstractPageParams {
     private String name;
-    private Boolean publicFlg;
+    private CategoryStatus status;
+    private Integer parentId;
     private String sort;
     private Integer level;
 }
