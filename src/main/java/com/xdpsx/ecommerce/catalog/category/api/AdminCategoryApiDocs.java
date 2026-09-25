@@ -1,12 +1,11 @@
 package com.xdpsx.ecommerce.catalog.category.api;
 
-import java.util.List;
+import jakarta.validation.Valid;
 
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.http.ResponseEntity;
 
 import com.xdpsx.ecommerce.catalog.category.api.dto.*;
-import com.xdpsx.ecommerce.catalog.shared.api.dto.CheckExistResponse;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
 import com.xdpsx.ecommerce.common.error.ApiProblemSchema;
 import com.xdpsx.ecommerce.common.error.ValidationProblemSchema;
@@ -16,15 +15,25 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
-@Tag(name = "Category API")
-public interface CategoryControllerApi {
+/**
+ * Documentation-only interface for the admin Category boundary. Route mappings and parameter binding stay on
+ * {@link AdminCategoryController}, which requires the {@code ADMIN} role.
+ *
+ * <p>{@code parentId} on create and update is documented as a transitional CR1 contract: it keeps hierarchy
+ * management possible before the dedicated move/reorder operations exist.
+ */
+@Tag(name = "Admin Category API")
+interface AdminCategoryApiDocs {
     @Operation(
-            summary = "Get admin categories (Admin)",
-            description = "Retrieve a paginated list of admin categories",
+            summary = "Get admin categories",
+            description = "Retrieve a paginated flat list of categories, including inactive ones",
+            security = @SecurityRequirement(name = "Bearer Authorization"),
             responses = {
                 @ApiResponse(responseCode = "200", description = "OK"),
+                @ApiResponse(responseCode = "401", description = "Authentication required"),
                 @ApiResponse(
                         responseCode = "400",
                         description = "Validation error",
@@ -36,8 +45,9 @@ public interface CategoryControllerApi {
     PageResponse<AdminCategoryResponse> getAdminCategories(@ParameterObject AdminCategoryFilter filter);
 
     @Operation(
-            summary = "Get category by ID",
-            description = "Retrieve a category by its ID",
+            summary = "Get admin category by ID",
+            description = "Retrieve a single category regardless of its status",
+            security = @SecurityRequirement(name = "Bearer Authorization"),
             responses = {
                 @ApiResponse(responseCode = "200", description = "OK"),
                 @ApiResponse(
@@ -48,31 +58,21 @@ public interface CategoryControllerApi {
                                         mediaType = "application/json",
                                         schema = @Schema(implementation = ApiProblemSchema.class)))
             })
-    AdminCategoryResponse getCategory(Integer categoryId);
+    AdminCategoryResponse getAdminCategory(Integer id);
 
     @Operation(
-            summary = "Get category tree",
-            description = "Retrieve the category in hierarchical structure",
-            responses = {
-                @ApiResponse(responseCode = "200", description = "OK"),
-                @ApiResponse(
-                        responseCode = "400",
-                        description = "Validation error",
-                        content =
-                                @Content(
-                                        mediaType = "application/json",
-                                        schema = @Schema(implementation = ValidationProblemSchema.class)))
-            })
-    List<CategoryTreeResponse> getCategoryTree(CategoryTreeFilter filter);
-
-    @Operation(
-            summary = "Create a new category (Admin)",
-            description = "Create a new category with the provided details",
+            summary = "Create a category",
+            description = "Create a category. The slug is generated from the name and the category is appended to the "
+                    + "end of its sibling group. parentId is a transitional CR1 contract and will be replaced "
+                    + "by a dedicated hierarchy operation.",
+            security = @SecurityRequirement(name = "Bearer Authorization"),
             responses = {
                 @ApiResponse(responseCode = "201", description = "Created"),
+                @ApiResponse(responseCode = "401", description = "Authentication required"),
+                @ApiResponse(responseCode = "403", description = "Admin role required"),
                 @ApiResponse(
                         responseCode = "400",
-                        description = "Validation error / Max depth exceeded",
+                        description = "Validation error / Max depth exceeded / Empty normalized slug",
                         content =
                                 @Content(
                                         mediaType = "application/json",
@@ -89,44 +89,28 @@ public interface CategoryControllerApi {
                                         schema = @Schema(implementation = ApiProblemSchema.class))),
                 @ApiResponse(
                         responseCode = "409",
-                        description = "Category already exists",
-                        content =
-                                @Content(
-                                        mediaType = "application/json",
-                                        schema = @Schema(implementation = ApiProblemSchema.class))),
-                @ApiResponse(
-                        responseCode = "422",
-                        description = "Media resource type is invalid",
+                        description = "Category name or slug already exists",
                         content =
                                 @Content(
                                         mediaType = "application/json",
                                         schema = @Schema(implementation = ApiProblemSchema.class)))
             })
-    ResponseEntity<CategoryResponse> createCategory(CreateCategoryRequest request);
+    ResponseEntity<AdminCategoryResponse> createCategory(@Valid CreateCategoryRequest request);
 
     @Operation(
-            summary = "Check if category exists (Admin)",
-            description = "Check if a category with the given name exists",
+            summary = "Update a category",
+            description =
+                    "Update name, status, slug and image. Renaming does not change the slug; send slug explicitly "
+                            + "to change it. parentId is a transitional CR1 contract and will be replaced by a "
+                            + "dedicated hierarchy operation.",
+            security = @SecurityRequirement(name = "Bearer Authorization"),
             responses = {
                 @ApiResponse(responseCode = "200", description = "OK"),
+                @ApiResponse(responseCode = "401", description = "Authentication required"),
+                @ApiResponse(responseCode = "403", description = "Admin role required"),
                 @ApiResponse(
                         responseCode = "400",
-                        description = "Validation error",
-                        content =
-                                @Content(
-                                        mediaType = "application/json",
-                                        schema = @Schema(implementation = ValidationProblemSchema.class)))
-            })
-    CheckExistResponse checkCategoryExist(CategoryExistRequest request);
-
-    @Operation(
-            summary = "Update category (Admin)",
-            description = "Update the details of an existing category",
-            responses = {
-                @ApiResponse(responseCode = "200", description = "OK"),
-                @ApiResponse(
-                        responseCode = "400",
-                        description = "Validation error / Max depth exceeded",
+                        description = "Validation error / Max depth exceeded / Malformed slug",
                         content =
                                 @Content(
                                         mediaType = "application/json",
@@ -143,40 +127,36 @@ public interface CategoryControllerApi {
                                         schema = @Schema(implementation = ApiProblemSchema.class))),
                 @ApiResponse(
                         responseCode = "409",
-                        description = "Category already exists / Modify exclusive",
-                        content =
-                                @Content(
-                                        mediaType = "application/json",
-                                        schema = @Schema(implementation = ApiProblemSchema.class))),
-                @ApiResponse(
-                        responseCode = "422",
-                        description = "Media resource type is invalid",
+                        description = "Category name or slug already exists / Concurrent modification",
                         content =
                                 @Content(
                                         mediaType = "application/json",
                                         schema = @Schema(implementation = ApiProblemSchema.class)))
             })
-    CategoryResponse updateCategory(Integer id, UpdateCategoryRequest request);
+    AdminCategoryResponse updateCategory(Integer id, @Valid UpdateCategoryRequest request);
 
     @Operation(
-            summary = "Delete category (Admin)",
-            description = "Delete an existing category by its ID",
+            summary = "Delete a category",
+            description = "Hard delete. Rejected while the category still has children, products or brands",
+            security = @SecurityRequirement(name = "Bearer Authorization"),
             responses = {
-                @ApiResponse(responseCode = "204", description = "No Content", content = @Content),
+                @ApiResponse(responseCode = "204", description = "No Content"),
+                @ApiResponse(responseCode = "401", description = "Authentication required"),
+                @ApiResponse(responseCode = "403", description = "Admin role required"),
                 @ApiResponse(
-                        responseCode = "400",
-                        description = "Validation error",
-                        content =
-                                @Content(
-                                        mediaType = "application/json",
-                                        schema = @Schema(implementation = ValidationProblemSchema.class))),
-                @ApiResponse(
-                        responseCode = "409",
-                        description = "Modify exclusive / Category in use",
+                        responseCode = "404",
+                        description = "Not Found",
                         content =
                                 @Content(
                                         mediaType = "application/json",
                                         schema = @Schema(implementation = ApiProblemSchema.class))),
+                @ApiResponse(
+                        responseCode = "409",
+                        description = "Category still in use / Concurrent modification",
+                        content =
+                                @Content(
+                                        mediaType = "application/json",
+                                        schema = @Schema(implementation = ApiProblemSchema.class)))
             })
-    void deleteCategory(Integer id, ModifyExclusiveDTO request);
+    void deleteCategory(Integer id, @Valid ModifyExclusiveDTO request);
 }

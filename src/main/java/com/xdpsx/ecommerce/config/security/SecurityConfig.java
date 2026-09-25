@@ -41,7 +41,9 @@ import com.xdpsx.ecommerce.common.observability.CorrelationIdFilter;
 
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity
+// CGLIB proxying is required: with the default interface-based proxying a controller carrying a class-level
+// @PreAuthorize becomes a JDK proxy that no longer exposes @RestController, and its routes stop being registered.
+@EnableMethodSecurity(proxyTargetClass = true)
 public class SecurityConfig {
 
     @Value("${app.jwt.secret}")

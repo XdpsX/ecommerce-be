@@ -19,6 +19,7 @@ public enum ErrorCode {
     CONCURRENT_MODIFICATION("Concurrent modification", "The resource was modified after it was retrieved"),
     CART_EMPTY("Cart is empty", "The cart does not contain any item eligible for checkout"),
     INVALID_CATEGORY_DEPTH("Invalid category depth", "The category hierarchy exceeds the maximum allowed depth"),
+    INVALID_CATEGORY_SLUG("Invalid category slug", "The category slug is empty or malformed after normalization"),
     INVALID_PRODUCT_IMAGE_COUNT(
             "Invalid product image count", "The number of product images exceeds the maximum allowed"),
     INVALID_MEDIA_RESOURCE_TYPE(

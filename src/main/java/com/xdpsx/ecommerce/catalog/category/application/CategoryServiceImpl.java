@@ -12,9 +12,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.xdpsx.ecommerce.catalog.category.api.dto.*;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
+import com.xdpsx.ecommerce.catalog.category.domain.CategorySlug;
+import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategorySpecification;
-import com.xdpsx.ecommerce.catalog.shared.api.dto.CheckExistResponse;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
 import com.xdpsx.ecommerce.catalog.shared.application.PageMapper;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
@@ -35,16 +36,21 @@ public class CategoryServiceImpl implements CategoryService {
     @Override
     public PageResponse<AdminCategoryResponse> getAdminCategories(AdminCategoryFilter filter) {
         Specification<Category> spec = CategorySpecification.getInstance()
-                .buildAdminCategoriesSpec(filter.getName(), filter.getPublicFlg(), filter.getSort(), filter.getLevel());
+                .buildAdminCategoriesSpec(
+                        filter.getName(),
+                        filter.getStatus(),
+                        filter.getParentId(),
+                        filter.getSort(),
+                        filter.getLevel());
         Page<Category> categoryPage =
                 categoryRepository.findAll(spec, PageRequest.of(filter.getPageNum() - 1, filter.getPageSize()));
         return PageMapper.toPageResponse(categoryPage, CategoryMapper.INSTANCE::toAdminCategoryResponse);
     }
 
     @Override
-    public AdminCategoryResponse getCategory(Integer categoryId) {
+    public AdminCategoryResponse getAdminCategory(Integer categoryId) {
         Category category = categoryRepository
-                .findPublicByIdWithParent(categoryId)
+                .findByIdWithParent(categoryId)
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", categoryId)));
         return CategoryMapper.INSTANCE.toAdminCategoryResponse(category);
@@ -59,6 +65,10 @@ public class CategoryServiceImpl implements CategoryService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Assembles the storefront tree node by node. This still issues one query per node; a bounded read query is
+     * deferred to the storefront read model work.
+     */
     private CategoryTreeResponse buildTree(Category category, int level, Integer maxLevel, String sort) {
         CategoryTreeResponse dto = CategoryMapper.INSTANCE.toCategoryTreeResponse(category);
 
@@ -76,47 +86,54 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     @Transactional
-    public CategoryResponse createCategory(CreateCategoryRequest request) {
-        Category category = CategoryMapper.INSTANCE.toEntity(request);
-
+    public AdminCategoryResponse createCategory(CreateCategoryRequest request) {
         if (categoryRepository.existsByName(request.name())) {
             throw new ApplicationException(
                     ErrorCode.RESOURCE_ALREADY_EXISTS,
                     Map.of("resourceType", "category", "field", "name", "value", request.name()));
         }
 
+        String slug = CategorySlug.normalize(request.name());
+        if (slug.isEmpty()) {
+            throw new ApplicationException(ErrorCode.INVALID_CATEGORY_SLUG, Map.of("resourceType", "category"));
+        }
+        if (categoryRepository.existsBySlug(slug)) {
+            throw new ApplicationException(
+                    ErrorCode.RESOURCE_ALREADY_EXISTS,
+                    Map.of("resourceType", "category", "field", "slug", "value", slug));
+        }
+
+        Category category = Category.builder()
+                .name(request.name())
+                .slug(slug)
+                // An omitted status keeps the previous default of creating a non-visible category.
+                .status(request.status() == null ? CategoryStatus.INACTIVE : request.status())
+                .build();
+
         if (request.parentId() != null) {
-            Category parent = categoryRepository
-                    .findPublicByIdWithParent(request.parentId())
-                    .orElseThrow(() -> new ApplicationException(
-                            ErrorCode.RESOURCE_NOT_FOUND,
-                            Map.of("resourceType", "category", "resourceId", request.parentId())));
+            // Transitional: the parent is looked up by ID regardless of status, and only its depth is checked.
+            Category parent = requireCategory(request.parentId());
             checkCategoryDepth(parent);
             category.setParent(parent);
         }
 
+        // A new node is appended to the end of its sibling group in the same transaction. Roots are a group too.
+        int maxOrder = request.parentId() == null
+                ? categoryRepository.findMaxDisplayOrderForRoots()
+                : categoryRepository.findMaxDisplayOrderByParentId(request.parentId());
+        category.setDisplayOrder(maxOrder + 1);
+
         if (request.imageId() != null) {
-            Media image = mediaRepository
-                    .findAttachableById(request.imageId(), MediaPurpose.CATEGORY_IMAGE)
-                    .orElseThrow(() -> new ApplicationException(
-                            ErrorCode.RESOURCE_NOT_FOUND,
-                            Map.of("resourceType", "media", "resourceId", request.imageId())));
-            image.activate();
-            category.setImage(image);
+            category.setImage(activateCategoryImage(request.imageId()));
         }
 
         Category savedCategory = categoryRepository.save(category);
-        return CategoryMapper.INSTANCE.toResponse(savedCategory);
-    }
-
-    @Override
-    public CheckExistResponse checkCategoryExist(CategoryExistRequest request) {
-        return new CheckExistResponse("name", categoryRepository.existsByName(request.name()));
+        return CategoryMapper.INSTANCE.toAdminCategoryResponse(savedCategory);
     }
 
     @Override
     @Transactional
-    public CategoryResponse updateCategory(Integer id, UpdateCategoryRequest request) {
+    public AdminCategoryResponse updateCategory(Integer id, UpdateCategoryRequest request) {
         Category category = categoryRepository
                 .findByIdWithParent(id)
                 .orElseThrow(() -> new ApplicationException(
@@ -127,7 +144,7 @@ public class CategoryServiceImpl implements CategoryService {
                     ErrorCode.CONCURRENT_MODIFICATION, Map.of("resourceType", "category", "resourceId", id));
         }
 
-        // Update name
+        // Renaming never changes the slug; only an explicit slug request does.
         if (!category.getName().equals(request.name())) {
             if (categoryRepository.existsByName(request.name())) {
                 throw new ApplicationException(
@@ -137,19 +154,74 @@ public class CategoryServiceImpl implements CategoryService {
             category.setName(request.name());
         }
 
-        category.setPublicFlg(request.publicFlg());
-        // Update image
+        if (request.slug() != null && !category.getSlug().equals(request.slug())) {
+            if (!CategorySlug.isNormalized(request.slug())) {
+                throw new ApplicationException(ErrorCode.INVALID_CATEGORY_SLUG, Map.of("resourceType", "category"));
+            }
+            if (categoryRepository.existsBySlug(request.slug())) {
+                throw new ApplicationException(
+                        ErrorCode.RESOURCE_ALREADY_EXISTS,
+                        Map.of("resourceType", "category", "field", "slug", "value", request.slug()));
+            }
+            category.setSlug(request.slug());
+        }
+
+        if (request.status() != null) {
+            category.setStatus(request.status());
+        }
+
         updateCategoryImage(category, request.imageId());
 
-        // Update parent
+        // Transitional parent mutation. It still does not reject self-parenting, descendant parents or an
+        // over-deep subtree; those invariants belong to the dedicated hierarchy operations.
         if (!isSameParent(category, request.parentId())) {
-            Category newParent = getParentCategory(request.parentId());
+            Category newParent = request.parentId() == null ? null : requireCategory(request.parentId());
             checkCategoryDepth(newParent);
             category.setParent(newParent);
         }
 
         Category savedCategory = categoryRepository.save(category);
-        return CategoryMapper.INSTANCE.toResponse(savedCategory);
+        return CategoryMapper.INSTANCE.toAdminCategoryResponse(savedCategory);
+    }
+
+    @Override
+    @Transactional
+    public void deleteCategory(Integer id, ModifyExclusiveDTO request) {
+        Category category = categoryRepository
+                .findById(id)
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", id)));
+        if (!request.lastRetrievedAt().isAfter(category.getUpdatedAt())) {
+            throw new ApplicationException(
+                    ErrorCode.CONCURRENT_MODIFICATION, Map.of("resourceType", "category", "resourceId", id));
+        }
+
+        // Children are never re-parented or cascaded; the FK is restrictive, so the check keeps this a
+        // controlled application error instead of a raw database failure.
+        if (categoryRepository.existsByParentId(id)) {
+            throw new ApplicationException(
+                    ErrorCode.RESOURCE_IN_USE, Map.of("resourceType", "category", "resourceId", id));
+        }
+
+        long countReferences = categoryRepository.countCategoriesInOtherTables(id);
+        if (countReferences > 0) {
+            throw new ApplicationException(
+                    ErrorCode.RESOURCE_IN_USE, Map.of("resourceType", "category", "resourceId", id));
+        }
+
+        if (category.getImage() != null) {
+            Media image = category.getImage();
+            image.markPendingDeletion();
+            mediaRepository.save(image);
+        }
+        categoryRepository.delete(category);
+    }
+
+    private Category requireCategory(Integer categoryId) {
+        return categoryRepository
+                .findByIdWithParent(categoryId)
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", categoryId)));
     }
 
     private int getDepth(Category category) {
@@ -168,6 +240,15 @@ public class CategoryServiceImpl implements CategoryService {
         }
     }
 
+    private Media activateCategoryImage(String imageId) {
+        Media image = mediaRepository
+                .findAttachableById(imageId, MediaPurpose.CATEGORY_IMAGE)
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "media", "resourceId", imageId)));
+        image.activate();
+        return image;
+    }
+
     private void updateCategoryImage(Category category, String newImageId) {
         Media oldImage = category.getImage();
 
@@ -184,12 +265,7 @@ public class CategoryServiceImpl implements CategoryService {
 
         // if have new image and new image != old image => Update image
         if (newImageId != null && (oldImage == null || !oldImage.getId().equals(newImageId))) {
-            Media newImage = mediaRepository
-                    .findAttachableById(newImageId, MediaPurpose.CATEGORY_IMAGE)
-                    .orElseThrow(() -> new ApplicationException(
-                            ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "media", "resourceId", newImageId)));
-
-            newImage.activate();
+            Media newImage = activateCategoryImage(newImageId);
             mediaRepository.save(newImage);
 
             category.setImage(newImage);
@@ -199,39 +275,5 @@ public class CategoryServiceImpl implements CategoryService {
     private boolean isSameParent(Category category, Integer newParentId) {
         return (category.getParent() == null && newParentId == null)
                 || (category.getParent() != null && category.getParent().getId().equals(newParentId));
-    }
-
-    private Category getParentCategory(Integer parentId) {
-        return (parentId == null)
-                ? null
-                : categoryRepository
-                        .findPublicByIdWithParent(parentId)
-                        .orElseThrow(() -> new ApplicationException(
-                                ErrorCode.RESOURCE_NOT_FOUND,
-                                Map.of("resourceType", "category", "resourceId", parentId)));
-    }
-
-    @Override
-    @Transactional
-    public void deleteCategory(Integer id, ModifyExclusiveDTO request) {
-        Category category = categoryRepository
-                .findById(id)
-                .orElseThrow(() -> new ApplicationException(
-                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", id)));
-        if (!request.lastRetrievedAt().isAfter(category.getUpdatedAt())) {
-            throw new ApplicationException(
-                    ErrorCode.CONCURRENT_MODIFICATION, Map.of("resourceType", "category", "resourceId", id));
-        }
-        long countCategories = categoryRepository.countCategoriesInOtherTables(id);
-        if (countCategories > 0) {
-            throw new ApplicationException(
-                    ErrorCode.RESOURCE_IN_USE, Map.of("resourceType", "category", "resourceId", id));
-        }
-        if (category.getImage() != null) {
-            Media image = category.getImage();
-            image.markPendingDeletion();
-            mediaRepository.save(image);
-        }
-        categoryRepository.delete(category);
     }
 }

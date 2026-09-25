@@ -18,7 +18,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.xdpsx.ecommerce.catalog.category.api.CategoryController;
+import com.xdpsx.ecommerce.catalog.category.api.AdminCategoryController;
+import com.xdpsx.ecommerce.catalog.category.api.StorefrontCategoryController;
 import com.xdpsx.ecommerce.catalog.category.application.CategoryService;
 import com.xdpsx.ecommerce.media.api.MediaController;
 import com.xdpsx.ecommerce.media.application.MediaService;
@@ -28,13 +29,14 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Guards that documentation-only interfaces ({@code CategoryControllerApi}, {@code MediaControllerApi}) are still
- * discovered by Springdoc while Spring MVC behavior lives exclusively on the controllers.
+ * Guards that documentation-only interfaces ({@code AdminCategoryApiDocs}, {@code StorefrontCategoryApiDocs},
+ * {@code MediaControllerApi}) are still discovered by Springdoc while Spring MVC behavior lives exclusively on the
+ * controllers.
  *
- * <p>Uses a focused MVC slice: only the two controllers, the Springdoc beans, and mocked services are
- * loaded. No database, Liquibase, or Cloudinary connection is started.
+ * <p>Uses a focused MVC slice: only the controllers, the Springdoc beans, and mocked services are loaded. No
+ * database, Liquibase, or Cloudinary connection is started.
  */
-@WebMvcTest(controllers = {CategoryController.class, MediaController.class})
+@WebMvcTest(controllers = {AdminCategoryController.class, StorefrontCategoryController.class, MediaController.class})
 @Import(SecurityConfigForControllerTests.class)
 @ImportAutoConfiguration({
     SpringDocConfiguration.class,
@@ -68,15 +70,15 @@ class OpenApiDocumentationTest {
     }
 
     @Test
-    void categoryById_shouldKeepOperationFromApiDocsInterface() {
-        JsonNode operation = openApi.at("/paths/~1categories~1{category-id}/get");
+    void adminCategoryById_shouldKeepOperationFromApiDocsInterface() {
+        JsonNode operation = openApi.at("/paths/~1admin~1categories~1{id}/get");
 
         assertThat(operation.isMissingNode()).isFalse();
-        assertThat(operation.path("summary").asString()).isEqualTo("Get category by ID");
-        assertThat(operation.path("tags").get(0).asString()).isEqualTo("Category API");
+        assertThat(operation.path("summary").asString()).isEqualTo("Get admin category by ID");
+        assertThat(operation.path("tags").get(0).asString()).isEqualTo("Admin Category API");
 
         JsonNode pathParameter = operation.path("parameters").get(0);
-        assertThat(pathParameter.path("name").asString()).isEqualTo("category-id");
+        assertThat(pathParameter.path("name").asString()).isEqualTo("id");
         assertThat(pathParameter.path("in").asString()).isEqualTo("path");
     }
 
@@ -86,9 +88,38 @@ class OpenApiDocumentationTest {
 
         assertThat(parameters.isArray()).isTrue();
         assertThat(parameters.findValuesAsString("name"))
-                .contains("name", "publicFlg", "sort", "level", "pageNum", "pageSize");
+                .contains("name", "status", "parentId", "sort", "level", "pageNum", "pageSize");
         parameters.forEach(
                 parameter -> assertThat(parameter.path("in").asString()).isEqualTo("query"));
+    }
+
+    @Test
+    void adminCategoryRoutes_shouldBeResourceOrientedAndDropLegacyRpcPaths() {
+        assertThat(openApi.at("/paths/~1admin~1categories").has("post")).isTrue();
+        assertThat(openApi.at("/paths/~1admin~1categories~1{id}").has("put")).isTrue();
+        assertThat(openApi.at("/paths/~1admin~1categories~1{id}").has("delete")).isTrue();
+
+        // The legacy RPC paths must no longer be documented.
+        assertThat(openApi.at("/paths/~1categories~1create").isMissingNode()).isTrue();
+        assertThat(openApi.at("/paths/~1categories~1{id}~1update").isMissingNode())
+                .isTrue();
+        assertThat(openApi.at("/paths/~1categories~1{id}~1delete").isMissingNode())
+                .isTrue();
+        assertThat(openApi.at("/paths/~1categories~1exists").isMissingNode()).isTrue();
+    }
+
+    @Test
+    void storefrontTree_shouldStaySeparateFromAdminResponses() {
+        JsonNode schema = openApi.at("/paths/~1categories~1tree/get/responses/200/content/*~1*/schema");
+
+        assertThat(schema.path("type").asString()).isEqualTo("array");
+        assertThat(schema.path("items").path("$ref").asString()).isEqualTo("#/components/schemas/CategoryTreeResponse");
+
+        // The public tree node exposes the storefront fields and must not leak the stored admin lifecycle.
+        JsonNode treeProperties = openApi.at("/components/schemas/CategoryTreeResponse/properties");
+        assertThat(treeProperties.has("slug")).isTrue();
+        assertThat(treeProperties.has("status")).isFalse();
+        assertThat(treeProperties.has("displayOrder")).isFalse();
     }
 
     @Test

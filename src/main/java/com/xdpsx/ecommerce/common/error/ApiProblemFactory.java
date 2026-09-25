@@ -37,6 +37,7 @@ public final class ApiProblemFactory {
                     MALFORMED_REQUEST,
                     CART_EMPTY,
                     INVALID_CATEGORY_DEPTH,
+                    INVALID_CATEGORY_SLUG,
                     INVALID_PRODUCT_IMAGE_COUNT,
                     INVALID_IMAGE_WIDTH -> HttpStatus.BAD_REQUEST;
             case INVALID_CREDENTIALS, AUTHENTICATION_REQUIRED -> HttpStatus.UNAUTHORIZED;

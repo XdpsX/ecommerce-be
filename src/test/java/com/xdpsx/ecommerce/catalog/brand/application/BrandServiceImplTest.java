@@ -3,6 +3,7 @@ package com.xdpsx.ecommerce.catalog.brand.application;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import java.time.LocalDateTime;
@@ -22,6 +23,7 @@ import com.xdpsx.ecommerce.catalog.brand.api.dto.UpdateBrandRequest;
 import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
 import com.xdpsx.ecommerce.catalog.brand.persistence.BrandRepository;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
+import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.CheckExistResponse;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
@@ -89,7 +91,8 @@ class BrandServiceImplTest {
         when(brandRepository.existsByName("Puma")).thenReturn(false);
         when(mediaRepository.findAttachableById(imageId, MediaPurpose.BRAND_LOGO))
                 .thenReturn(Optional.of(media));
-        when(categoryRepository.findPublicById(anyInt())).thenReturn(Optional.of(new Category()));
+        when(categoryRepository.findByIdAndStatus(anyInt(), eq(CategoryStatus.ACTIVE)))
+                .thenReturn(Optional.of(new Category()));
         when(brandRepository.save(any(Brand.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // Act
@@ -127,7 +130,7 @@ class BrandServiceImplTest {
                         .id(newImageId)
                         .status(MediaStatus.TEMPORARY)
                         .build()));
-        when(categoryRepository.findPublicById(1)).thenReturn(Optional.of(new Category()));
+        when(categoryRepository.findByIdAndStatus(1, CategoryStatus.ACTIVE)).thenReturn(Optional.of(new Category()));
         when(brandRepository.save(any(Brand.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // Act
@@ -263,7 +266,8 @@ class BrandServiceImplTest {
     void testFetchCategories_shouldThrowNotFound_WhenCategoryDoesNotExist() {
         // Arrange
         Set<Integer> categoryIds = Set.of(1, 2);
-        when(categoryRepository.findPublicById(anyInt())).thenReturn(Optional.empty());
+        when(categoryRepository.findByIdAndStatus(anyInt(), eq(CategoryStatus.ACTIVE)))
+                .thenReturn(Optional.empty());
 
         // Act & Assert
         ApplicationException exception = assertThrows(
@@ -271,6 +275,6 @@ class BrandServiceImplTest {
                 () -> brandService.createBrand(new CreateBrandRequest("Puma", true, null, categoryIds)));
         assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
         assertEquals("category", exception.getParameters().get("resourceType"));
-        verify(categoryRepository).findPublicById(anyInt());
+        verify(categoryRepository).findByIdAndStatus(anyInt(), eq(CategoryStatus.ACTIVE));
     }
 }
