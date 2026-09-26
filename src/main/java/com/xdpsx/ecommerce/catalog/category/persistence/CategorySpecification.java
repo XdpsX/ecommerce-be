@@ -37,10 +37,17 @@ public class CategorySpecification extends BaseSpecification<Category> {
 
         Specification<Category> spec = build(criteriaList);
 
+        // The admin response maps image.url on every row. image is an unqualified @OneToOne, hence eager by
+        // default, so without a fetch Hibernate would resolve it with one secondary select per row.
+        spec = spec.and(fetchImage());
+
         if (parentId != null) {
-            // The association cannot be compared to a raw id through the generic SearchCriteria path, which would
-            // compare the Category entity to an Integer. The id of the association is compared explicitly instead,
-            // which also makes this an inner join and therefore returns direct children only.
+            // The association cannot be compared to a raw id through the generic
+            // SearchCriteria path, which would
+            // compare the Category entity to an Integer. The id of the association is
+            // compared explicitly instead,
+            // which also makes this an inner join and therefore returns direct children
+            // only.
             spec = spec.and(parentIdEquals(parentId));
         }
 
@@ -57,25 +64,14 @@ public class CategorySpecification extends BaseSpecification<Category> {
         return (root, query, cb) -> cb.equal(root.get("parent").get("id"), parentId);
     }
 
-    /**
-     * Storefront tree nodes. Filters on the stored status of the node itself; effective status across the
-     * ancestor chain is deferred, so a stored-active node under an inactive parent is still returned here.
-     */
-    public Specification<Category> buildCategoryTreeSpec(Category parent, String sort) {
-        List<SearchCriteria> criteriaList =
-                new ArrayList<>(List.of(new SearchCriteria("status", CategoryStatus.ACTIVE, SearchOperator.EQUAL)));
-
-        if (parent == null) {
-            criteriaList.add(new SearchCriteria("parent", null, SearchOperator.IS_NULL));
-        } else {
-            criteriaList.add(new SearchCriteria("parent", parent, SearchOperator.EQUAL));
-        }
-
-        Specification<Category> spec = build(criteriaList);
-
-        spec = applySort(spec, sort);
-
-        return spec;
+    /** Fetch join must not be applied to the count query that pagination issues alongside the page query. */
+    private Specification<Category> fetchImage() {
+        return (root, query, cb) -> {
+            if (query.getResultType().equals(Category.class)) {
+                root.fetch("image", JoinType.LEFT);
+            }
+            return cb.conjunction();
+        };
     }
 
     private Specification<Category> levelEquals(Integer level) {

@@ -353,8 +353,12 @@ class CategoryHierarchyPersistenceTest {
     private Integer renameCategory(Integer categoryId, String newName) {
         Category current = transactionTemplate.execute(
                 status -> categoryRepository.findById(categoryId).orElseThrow());
-        UpdateCategoryRequest request =
-                new UpdateCategoryRequest(newName, current.getStatus(), null, null, LocalDateTime.now());
+        // Keep this lock-serialization test independent from the stale-write contract. The
+        // competing move may commit after this helper reads the category but before updateCategory
+        // acquires the hierarchy anchor; a timestamp beyond that short race window lets both valid
+        // writes complete so the assertions can detect a genuinely lost move or rename.
+        UpdateCategoryRequest request = new UpdateCategoryRequest(
+                newName, current.getStatus(), null, null, LocalDateTime.now().plusMinutes(1));
         return categoryService.updateCategory(categoryId, request).displayOrder();
     }
 

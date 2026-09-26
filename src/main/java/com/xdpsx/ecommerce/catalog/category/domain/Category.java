@@ -24,7 +24,8 @@ public class Category extends AuditEntity {
     private String name;
 
     /**
-     * Lifecycle of this node only. It is never cascaded to descendants, so an {@code ACTIVE} child under an
+     * Lifecycle of this node only. It is never cascaded to descendants, so an
+     * {@code ACTIVE} child under an
      * {@code INACTIVE} parent keeps its stored status.
      */
     @Enumerated(EnumType.STRING)
@@ -35,7 +36,8 @@ public class Category extends AuditEntity {
     private String slug;
 
     /**
-     * Zero-based position inside the sibling group. Root categories (no parent) form their own group.
+     * Zero-based position inside the sibling group. Root categories (no parent)
+     * form their own group.
      */
     @Column(name = "display_order", nullable = false)
     private Integer displayOrder;
@@ -45,7 +47,8 @@ public class Category extends AuditEntity {
     private Media image;
 
     /**
-     * Adjacency list parent. Children are never mapped as a collection; they are read through repository
+     * Adjacency list parent. Children are never mapped as a collection; they are
+     * read through repository
      * queries so a node can be loaded without its whole subtree.
      */
     @ManyToOne(fetch = FetchType.LAZY)
@@ -53,4 +56,27 @@ public class Category extends AuditEntity {
     private Category parent;
 
     public static final int MAX_DEPTH = 3;
+
+    /**
+     * Derived storefront visibility: true only when this node and every ancestor are stored {@code ACTIVE}.
+     *
+     * <p>The chain walk is pure in-memory and hard-capped at {@link #MAX_DEPTH} hops; the caller must have loaded
+     * the parent chain already (repository read queries fetch it), otherwise each lazy hop would issue a query.
+     * Malformed data deeper than the cap (or cyclic) reads as not effectively active instead of walking further.
+     * The value is never persisted and a parent status change is never cascaded to descendants.
+     */
+    public boolean isEffectivelyActive() {
+        Category node = this;
+        for (int depth = 0; depth < MAX_DEPTH; depth++) {
+            if (node == null) {
+                return true;
+            }
+            if (node.getStatus() != CategoryStatus.ACTIVE) {
+                return false;
+            }
+            node = node.getParent();
+        }
+        // A remaining parent means the chain exceeds the depth invariant; treat it as not visible.
+        return node == null;
+    }
 }

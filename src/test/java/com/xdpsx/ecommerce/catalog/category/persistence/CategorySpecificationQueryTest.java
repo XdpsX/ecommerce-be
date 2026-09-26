@@ -26,13 +26,20 @@ import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 
 /**
- * Executes the admin Category specification through Hibernate against a real (in-memory) database.
+ * Executes the admin Category specification through Hibernate against a real
+ * (in-memory) database.
  *
- * <p>The point of this test is that the query is actually built and run. Comparing the {@code parent} association
- * to a raw {@code Integer} only fails at query time, so a mocked {@code CriteriaBuilder} cannot protect it.
+ * <p>
+ * The point of this test is that the query is actually built and run. Comparing
+ * the {@code parent} association
+ * to a raw {@code Integer} only fails at query time, so a mocked
+ * {@code CriteriaBuilder} cannot protect it.
  *
- * <p>Only the Category domain is mapped. H2 is not the production MySQL dialect, but the failure mode under test
- * comes from Hibernate's criteria rendering rather than from a database-specific feature.
+ * <p>
+ * Only the Category domain is mapped. H2 is not the production MySQL dialect,
+ * but the failure mode under test
+ * comes from Hibernate's criteria rendering rather than from a
+ * database-specific feature.
  */
 @SpringJUnitConfig(CategorySpecificationQueryTest.PersistenceConfig.class)
 class CategorySpecificationQueryTest {
@@ -57,7 +64,8 @@ class CategorySpecificationQueryTest {
         LocalContainerEntityManagerFactoryBean entityManagerFactory(DriverManagerDataSource dataSource) {
             LocalContainerEntityManagerFactoryBean factory = new LocalContainerEntityManagerFactoryBean();
             factory.setDataSource(dataSource);
-            // The Category aggregate plus the entities it associates with. Scanning only Category would leave
+            // The Category aggregate plus the entities it associates with. Scanning only
+            // Category would leave
             // its Media association without a mapped target.
             factory.setPackagesToScan(
                     "com.xdpsx.ecommerce.catalog.category.domain", "com.xdpsx.ecommerce.media.domain");
@@ -149,19 +157,5 @@ class CategorySpecificationQueryTest {
     @Test
     void noFilter_ShouldReturnAllRowsIncludingRoots() {
         assertThat(names(adminSpec(null, null, null))).hasSize(5);
-    }
-
-    @Test
-    void treeSpec_ShouldReturnOnlyActiveChildrenOfTheParent() {
-        Category electronics = categoryRepository.findById(electronicsId).orElseThrow();
-
-        assertThat(names(CategorySpecification.getInstance().buildCategoryTreeSpec(electronics, null)))
-                .containsExactly("Laptops");
-    }
-
-    @Test
-    void treeSpec_ShouldReturnOnlyActiveRoots() {
-        assertThat(names(CategorySpecification.getInstance().buildCategoryTreeSpec(null, null)))
-                .containsExactlyInAnyOrder("Electronics", "Fashion");
     }
 }
