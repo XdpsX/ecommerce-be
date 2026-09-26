@@ -1,5 +1,6 @@
 package com.xdpsx.ecommerce.catalog.brand.application;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -16,7 +17,6 @@ import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
 import com.xdpsx.ecommerce.catalog.brand.persistence.BrandRepository;
 import com.xdpsx.ecommerce.catalog.brand.persistence.BrandSpecification;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
-import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.CheckExistResponse;
 import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
@@ -147,15 +147,27 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
         return new CheckExistResponse("name", brandRepository.existsByName(request.name()));
     }
 
+    /**
+     * Resolves the requested set in one query and rejects the whole operation when
+     * any category is missing or not
+     * effectively active (itself and every ancestor stored {@code ACTIVE}), so no
+     * partial brand assignment is saved.
+     */
     private List<Category> fetchCategories(Set<Integer> categoryIds) {
+        Map<Integer, Category> byId = new HashMap<>();
+        for (Category category : categoryRepository.findAllByIdInWithAncestry(categoryIds)) {
+            byId.put(category.getId(), category);
+        }
         return categoryIds.stream()
-                .map(categoryId -> categoryRepository
-                        // Temporary behavior preservation: brands may still only attach a category stored as
-                        // ACTIVE. Effective status across the ancestor chain is not implemented yet.
-                        .findByIdAndStatus(categoryId, CategoryStatus.ACTIVE)
-                        .orElseThrow(() -> new ApplicationException(
+                .map(categoryId -> {
+                    Category category = byId.get(categoryId);
+                    if (category == null || !category.isEffectivelyActive()) {
+                        throw new ApplicationException(
                                 ErrorCode.RESOURCE_NOT_FOUND,
-                                Map.of("resourceType", "category", "resourceId", categoryId))))
+                                Map.of("resourceType", "category", "resourceId", categoryId));
+                    }
+                    return category;
+                })
                 .collect(Collectors.toList());
     }
 }

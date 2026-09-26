@@ -29,11 +29,15 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Guards that documentation-only interfaces ({@code AdminCategoryApiDocs}, {@code StorefrontCategoryApiDocs},
- * {@code MediaControllerApi}) are still discovered by Springdoc while Spring MVC behavior lives exclusively on the
+ * Guards that documentation-only interfaces ({@code AdminCategoryApiDocs},
+ * {@code StorefrontCategoryApiDocs},
+ * {@code MediaControllerApi}) are still discovered by Springdoc while Spring
+ * MVC behavior lives exclusively on the
  * controllers.
  *
- * <p>Uses a focused MVC slice: only the controllers, the Springdoc beans, and mocked services are loaded. No
+ * <p>
+ * Uses a focused MVC slice: only the controllers, the Springdoc beans, and
+ * mocked services are loaded. No
  * database, Liquibase, or Cloudinary connection is started.
  */
 @WebMvcTest(controllers = {AdminCategoryController.class, StorefrontCategoryController.class, MediaController.class})
@@ -150,7 +154,8 @@ class OpenApiDocumentationTest {
         assertThat(schema.path("type").asString()).isEqualTo("array");
         assertThat(schema.path("items").path("$ref").asString()).isEqualTo("#/components/schemas/CategoryTreeResponse");
 
-        // The public tree node exposes the storefront fields and must not leak the stored admin lifecycle.
+        // The public tree node exposes the storefront fields and must not leak the
+        // stored admin lifecycle.
         JsonNode treeProperties = openApi.at("/components/schemas/CategoryTreeResponse/properties");
         assertThat(treeProperties.has("slug")).isTrue();
         assertThat(treeProperties.has("status")).isFalse();
@@ -187,6 +192,45 @@ class OpenApiDocumentationTest {
         assertThat(schema.path("items").path("$ref").asString()).isEqualTo("#/components/schemas/CategoryTreeResponse");
         assertThat(openApi.at("/components/schemas/CategoryTreeResponse").isMissingNode())
                 .isFalse();
+    }
+
+    @Test
+    void storefrontCategoryReads_shouldDocumentRootListAndSlugDetail() {
+        // Root list
+        JsonNode rootSchema = openApi.at("/paths/~1categories/get/responses/200/content/*~1*/schema");
+        assertThat(rootSchema.path("type").asString()).isEqualTo("array");
+        assertThat(rootSchema.path("items").path("$ref").asString())
+                .isEqualTo("#/components/schemas/StorefrontCategoryResponse");
+
+        // Slug detail: path parameter and the shared 404 response for missing and
+        // hidden categories.
+        JsonNode detail = openApi.at("/paths/~1categories~1{slug}/get");
+        assertThat(detail.isMissingNode()).isFalse();
+        JsonNode slugParameter = detail.path("parameters").get(0);
+        assertThat(slugParameter.path("name").asString()).isEqualTo("slug");
+        assertThat(slugParameter.path("in").asString()).isEqualTo("path");
+        assertThat(detail.path("responses").has("200")).isTrue();
+        assertThat(detail.path("responses").has("404")).isTrue();
+        assertThat(detail.at("/responses/200/content/*~1*/schema/$ref").asString())
+                .isEqualTo("#/components/schemas/StorefrontCategoryResponse");
+
+        // The public storefront schema must not leak admin lifecycle fields.
+        JsonNode storefrontProperties = openApi.at("/components/schemas/StorefrontCategoryResponse/properties");
+        assertThat(storefrontProperties.has("id")).isTrue();
+        assertThat(storefrontProperties.has("name")).isTrue();
+        assertThat(storefrontProperties.has("slug")).isTrue();
+        assertThat(storefrontProperties.has("image")).isTrue();
+        assertThat(storefrontProperties.has("status")).isFalse();
+        assertThat(storefrontProperties.has("effectivelyActive")).isFalse();
+        assertThat(storefrontProperties.has("displayOrder")).isFalse();
+    }
+
+    @Test
+    void adminCategorySchema_shouldExposeStoredStatusAndEffectiveFlag() {
+        JsonNode properties = openApi.at("/components/schemas/AdminCategoryResponse/properties");
+
+        assertThat(properties.has("status")).isTrue();
+        assertThat(properties.has("effectivelyActive")).isTrue();
     }
 
     @Test

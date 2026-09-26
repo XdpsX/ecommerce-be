@@ -2,11 +2,10 @@ package com.xdpsx.ecommerce.catalog.brand.application;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -91,8 +90,8 @@ class BrandServiceImplTest {
         when(brandRepository.existsByName("Puma")).thenReturn(false);
         when(mediaRepository.findAttachableById(imageId, MediaPurpose.BRAND_LOGO))
                 .thenReturn(Optional.of(media));
-        when(categoryRepository.findByIdAndStatus(anyInt(), eq(CategoryStatus.ACTIVE)))
-                .thenReturn(Optional.of(new Category()));
+        when(categoryRepository.findAllByIdInWithAncestry(categoryIds))
+                .thenReturn(List.of(activeCategory(1), activeCategory(2)));
         when(brandRepository.save(any(Brand.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // Act
@@ -130,7 +129,7 @@ class BrandServiceImplTest {
                         .id(newImageId)
                         .status(MediaStatus.TEMPORARY)
                         .build()));
-        when(categoryRepository.findByIdAndStatus(1, CategoryStatus.ACTIVE)).thenReturn(Optional.of(new Category()));
+        when(categoryRepository.findAllByIdInWithAncestry(Set.of(1))).thenReturn(List.of(activeCategory(1)));
         when(brandRepository.save(any(Brand.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // Act
@@ -266,8 +265,7 @@ class BrandServiceImplTest {
     void testFetchCategories_shouldThrowNotFound_WhenCategoryDoesNotExist() {
         // Arrange
         Set<Integer> categoryIds = Set.of(1, 2);
-        when(categoryRepository.findByIdAndStatus(anyInt(), eq(CategoryStatus.ACTIVE)))
-                .thenReturn(Optional.empty());
+        when(categoryRepository.findAllByIdInWithAncestry(categoryIds)).thenReturn(List.of(activeCategory(1)));
 
         // Act & Assert
         ApplicationException exception = assertThrows(
@@ -275,6 +273,43 @@ class BrandServiceImplTest {
                 () -> brandService.createBrand(new CreateBrandRequest("Puma", true, null, categoryIds)));
         assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
         assertEquals("category", exception.getParameters().get("resourceType"));
-        verify(categoryRepository).findByIdAndStatus(anyInt(), eq(CategoryStatus.ACTIVE));
+        verify(brandRepository, never()).save(any(Brand.class));
+    }
+
+    @Test
+    void testFetchCategories_shouldRejectWholeSet_WhenOneCategoryIsHiddenByInactiveAncestor() {
+        // Arrange: category 2 is stored ACTIVE, but its parent is INACTIVE, so it is
+        // not effectively active.
+        Set<Integer> categoryIds = Set.of(1, 2);
+        Category inactiveParent = Category.builder()
+                .id(9)
+                .name("Retired")
+                .status(CategoryStatus.INACTIVE)
+                .build();
+        Category hiddenChild = Category.builder()
+                .id(2)
+                .name("Hidden")
+                .status(CategoryStatus.ACTIVE)
+                .parent(inactiveParent)
+                .build();
+        when(categoryRepository.findAllByIdInWithAncestry(categoryIds))
+                .thenReturn(List.of(activeCategory(1), hiddenChild));
+
+        // Act & Assert
+        ApplicationException exception = assertThrows(
+                ApplicationException.class,
+                () -> brandService.createBrand(new CreateBrandRequest("Puma", true, null, categoryIds)));
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
+        assertEquals(2, exception.getParameters().get("resourceId"));
+        // The whole set is rejected atomically: no partial assignment is saved.
+        verify(brandRepository, never()).save(any(Brand.class));
+    }
+
+    private static Category activeCategory(Integer id) {
+        return Category.builder()
+                .id(id)
+                .name("Category " + id)
+                .status(CategoryStatus.ACTIVE)
+                .build();
     }
 }

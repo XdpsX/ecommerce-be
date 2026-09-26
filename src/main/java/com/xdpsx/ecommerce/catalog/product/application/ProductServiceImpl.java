@@ -92,11 +92,7 @@ public class ProductServiceImpl implements ProductService {
                     ErrorCode.RESOURCE_ALREADY_EXISTS,
                     Map.of("resourceType", "product", "field", "slug", "value", request.getSlug()));
         }
-        Category category = categoryRepository
-                .findById(request.getCategoryId())
-                .orElseThrow(() -> new ApplicationException(
-                        ErrorCode.RESOURCE_NOT_FOUND,
-                        Map.of("resourceType", "category", "resourceId", request.getCategoryId())));
+        Category category = requireEffectivelyActiveCategory(request.getCategoryId());
         Brand brand = brandRepository
                 .findById(request.getBrandId())
                 .orElseThrow(() -> new ApplicationException(
@@ -141,11 +137,7 @@ public class ProductServiceImpl implements ProductService {
         }
 
         if (request.getCategoryId() != null && !product.getCategory().getId().equals(request.getCategoryId())) {
-            Category category = categoryRepository
-                    .findById(request.getCategoryId())
-                    .orElseThrow(() -> new ApplicationException(
-                            ErrorCode.RESOURCE_NOT_FOUND,
-                            Map.of("resourceType", "category", "resourceId", request.getCategoryId())));
+            Category category = requireEffectivelyActiveCategory(request.getCategoryId());
             product.setCategory(category);
         }
 
@@ -187,6 +179,20 @@ public class ProductServiceImpl implements ProductService {
 
         Product updatedProduct = productRepository.save(product);
         return productMapper.fromEntityToResponse(updatedProduct);
+    }
+
+    /**
+     * Only an effectively active category (itself and every ancestor stored
+     * {@code ACTIVE}) can be assigned to a
+     * product. Hidden categories surface as {@code RESOURCE_NOT_FOUND}, same as a
+     * missing one.
+     */
+    private Category requireEffectivelyActiveCategory(Integer categoryId) {
+        return categoryRepository
+                .findByIdWithAncestry(categoryId)
+                .filter(Category::isEffectivelyActive)
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", categoryId)));
     }
 
     @Override

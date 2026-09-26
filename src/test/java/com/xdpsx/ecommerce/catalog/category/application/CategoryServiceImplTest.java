@@ -22,9 +22,11 @@ import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionOperations;
 
 import com.xdpsx.ecommerce.catalog.category.api.dto.AdminCategoryResponse;
+import com.xdpsx.ecommerce.catalog.category.api.dto.CategoryTreeResponse;
 import com.xdpsx.ecommerce.catalog.category.api.dto.CreateCategoryRequest;
 import com.xdpsx.ecommerce.catalog.category.api.dto.MoveCategoryRequest;
 import com.xdpsx.ecommerce.catalog.category.api.dto.ReorderCategoriesRequest;
+import com.xdpsx.ecommerce.catalog.category.api.dto.StorefrontCategoryResponse;
 import com.xdpsx.ecommerce.catalog.category.api.dto.UpdateCategoryRequest;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
@@ -38,10 +40,13 @@ import com.xdpsx.ecommerce.media.domain.MediaStatus;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
 /**
- * Guards the Category write behavior: create appends to the locked sibling group, move/reorder maintain the sibling
+ * Guards the Category write behavior: create appends to the locked sibling
+ * group, move/reorder maintain the sibling
  * order invariants, and delete owns the Media lifecycle.
  *
- * <p>The real {@link CategoryHierarchy} is used rather than a mock, so the cycle, subtree-height and position rules
+ * <p>
+ * The real {@link CategoryHierarchy} is used rather than a mock, so the cycle,
+ * subtree-height and position rules
  * are exercised as written. Only the repositories are mocked.
  */
 @ExtendWith(MockitoExtension.class)
@@ -57,7 +62,8 @@ class CategoryServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        // Runs each attempt inline: transaction mechanics are covered by the MySQL persistence test, while this test
+        // Runs each attempt inline: transaction mechanics are covered by the MySQL
+        // persistence test, while this test
         // isolates the business rules.
         TransactionOperations inlineTransaction = new TransactionOperations() {
             @Override
@@ -67,7 +73,8 @@ class CategoryServiceImplTest {
         };
         categoryService = new CategoryServiceImpl(
                 categoryRepository, mediaRepository, new CategoryHierarchy(categoryRepository), inlineTransaction);
-        // Every hierarchy write takes the anchor first. Lenient because the read-only cases never reach it.
+        // Every hierarchy write takes the anchor first. Lenient because the read-only
+        // cases never reach it.
         lenient().when(categoryRepository.hierarchyAnchorExists()).thenReturn(true);
     }
 
@@ -81,7 +88,10 @@ class CategoryServiceImplTest {
                 .build();
     }
 
-    /** Builds the {@code id -> parentId} projection that the subtree-height check reads. */
+    /**
+     * Builds the {@code id -> parentId} projection that the subtree-height check
+     * reads.
+     */
     private static List<CategoryRepository.CategoryParentView> parentViews(Map<Integer, Integer> parents) {
         return parents.entrySet().stream()
                 .map(entry -> {
@@ -94,7 +104,8 @@ class CategoryServiceImplTest {
     }
 
     /**
-     * Stubs the locked ancestor-chain walk with alternating {@code id, parentId} pairs. The first pair is the node
+     * Stubs the locked ancestor-chain walk with alternating {@code id, parentId}
+     * pairs. The first pair is the node
      * whose chain is being locked; a trailing {@code null} parent ends the chain.
      */
     private void stubAncestorChain(Integer... idAndParentPairs) {
@@ -104,7 +115,10 @@ class CategoryServiceImplTest {
         });
     }
 
-    /** Chain-walk projection: only {@code parentId} is read, so only that getter is stubbed. */
+    /**
+     * Chain-walk projection: only {@code parentId} is read, so only that getter is
+     * stubbed.
+     */
     private static CategoryRepository.CategoryParentView parentView(Integer parentId) {
         CategoryRepository.CategoryParentView view = mock(CategoryRepository.CategoryParentView.class);
         when(view.getParentId()).thenReturn(parentId);
@@ -112,7 +126,8 @@ class CategoryServiceImplTest {
     }
 
     /**
-     * Alternating {@code id, parentId} pairs. A helper is needed because {@code Map.of} rejects the {@code null}
+     * Alternating {@code id, parentId} pairs. A helper is needed because
+     * {@code Map.of} rejects the {@code null}
      * parent used by root categories.
      */
     private static Map<Integer, Integer> parents(Integer... idAndParentPairs) {
@@ -129,7 +144,8 @@ class CategoryServiceImplTest {
 
     @Test
     void createRootCategory_ShouldNormalizeSlugAndAppendToLockedRootSiblings() {
-        // Arrange: the stored orders are already gapped/duplicated, which the normalization must repair.
+        // Arrange: the stored orders are already gapped/duplicated, which the
+        // normalization must repair.
         CreateCategoryRequest request =
                 new CreateCategoryRequest("Đồ chơi & Trẻ em", CategoryStatus.ACTIVE, null, null);
         List<Category> roots =
@@ -150,7 +166,8 @@ class CategoryServiceImplTest {
 
         assertEquals("do-choi-tre-em", saved.getSlug());
         assertEquals(CategoryStatus.ACTIVE, saved.getStatus());
-        // The group is renumbered from the locked rows and the new node takes the first free index.
+        // The group is renumbered from the locked rows and the new node takes the first
+        // free index.
         assertEquals(List.of(0, 1, 2), orders(roots));
         assertEquals(3, saved.getDisplayOrder());
         assertNull(saved.getParent());
@@ -171,7 +188,7 @@ class CategoryServiceImplTest {
 
         when(categoryRepository.existsByName("Laptops")).thenReturn(false);
         when(categoryRepository.existsBySlug("laptops")).thenReturn(false);
-        when(categoryRepository.findByIdWithParent(7)).thenReturn(Optional.of(parent));
+        when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(parent));
         stubAncestorChain(7, null);
         when(categoryRepository.findChildrenForUpdate(7))
                 .thenReturn(new ArrayList<>(List.of(category(8, "Phones", "phones", 0))));
@@ -253,7 +270,7 @@ class CategoryServiceImplTest {
 
         when(categoryRepository.existsByName("Cables")).thenReturn(false);
         when(categoryRepository.existsBySlug("cables")).thenReturn(false);
-        when(categoryRepository.findByIdWithParent(3)).thenReturn(Optional.of(levelThreeParent));
+        when(categoryRepository.findByIdWithAncestry(3)).thenReturn(Optional.of(levelThreeParent));
         stubAncestorChain(3, 2, 2, 1, 1, null);
 
         // Act & Assert
@@ -311,7 +328,8 @@ class CategoryServiceImplTest {
 
     @Test
     void updateCategory_ShouldNotTouchParentOrOrder() {
-        // Arrange: the category already has a parent and an order that the metadata update must preserve.
+        // Arrange: the category already has a parent and an order that the metadata
+        // update must preserve.
         int categoryId = 5;
         LocalDateTime updatedAt = LocalDateTime.now().minusDays(1);
         Category parent = Category.builder()
@@ -336,7 +354,8 @@ class CategoryServiceImplTest {
         verify(categoryRepository).save(captor.capture());
         assertSame(parent, captor.getValue().getParent());
         assertEquals(4, captor.getValue().getDisplayOrder());
-        // Moving a node requires the dedicated operation, so update never locks or renumbers a sibling group.
+        // Moving a node requires the dedicated operation, so update never locks or
+        // renumbers a sibling group.
         verify(categoryRepository, never()).findRootsForUpdate();
         verify(categoryRepository, never()).findChildrenForUpdate(any());
     }
@@ -400,7 +419,8 @@ class CategoryServiceImplTest {
         List<CategoryRepository.CategoryParentView> parents =
                 parentViews(parents(5, null, 4, null, 6, null, 20, null, 21, 20, 22, 20));
         when(categoryRepository.findAllParentViews()).thenReturn(parents);
-        // The root group is locked first because roots sort before any parent id in the lock order.
+        // The root group is locked first because roots sort before any parent id in the
+        // lock order.
         when(categoryRepository.findRootsForUpdate())
                 .thenReturn(new ArrayList<>(List.of(oldSiblingA, moved, oldSiblingB)));
         when(categoryRepository.findChildrenForUpdate(20))
@@ -410,7 +430,8 @@ class CategoryServiceImplTest {
         // Act
         categoryService.moveCategory(5, new MoveCategoryRequest(20, 1));
 
-        // Assert: the gap in the old group is closed and the target group is renumbered around the moved node.
+        // Assert: the gap in the old group is closed and the target group is renumbered
+        // around the moved node.
         assertEquals(List.of(0, 1), orders(List.of(oldSiblingA, oldSiblingB)));
         assertEquals(List.of(0, 1, 2), orders(List.of(newSiblingA, moved, newSiblingB)));
         assertSame(targetParent, moved.getParent());
@@ -419,7 +440,8 @@ class CategoryServiceImplTest {
 
     @Test
     void moveCategory_ShouldReorderInsideTheSameGroup_UsingRemoveThenInsertSemantics() {
-        // Arrange: the group has 3 nodes; moving the first one to the last position must remain valid.
+        // Arrange: the group has 3 nodes; moving the first one to the last position
+        // must remain valid.
         Category parent = Category.builder().id(10).name("Electronics").build();
         Category moved = category(1, "A", "a", 0);
         moved.setParent(parent);
@@ -436,7 +458,8 @@ class CategoryServiceImplTest {
         // Act
         categoryService.moveCategory(1, new MoveCategoryRequest(10, 2));
 
-        // Assert: the moved node is removed first, so position 2 is the last index of the remaining two nodes.
+        // Assert: the moved node is removed first, so position 2 is the last index of
+        // the remaining two nodes.
         assertEquals(List.of(0, 1, 2), orders(List.of(siblingB, siblingC, moved)));
         assertSame(parent, moved.getParent());
         verify(categoryRepository).flush();
@@ -480,7 +503,8 @@ class CategoryServiceImplTest {
 
     @Test
     void moveCategory_ShouldReject_WhenTheStoredHierarchyContainsACycle() {
-        // Arrange: 1 and 2 are each other's parent, so the ancestor walk must terminate instead of looping forever.
+        // Arrange: 1 and 2 are each other's parent, so the ancestor walk must terminate
+        // instead of looping forever.
         Category moved = category(1, "A", "a", 0);
         Category cyclic = Category.builder().id(2).name("B").build();
 
@@ -499,7 +523,8 @@ class CategoryServiceImplTest {
 
     @Test
     void moveCategory_ShouldReject_WhenTheMovedSubtreeWouldExceedMaximumDepth() {
-        // Arrange: the moved node has height 3 while its target parent already sits at level 2.
+        // Arrange: the moved node has height 3 while its target parent already sits at
+        // level 2.
         Category moved = category(1, "A", "a", 0);
         Category targetParent = Category.builder().id(10).name("B").build();
 
@@ -521,7 +546,8 @@ class CategoryServiceImplTest {
 
     @Test
     void moveCategory_ShouldRejectPositionOutsideTheTargetGroup() {
-        // Arrange: after removing the moved node the group has 2 nodes, so position 3 does not exist.
+        // Arrange: after removing the moved node the group has 2 nodes, so position 3
+        // does not exist.
         Category parent = Category.builder().id(10).name("Electronics").build();
         Category moved = category(1, "A", "a", 0);
         moved.setParent(parent);
@@ -548,7 +574,7 @@ class CategoryServiceImplTest {
         Category second = category(2, "B", "b", 1);
         Category third = category(3, "C", "c", 2);
 
-        when(categoryRepository.findByIdWithParent(10))
+        when(categoryRepository.findByIdWithAncestry(10))
                 .thenReturn(Optional.of(
                         Category.builder().id(10).name("Electronics").build()));
         when(categoryRepository.findChildrenForUpdate(10)).thenReturn(new ArrayList<>(List.of(first, second, third)));
@@ -567,7 +593,7 @@ class CategoryServiceImplTest {
     @Test
     void reorderCategories_ShouldRejectDuplicateIds() {
         // Arrange
-        when(categoryRepository.findByIdWithParent(10))
+        when(categoryRepository.findByIdWithAncestry(10))
                 .thenReturn(Optional.of(
                         Category.builder().id(10).name("Electronics").build()));
         when(categoryRepository.findChildrenForUpdate(10))
@@ -585,7 +611,7 @@ class CategoryServiceImplTest {
     @Test
     void reorderCategories_ShouldReject_WhenTheListIsNotTheExactSiblingGroup() {
         // Arrange: the group has 3 nodes and the request omits one of them.
-        when(categoryRepository.findByIdWithParent(10))
+        when(categoryRepository.findByIdWithAncestry(10))
                 .thenReturn(Optional.of(
                         Category.builder().id(10).name("Electronics").build()));
         when(categoryRepository.findChildrenForUpdate(10))
@@ -674,5 +700,168 @@ class CategoryServiceImplTest {
         assertEquals(MediaStatus.PENDING_DELETE, image.getStatus());
         verify(mediaRepository).save(image);
         verify(categoryRepository).delete(category);
+    }
+
+    // ----- Storefront read model -----
+
+    private static Category node(Integer id, String name, CategoryStatus status, int displayOrder, Category parent) {
+        Category category = Category.builder()
+                .id(id)
+                .name(name)
+                .slug(name.toLowerCase(java.util.Locale.ROOT))
+                .status(status)
+                .displayOrder(displayOrder)
+                .parent(parent)
+                .build();
+        return category;
+    }
+
+    @Test
+    void getCategoryTree_ShouldAssembleThreeLevelsInStableSiblingOrder() {
+        // Arrange: the flat query returns rows in (displayOrder, id) order; assembly
+        // must keep that order inside
+        // every sibling group regardless of where a group sits in the flat list.
+        Category fashion = node(2, "Fashion", CategoryStatus.ACTIVE, 0, null);
+        Category electronics = node(1, "Electronics", CategoryStatus.ACTIVE, 1, null);
+        Category laptops = node(4, "Laptops", CategoryStatus.ACTIVE, 0, electronics);
+        Category gaming = node(5, "Gaming", CategoryStatus.ACTIVE, 0, laptops);
+        Category ultrabooks = node(6, "Ultrabooks", CategoryStatus.ACTIVE, 1, laptops);
+        Category phones = node(3, "Phones", CategoryStatus.ACTIVE, 1, electronics);
+
+        when(categoryRepository.findAllWithAncestryAndImage())
+                .thenReturn(List.of(fashion, electronics, laptops, gaming, ultrabooks, phones));
+
+        // Act
+        List<CategoryTreeResponse> tree = categoryService.getCategoryTree();
+
+        // Assert: Fashion sorts before Electronics; Phones/Laptops and
+        // Gaming/Ultrabooks keep sibling order.
+        assertEquals(
+                List.of("Fashion", "Electronics"),
+                tree.stream().map(CategoryTreeResponse::getName).toList());
+        List<CategoryTreeResponse> electronicsChildren = tree.get(1).getChildren();
+        assertEquals(
+                List.of("Laptops", "Phones"),
+                electronicsChildren.stream().map(CategoryTreeResponse::getName).toList());
+        assertEquals(
+                List.of("Gaming", "Ultrabooks"),
+                electronicsChildren.get(0).getChildren().stream()
+                        .map(CategoryTreeResponse::getName)
+                        .toList());
+    }
+
+    @Test
+    void storefrontReads_ShouldHideSubtreeUnderInactiveAncestor_WithoutMutatingStoredStatus() {
+        // Arrange: Laptops and Gaming are stored ACTIVE, but Electronics is INACTIVE.
+        Category electronics = node(1, "Electronics", CategoryStatus.INACTIVE, 0, null);
+        Category laptops = node(4, "Laptops", CategoryStatus.ACTIVE, 0, electronics);
+        Category gaming = node(5, "Gaming", CategoryStatus.ACTIVE, 0, laptops);
+        Category fashion = node(2, "Fashion", CategoryStatus.ACTIVE, 1, null);
+
+        when(categoryRepository.findAllWithAncestryAndImage())
+                .thenReturn(List.of(electronics, fashion, laptops, gaming));
+        when(categoryRepository.findBySlugWithAncestry("laptops")).thenReturn(Optional.of(laptops));
+
+        // Act & Assert: the active child under an inactive root is not treated as a
+        // root and stays hidden.
+        assertEquals(
+                List.of("Fashion"),
+                categoryService.getCategoryTree().stream()
+                        .map(CategoryTreeResponse::getName)
+                        .toList());
+        assertEquals(
+                List.of("Fashion"),
+                categoryService.getStorefrontRootCategories().stream()
+                        .map(StorefrontCategoryResponse::name)
+                        .toList());
+
+        ApplicationException exception =
+                assertThrows(ApplicationException.class, () -> categoryService.getStorefrontCategoryBySlug("laptops"));
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
+
+        // Stored statuses are derived from, never rewritten.
+        assertEquals(CategoryStatus.ACTIVE, laptops.getStatus());
+        assertEquals(CategoryStatus.ACTIVE, gaming.getStatus());
+        assertEquals(CategoryStatus.INACTIVE, electronics.getStatus());
+    }
+
+    @Test
+    void storefrontReads_ShouldShowStoredActiveDescendantsAgain_WhenParentIsReactivated() {
+        // Learning boundary: the same object graph flips visibility only through the
+        // parent status.
+        Category electronics = node(1, "Electronics", CategoryStatus.INACTIVE, 0, null);
+        Category laptops = node(4, "Laptops", CategoryStatus.ACTIVE, 0, electronics);
+
+        when(categoryRepository.findAllWithAncestryAndImage()).thenReturn(List.of(electronics, laptops));
+
+        assertTrue(categoryService.getCategoryTree().isEmpty());
+
+        electronics.setStatus(CategoryStatus.ACTIVE);
+
+        List<CategoryTreeResponse> tree = categoryService.getCategoryTree();
+        assertEquals(
+                List.of("Laptops"),
+                tree.get(0).getChildren().stream()
+                        .map(CategoryTreeResponse::getName)
+                        .toList());
+        // The descendant kept its stored status the whole time.
+        assertEquals(CategoryStatus.ACTIVE, laptops.getStatus());
+    }
+
+    @Test
+    void getStorefrontCategoryBySlug_ShouldReturnDto_WhenNodeIsEffectivelyActive() {
+        Category laptops = node(4, "Laptops", CategoryStatus.ACTIVE, 0, null);
+        when(categoryRepository.findBySlugWithAncestry("laptops")).thenReturn(Optional.of(laptops));
+
+        StorefrontCategoryResponse response = categoryService.getStorefrontCategoryBySlug("laptops");
+
+        assertEquals(4, response.id());
+        assertEquals("Laptops", response.name());
+        assertEquals("laptops", response.slug());
+    }
+
+    @Test
+    void getStorefrontCategoryBySlug_ShouldReturnNotFound_WhenNodeItselfIsInactive() {
+        Category laptops = node(4, "Laptops", CategoryStatus.INACTIVE, 0, null);
+        when(categoryRepository.findBySlugWithAncestry("laptops")).thenReturn(Optional.of(laptops));
+
+        ApplicationException exception =
+                assertThrows(ApplicationException.class, () -> categoryService.getStorefrontCategoryBySlug("laptops"));
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
+    }
+
+    @Test
+    void getStorefrontCategoryBySlug_ShouldReturnNotFound_WhenSlugIsMissing() {
+        when(categoryRepository.findBySlugWithAncestry("unknown")).thenReturn(Optional.empty());
+
+        ApplicationException exception =
+                assertThrows(ApplicationException.class, () -> categoryService.getStorefrontCategoryBySlug("unknown"));
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
+    }
+
+    @Test
+    void getAdminCategory_ShouldExposeStoredStatusAndDerivedEffectiveFlag() {
+        // Arrange: stored ACTIVE, but hidden by an inactive parent.
+        Category electronics = node(1, "Electronics", CategoryStatus.INACTIVE, 0, null);
+        Category laptops = node(4, "Laptops", CategoryStatus.ACTIVE, 0, electronics);
+        when(categoryRepository.findByIdWithAncestry(4)).thenReturn(Optional.of(laptops));
+
+        AdminCategoryResponse response = categoryService.getAdminCategory(4);
+
+        assertEquals(CategoryStatus.ACTIVE, response.status());
+        assertFalse(response.effectivelyActive());
+    }
+
+    @Test
+    void isEffectivelyActive_ShouldStopAtMaxDepth_WhenDataExceedsTheDepthInvariant() {
+        // Learning boundary: malformed legacy data (a chain deeper than MAX_DEPTH, e.g. written outside
+        // the hierarchy operations) reads as not visible instead of walking the chain unbounded.
+        Category level1 = node(1, "L1", CategoryStatus.ACTIVE, 0, null);
+        Category level2 = node(2, "L2", CategoryStatus.ACTIVE, 0, level1);
+        Category level3 = node(3, "L3", CategoryStatus.ACTIVE, 0, level2);
+        Category level4 = node(4, "L4", CategoryStatus.ACTIVE, 0, level3);
+
+        assertTrue(level3.isEffectivelyActive());
+        assertFalse(level4.isEffectivelyActive());
     }
 }

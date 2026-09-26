@@ -1,11 +1,13 @@
 package com.xdpsx.ecommerce.catalog.category.application;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import org.hibernate.Hibernate;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.domain.Specification;
@@ -37,8 +39,10 @@ public class CategoryServiceImpl implements CategoryService {
     private final CategoryHierarchy categoryHierarchy;
 
     /**
-     * Opens one transaction per write attempt. Programmatic instead of {@code @Transactional} because the retry wrapper
-     * calls the attempt method on {@code this}, which would bypass the transaction proxy.
+     * Opens one transaction per write attempt. Programmatic instead of
+     * {@code @Transactional} because the retry wrapper
+     * calls the attempt method on {@code this}, which would bypass the transaction
+     * proxy.
      */
     private final TransactionOperations transactionOperations;
 
@@ -53,44 +57,104 @@ public class CategoryServiceImpl implements CategoryService {
                         filter.getLevel());
         Page<Category> categoryPage =
                 categoryRepository.findAll(spec, PageRequest.of(filter.getPageNum() - 1, filter.getPageSize()));
+        // The admin response derives the effective flag from the ancestor chain, so
+        // resolve those chains for the
+        // whole page before mapping instead of letting each row lazy-load its parents.
+        resolveAncestorChains(categoryPage.getContent());
         return PageMapper.toPageResponse(categoryPage, CategoryMapper.INSTANCE::toAdminCategoryResponse);
+    }
+
+    /**
+     * Loads the requested ancestor chains in at most {@link Category#MAX_DEPTH}
+     * batch queries, so the mapping of a
+     * page never issues one lazy load per row.
+     */
+    private void resolveAncestorChains(List<Category> categories) {
+        List<Category> frontier = categories;
+        for (int hop = 0; hop < Category.MAX_DEPTH; hop++) {
+            List<Integer> unresolvedParentIds = frontier.stream()
+                    .map(Category::getParent)
+                    .filter(parent -> parent != null && !Hibernate.isInitialized(parent))
+                    .map(Category::getId)
+                    .distinct()
+                    .collect(Collectors.toList());
+            if (unresolvedParentIds.isEmpty()) {
+                return;
+            }
+            frontier = categoryRepository.findAllByIdInWithAncestry(unresolvedParentIds);
+        }
     }
 
     @Override
     public AdminCategoryResponse getAdminCategory(Integer categoryId) {
         Category category = categoryRepository
-                .findByIdWithParent(categoryId)
+                .findByIdWithAncestry(categoryId)
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", categoryId)));
         return CategoryMapper.INSTANCE.toAdminCategoryResponse(category);
     }
 
     @Override
-    public List<CategoryTreeResponse> getCategoryTree(CategoryTreeFilter filter) {
-        List<Category> roots = categoryRepository.findAll(
-                CategorySpecification.getInstance().buildCategoryTreeSpec(null, filter.sort()));
-        return roots.stream()
-                .map(c -> buildTree(c, 1, filter.maxLevel(), filter.sort()))
+    public List<StorefrontCategoryResponse> getStorefrontRootCategories() {
+        return visibleCategories().stream()
+                .filter(category -> category.getParent() == null)
+                .map(CategoryMapper.INSTANCE::toStorefrontCategoryResponse)
                 .collect(Collectors.toList());
     }
 
+    @Override
+    public List<CategoryTreeResponse> getCategoryTree() {
+        List<Category> visible = visibleCategories();
+
+        // Group the visible nodes by parent so the tree is assembled in memory. A node
+        // whose parent was filtered
+        // out cannot appear here, because that node is not effectively active either.
+        Map<Integer, List<Category>> childrenByParentId = new HashMap<>();
+        for (Category category : visible) {
+            Integer parentId =
+                    category.getParent() == null ? null : category.getParent().getId();
+            childrenByParentId
+                    .computeIfAbsent(parentId, key -> new ArrayList<>())
+                    .add(category);
+        }
+
+        return buildTreeLevel(null, childrenByParentId);
+    }
+
+    private List<CategoryTreeResponse> buildTreeLevel(
+            Integer parentId, Map<Integer, List<Category>> childrenByParentId) {
+        // Both the flat query order and this list preserve (displayOrder, id), so every
+        // sibling group is stable.
+        return childrenByParentId.getOrDefault(parentId, List.of()).stream()
+                .map(category -> {
+                    CategoryTreeResponse dto = CategoryMapper.INSTANCE.toCategoryTreeResponse(category);
+                    dto.setChildren(buildTreeLevel(category.getId(), childrenByParentId));
+                    return dto;
+                })
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public StorefrontCategoryResponse getStorefrontCategoryBySlug(String slug) {
+        Category category = categoryRepository
+                .findBySlugWithAncestry(slug)
+                .filter(Category::isEffectivelyActive)
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", slug)));
+        return CategoryMapper.INSTANCE.toStorefrontCategoryResponse(category);
+    }
+
     /**
-     * Assembles the storefront tree node by node. This still issues one query per node; a bounded read query is
-     * deferred to the storefront read model work.
+     * The storefront read model: one flat query with the image and ancestor chain
+     * already fetched, filtered down
+     * to the effectively active nodes in memory.
+     * {@link Category#isEffectivelyActive()} walks a fetched chain, so
+     * no lazy query can be issued here.
      */
-    private CategoryTreeResponse buildTree(Category category, int level, Integer maxLevel, String sort) {
-        CategoryTreeResponse dto = CategoryMapper.INSTANCE.toCategoryTreeResponse(category);
-
-        if (maxLevel != null && level >= maxLevel) return dto;
-
-        List<Category> children =
-                categoryRepository.findAll(CategorySpecification.getInstance().buildCategoryTreeSpec(category, sort));
-
-        dto.setChildren(children.stream()
-                .map(child -> buildTree(child, level + 1, maxLevel, sort))
-                .collect(Collectors.toList()));
-
-        return dto;
+    private List<Category> visibleCategories() {
+        return categoryRepository.findAllWithAncestryAndImage().stream()
+                .filter(Category::isEffectivelyActive)
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -121,18 +185,21 @@ public class CategoryServiceImpl implements CategoryService {
         Category category = Category.builder()
                 .name(request.name())
                 .slug(slug)
-                // An omitted status keeps the previous default of creating a non-visible category.
+                // An omitted status keeps the previous default of creating a non-visible
+                // category.
                 .status(request.status() == null ? CategoryStatus.INACTIVE : request.status())
                 .build();
 
         if (request.parentId() != null) {
-            // The parent is looked up by ID regardless of status; effective visibility is a storefront concern.
+            // The parent is looked up by ID regardless of status; effective visibility is a
+            // storefront concern.
             Category parent = requireCategory(request.parentId());
             category.setParent(parent);
             categoryHierarchy.checkNewNodePlacement(parent);
         }
 
-        // Appending reads the locked sibling group instead of MAX(display_order) + 1, so two concurrent creates
+        // Appending reads the locked sibling group instead of MAX(display_order) + 1,
+        // so two concurrent creates
         // cannot take the same position. Roots are a group too.
         List<Category> siblings = categoryHierarchy.lockSiblingGroup(request.parentId());
         categoryHierarchy.normalizeSiblingOrder(siblings);
@@ -159,14 +226,17 @@ public class CategoryServiceImpl implements CategoryService {
         Category category = targets.moved();
         Category newParent = targets.newParent();
 
-        // Cycle, self-parent and subtree-height checks run before any locked group is renumbered, so a rejected move
-        // leaves the hierarchy untouched. The chain lock below is an anchor read, not a mutating call.
+        // Cycle, self-parent and subtree-height checks run before any locked group is
+        // renumbered, so a rejected move
+        // leaves the hierarchy untouched. The chain lock below is an anchor read, not a
+        // mutating call.
         categoryHierarchy.checkMoveAllowed(category, newParent);
 
         CategoryHierarchy.MoveSnapshot snapshot = categoryHierarchy.lockGroupsForMove(category, request.parentId());
 
         if (snapshot.isSameGroup()) {
-            // Reordering inside one group: the moved node was already removed, so the range is the final group size.
+            // Reordering inside one group: the moved node was already removed, so the range
+            // is the final group size.
             List<Category> group = snapshot.oldGroup();
             group.add(categoryHierarchy.validateInsertPosition(request.position(), group.size()), category);
             categoryHierarchy.normalizeSiblingOrder(group);
@@ -188,8 +258,11 @@ public class CategoryServiceImpl implements CategoryService {
     /**
      * Locks the moved category and the target parent in ascending id order.
      *
-     * <p>Two concurrent moves that reference each other (A under B and B under A) would otherwise take the same two
-     * row locks in opposite order and deadlock. The trade-off is that when both ids are missing, the parent error is
+     * <p>
+     * Two concurrent moves that reference each other (A under B and B under A)
+     * would otherwise take the same two
+     * row locks in opposite order and deadlock. The trade-off is that when both ids
+     * are missing, the parent error is
      * reported instead of the category error.
      */
     private MoveTargets lockForMove(Integer categoryId, Integer parentId) {
@@ -221,7 +294,8 @@ public class CategoryServiceImpl implements CategoryService {
         List<Category> group = categoryHierarchy.lockSiblingGroup(request.parentId());
         List<Integer> requestedIds = request.categoryIds();
 
-        // Partial reorders are rejected: with no unique constraint on (parent_id, display_order) a partial list would
+        // Partial reorders are rejected: with no unique constraint on (parent_id,
+        // display_order) a partial list would
         // leave the remaining nodes on orders the request did not account for.
         if (new HashSet<>(requestedIds).size() != requestedIds.size()
                 || new HashSet<>(requestedIds).size() != group.size()) {
@@ -255,11 +329,15 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     private AdminCategoryResponse updateCategoryAttempt(Integer id, UpdateCategoryRequest request) {
-        // Locked like every other hierarchy write: Hibernate flushes the whole loaded entity, so an update that read
+        // Locked like every other hierarchy write: Hibernate flushes the whole loaded
+        // entity, so an update that read
         // the
-        // row before a concurrent move would write the old parent/displayOrder back over it. lastRetrievedAt is a
-        // pre-mutation check, not atomic optimistic locking. The hierarchy anchor is what serializes update against
-        // move; locking the row as well keeps this operation correct on its own if the anchor strategy ever changes.
+        // row before a concurrent move would write the old parent/displayOrder back
+        // over it. lastRetrievedAt is a
+        // pre-mutation check, not atomic optimistic locking. The hierarchy anchor is
+        // what serializes update against
+        // move; locking the row as well keeps this operation correct on its own if the
+        // anchor strategy ever changes.
         categoryHierarchy.lockHierarchy();
         Category category = categoryRepository
                 .findByIdForUpdate(id)
@@ -323,7 +401,8 @@ public class CategoryServiceImpl implements CategoryService {
                     ErrorCode.CONCURRENT_MODIFICATION, Map.of("resourceType", "category", "resourceId", id));
         }
 
-        // Children are never re-parented or cascaded; the FK is restrictive, so the check keeps this a
+        // Children are never re-parented or cascaded; the FK is restrictive, so the
+        // check keeps this a
         // controlled application error instead of a raw database failure.
         if (categoryRepository.existsByParentId(id)) {
             throw new ApplicationException(
@@ -336,7 +415,8 @@ public class CategoryServiceImpl implements CategoryService {
                     ErrorCode.RESOURCE_IN_USE, Map.of("resourceType", "category", "resourceId", id));
         }
 
-        // Locking the sibling group keeps a concurrent create or reorder from writing an order that the renumbering
+        // Locking the sibling group keeps a concurrent create or reorder from writing
+        // an order that the renumbering
         // below would then silently duplicate.
         Integer parentId =
                 category.getParent() == null ? null : category.getParent().getId();
@@ -355,13 +435,14 @@ public class CategoryServiceImpl implements CategoryService {
 
     private Category requireCategory(Integer categoryId) {
         return categoryRepository
-                .findByIdWithParent(categoryId)
+                .findByIdWithAncestry(categoryId)
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", categoryId)));
     }
 
     /**
-     * Resolves a parent inside a hierarchy write. The node is row-locked so a concurrent move cannot reparent it
+     * Resolves a parent inside a hierarchy write. The node is row-locked so a
+     * concurrent move cannot reparent it
      * between the validation and the write.
      */
     private Category requireCategoryForUpdate(Integer categoryId) {

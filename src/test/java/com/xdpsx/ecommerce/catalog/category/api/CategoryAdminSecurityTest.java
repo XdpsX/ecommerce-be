@@ -33,10 +33,14 @@ import com.xdpsx.ecommerce.testsupport.SecurityConfigForControllerTests;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Guards the split between the public storefront reads and the admin write boundary.
+ * Guards the split between the public storefront reads and the admin write
+ * boundary.
  *
- * <p>{@code hasRole('ADMIN')} only takes effect when method security is enabled, so this slice enables it
- * explicitly and uses the MockMvc security post-processor, which binds the test authentication to the request
+ * <p>
+ * {@code hasRole('ADMIN')} only takes effect when method security is enabled,
+ * so this slice enables it
+ * explicitly and uses the MockMvc security post-processor, which binds the test
+ * authentication to the request
  * before the security filter chain runs.
  */
 @WebMvcTest(controllers = {AdminCategoryController.class, StorefrontCategoryController.class})
@@ -44,7 +48,8 @@ import tools.jackson.databind.ObjectMapper;
 class CategoryAdminSecurityTest {
 
     @org.springframework.boot.test.context.TestConfiguration
-    // CGLIB proxying must match the production configuration; with interface-based proxying the admin controller
+    // CGLIB proxying must match the production configuration; with interface-based
+    // proxying the admin controller
     // loses @RestController and its routes are never registered.
     @EnableMethodSecurity(proxyTargetClass = true)
     static class MethodSecurityConfig {}
@@ -59,8 +64,8 @@ class CategoryAdminSecurityTest {
     private ObjectMapper objectMapper;
 
     private static final String CREATE_BODY = """
-		{"name":"Laptops","status":"ACTIVE"}
-	""";
+            	{"name":"Laptops","status":"ACTIVE"}
+            """;
 
     private RequestPostProcessor admin() {
         return user("admin").roles("ADMIN");
@@ -88,8 +93,15 @@ class CategoryAdminSecurityTest {
     }
 
     @Test
+    void storefrontRootList_ShouldBePublic() throws Exception {
+        when(categoryService.getStorefrontRootCategories()).thenReturn(List.of());
+
+        mockMvc.perform(get("/categories")).andExpect(status().isOk());
+    }
+
+    @Test
     void storefrontTree_ShouldBePublic() throws Exception {
-        when(categoryService.getCategoryTree(any(CategoryTreeFilter.class))).thenReturn(List.of());
+        when(categoryService.getCategoryTree()).thenReturn(List.of());
 
         mockMvc.perform(get("/categories/tree"))
                 .andExpect(status().isOk())
@@ -97,9 +109,25 @@ class CategoryAdminSecurityTest {
     }
 
     @Test
+    void storefrontDetailBySlug_ShouldBePublic() throws Exception {
+        // A slug that matches the literal /tree route must still reach the tree
+        // handler, not the slug handler.
+        mockMvc.perform(get("/categories/tree")).andExpect(status().isOk());
+
+        when(categoryService.getStorefrontCategoryBySlug("laptops"))
+                .thenReturn(new StorefrontCategoryResponse(1, "Laptops", "laptops", null));
+
+        mockMvc.perform(get("/categories/laptops"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.slug").value("laptops"));
+    }
+
+    @Test
     void adminList_ShouldRejectUnauthenticatedCaller() throws Exception {
-        // The filter chain still ends in permitAll (the repository-wide authorization baseline is a separate
-        // change), so an anonymous request reaches method security and is denied there. That yields 403 rather
+        // The filter chain still ends in permitAll (the repository-wide authorization
+        // baseline is a separate
+        // change), so an anonymous request reaches method security and is denied there.
+        // That yields 403 rather
         // than 401; the request is rejected either way.
         mockMvc.perform(get("/admin/categories")).andExpect(status().isForbidden());
 
@@ -189,6 +217,7 @@ class CategoryAdminSecurityTest {
                 "Laptops",
                 "laptops",
                 CategoryStatus.ACTIVE,
+                true,
                 2,
                 null,
                 new AdminCategoryResponse.CategoryDTO(7, "Electronics"));
@@ -271,7 +300,7 @@ class CategoryAdminSecurityTest {
     @Test
     void createCategory_ShouldReturnCreated_WithLocationHeader() throws Exception {
         AdminCategoryResponse response =
-                new AdminCategoryResponse(3, "Laptops", "laptops", CategoryStatus.ACTIVE, 2, null, null);
+                new AdminCategoryResponse(3, "Laptops", "laptops", CategoryStatus.ACTIVE, true, 2, null, null);
         when(categoryService.createCategory(any(CreateCategoryRequest.class))).thenReturn(response);
 
         mockMvc.perform(post("/admin/categories")
@@ -287,7 +316,7 @@ class CategoryAdminSecurityTest {
     @Test
     void updateCategory_ShouldReturnUpdatedCategory() throws Exception {
         AdminCategoryResponse response =
-                new AdminCategoryResponse(3, "Laptops", "laptops", CategoryStatus.INACTIVE, 2, null, null);
+                new AdminCategoryResponse(3, "Laptops", "laptops", CategoryStatus.INACTIVE, false, 2, null, null);
         when(categoryService.updateCategory(anyInt(), any(UpdateCategoryRequest.class)))
                 .thenReturn(response);
 
@@ -311,8 +340,8 @@ class CategoryAdminSecurityTest {
     @Test
     void updateCategory_ShouldRejectMalformedExplicitSlug() throws Exception {
         String body = """
-			{"name":"Laptops","status":"ACTIVE","slug":"Not Normalized","lastRetrievedAt":"2026-01-01T00:00:00"}
-		""";
+                	{"name":"Laptops","status":"ACTIVE","slug":"Not Normalized","lastRetrievedAt":"2026-01-01T00:00:00"}
+                """;
 
         mockMvc.perform(put("/admin/categories/3")
                         .with(admin())
@@ -325,14 +354,15 @@ class CategoryAdminSecurityTest {
 
     @Test
     void updateCategory_ShouldIgnoreUnknownParentIdField() throws Exception {
-        // The parent is no longer part of the update contract; an old client payload must not change the hierarchy.
+        // The parent is no longer part of the update contract; an old client payload
+        // must not change the hierarchy.
         AdminCategoryResponse response =
-                new AdminCategoryResponse(3, "Laptops", "laptops", CategoryStatus.ACTIVE, 2, null, null);
+                new AdminCategoryResponse(3, "Laptops", "laptops", CategoryStatus.ACTIVE, true, 2, null, null);
         when(categoryService.updateCategory(anyInt(), any(UpdateCategoryRequest.class)))
                 .thenReturn(response);
         String body = """
-			{"name":"Laptops","status":"ACTIVE","parentId":99,"lastRetrievedAt":"2026-01-01T00:00:00"}
-		""";
+                	{"name":"Laptops","status":"ACTIVE","parentId":99,"lastRetrievedAt":"2026-01-01T00:00:00"}
+                """;
 
         mockMvc.perform(put("/admin/categories/3")
                         .with(admin())
