@@ -13,17 +13,14 @@ import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
 public interface BrandRepository extends JpaRepository<Brand, Integer>, JpaSpecificationExecutor<Brand> {
     boolean existsByName(String name);
 
-    @Query("SELECT b FROM Brand b JOIN b.categories c WHERE c.id = :categoryId ORDER BY b.name")
-    List<Brand> findBrandsByCategoryId(Integer categoryId);
+    /**
+     * Batch-fetches the categories collection for one resolved page of Brands. The page query itself must not
+     * fetch the collection (that would paginate in memory); this single query loads the associations for every
+     * Brand in the page, so mapping the page costs one extra query regardless of page size.
+     */
+    @Query("SELECT DISTINCT b FROM Brand b LEFT JOIN FETCH b.categories WHERE b IN :brands")
+    List<Brand> fetchCategories(@Param("brands") List<Brand> brands);
 
-    @Query("SELECT b FROM Brand b LEFT JOIN FETCH b.categories WHERE b.id = :id")
+    @Query("SELECT b FROM Brand b LEFT JOIN FETCH b.image LEFT JOIN FETCH b.categories WHERE b.id = :id")
     Optional<Brand> findDetailById(@Param("id") Integer id);
-
-    //    @Query(value =
-    //            "SELECT COUNT(*) FROM (" +
-    //                "SELECT brand_id FROM category_brands WHERE brand_id = ?1 " +
-    //            ") AS combined"
-    //            , nativeQuery = true)
-    //    long countBrandsInOtherTables(Integer brandId);
-
 }

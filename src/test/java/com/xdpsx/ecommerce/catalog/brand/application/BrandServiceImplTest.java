@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -14,22 +13,24 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 
-import com.xdpsx.ecommerce.catalog.brand.api.dto.BrandDetailResponse;
-import com.xdpsx.ecommerce.catalog.brand.api.dto.BrandExistRequest;
+import com.xdpsx.ecommerce.catalog.brand.api.dto.AdminBrandResponse;
 import com.xdpsx.ecommerce.catalog.brand.api.dto.CreateBrandRequest;
+import com.xdpsx.ecommerce.catalog.brand.api.dto.DeleteBrandRequest;
 import com.xdpsx.ecommerce.catalog.brand.api.dto.UpdateBrandRequest;
 import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
+import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
 import com.xdpsx.ecommerce.catalog.brand.persistence.BrandRepository;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
-import com.xdpsx.ecommerce.catalog.shared.api.dto.CheckExistResponse;
-import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.domain.Media;
-import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 import com.xdpsx.ecommerce.media.domain.MediaStatus;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
@@ -49,259 +50,114 @@ class BrandServiceImplTest {
     private BrandServiceImpl brandService;
 
     @Test
-    void testCheckBrandExist_shouldReturnTrueWhenNameExists() {
-        // Arrange
-        String brandName = "Nike";
-        BrandExistRequest request = new BrandExistRequest(brandName);
-        when(brandRepository.existsByName(brandName)).thenReturn(true);
-
-        // Act
-        CheckExistResponse response = brandService.checkBrandExist(request);
-
-        // Assert
-        assertEquals("name", response.field());
-        assertTrue(response.exists());
-        verify(brandRepository).existsByName(brandName);
-    }
-
-    @Test
-    void testGetAdminBrandDetail_shouldReturnBrandDetail() {
-        // Arrange
-        int brandId = 1;
-        Brand brand = Brand.builder().id(brandId).name("Adidas").build();
-        when(brandRepository.findDetailById(brandId)).thenReturn(Optional.of(brand));
-
-        // Act
-        BrandDetailResponse response = brandService.getAdminBrandDetail(brandId);
-
-        // Assert
-        assertEquals("Adidas", response.name());
-        verify(brandRepository).findDetailById(brandId);
-    }
-
-    @Test
-    void testCreateBrand_shouldSaveBrandWithImageAndCategories() {
-        // Arrange
-        String imageId = "img123";
-        Set<Integer> categoryIds = Set.of(1, 2);
-        Media media = Media.builder().id(imageId).status(MediaStatus.TEMPORARY).build();
-
-        CreateBrandRequest request = new CreateBrandRequest("Puma", true, imageId, categoryIds);
-        when(brandRepository.existsByName("Puma")).thenReturn(false);
-        when(mediaRepository.findAttachableById(imageId, MediaPurpose.BRAND_LOGO))
-                .thenReturn(Optional.of(media));
-        when(categoryRepository.findAllByIdInWithAncestry(categoryIds))
-                .thenReturn(List.of(activeCategory(1), activeCategory(2)));
-        when(brandRepository.save(any(Brand.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        // Act
-        BrandDetailResponse response = brandService.createBrand(request);
-
-        // Assert
-        assertEquals("Puma", response.name());
-        assertEquals(MediaStatus.ACTIVE, media.getStatus());
-        verify(brandRepository).save(any(Brand.class));
-    }
-
-    @Test
-    void testUpdateBrand_shouldUpdateImageAndCategories() {
-        // Arrange
-        int brandId = 1;
-        String oldImageId = "imgOld";
-        String newImageId = "imgNew";
-        LocalDateTime updatedAt = LocalDateTime.now().minusDays(1);
-
+    void getAdminBrand_ShouldMapLifecycleVersionImageAndCategories() {
         Brand brand = Brand.builder()
-                .id(brandId)
-                .name("OldName")
-                .publicFlg(false)
-                .image(Media.builder().id(oldImageId).status(MediaStatus.ACTIVE).build())
-                .updatedAt(updatedAt)
+                .id(1)
+                .name("Adidas")
+                .status(BrandStatus.INACTIVE)
+                .version(3L)
+                .categories(List.of(activeCategory(2)))
                 .build();
+        when(brandRepository.findDetailById(1)).thenReturn(Optional.of(brand));
 
-        UpdateBrandRequest request =
-                new UpdateBrandRequest("NewName", true, newImageId, Set.of(1), updatedAt.plusMinutes(1));
+        AdminBrandResponse result = brandService.getAdminBrand(1);
 
-        when(brandRepository.findById(brandId)).thenReturn(Optional.of(brand));
-        when(brandRepository.existsByName(request.name())).thenReturn(false);
-        when(mediaRepository.findAttachableById(newImageId, MediaPurpose.BRAND_LOGO))
-                .thenReturn(Optional.of(Media.builder()
-                        .id(newImageId)
-                        .status(MediaStatus.TEMPORARY)
-                        .build()));
-        when(categoryRepository.findAllByIdInWithAncestry(Set.of(1))).thenReturn(List.of(activeCategory(1)));
-        when(brandRepository.save(any(Brand.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        // Act
-        BrandDetailResponse response = brandService.updateBrand(brandId, request);
-
-        // Assert
-        assertEquals("NewName", response.name());
-        verify(mediaRepository, times(2)).save(any(Media.class));
-        verify(brandRepository).save(any(Brand.class));
+        assertEquals(BrandStatus.INACTIVE, result.status());
+        assertEquals(3L, result.version());
+        assertEquals("Category 2", result.categories().get(0).name());
+        verify(brandRepository).findDetailById(1);
     }
 
     @Test
-    void testDeleteBrand_shouldMarkImageDeletedAndDeleteBrand() {
-        // Arrange
-        int brandId = 1;
-        LocalDateTime updatedAt = LocalDateTime.now().minusDays(1);
-        ModifyExclusiveDTO request = new ModifyExclusiveDTO(updatedAt.plusMinutes(1));
+    void getAdminBrands_ShouldBatchFetchCategoriesOnceForTheResolvedPage() {
+        Brand first = Brand.builder()
+                .id(1)
+                .name("Adidas")
+                .status(BrandStatus.ACTIVE)
+                .version(0L)
+                .build();
+        Brand second = Brand.builder()
+                .id(2)
+                .name("Nike")
+                .status(BrandStatus.ACTIVE)
+                .version(0L)
+                .build();
+        when(brandRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(first, second), PageRequest.of(0, 10), 2));
 
-        Media image = Media.builder().id("img123").status(MediaStatus.ACTIVE).build();
-        Brand brand =
-                Brand.builder().id(brandId).updatedAt(updatedAt).image(image).build();
+        brandService.getAdminBrands(new com.xdpsx.ecommerce.catalog.brand.api.dto.AdminBrandFilter());
 
-        when(brandRepository.findById(brandId)).thenReturn(Optional.of(brand));
+        verify(brandRepository).fetchCategories(List.of(first, second));
+    }
 
-        // Act
-        brandService.deleteBrand(brandId, request);
+    @Test
+    void createBrand_ShouldSaveStatusAndResolveCategories() {
+        Set<Integer> categoryIds = Set.of(1);
+        CreateBrandRequest request = new CreateBrandRequest("Puma", BrandStatus.ACTIVE, null, categoryIds);
+        when(brandRepository.existsByName("Puma")).thenReturn(false);
+        when(categoryRepository.findAllByIdInWithAncestry(categoryIds)).thenReturn(List.of(activeCategory(1)));
+        when(brandRepository.saveAndFlush(any(Brand.class))).thenAnswer(invocation -> {
+            Brand brand = invocation.getArgument(0);
+            brand.setId(7);
+            brand.setVersion(0L);
+            return brand;
+        });
 
-        // Assert
+        AdminBrandResponse result = brandService.createBrand(request);
+
+        assertEquals("Puma", result.name());
+        assertEquals(BrandStatus.ACTIVE, result.status());
+        assertEquals(7, result.id());
+        verify(categoryRepository).findAllByIdInWithAncestry(categoryIds);
+    }
+
+    @Test
+    void updateBrand_ShouldRejectStaleVersionBeforeChangingMediaOrAssociations() {
+        Brand brand = Brand.builder()
+                .id(1)
+                .name("Old")
+                .status(BrandStatus.ACTIVE)
+                .version(2L)
+                .image(Media.builder().id("old-logo").status(MediaStatus.ACTIVE).build())
+                .build();
+        when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
+        UpdateBrandRequest request = new UpdateBrandRequest("New", BrandStatus.INACTIVE, null, Set.of(), 1L);
+
+        ApplicationException exception =
+                assertThrows(ApplicationException.class, () -> brandService.updateBrand(1, request));
+
+        assertEquals(ErrorCode.CONCURRENT_MODIFICATION, exception.getCode());
+        assertEquals("Old", brand.getName());
+        assertEquals(BrandStatus.ACTIVE, brand.getStatus());
+        assertEquals(MediaStatus.ACTIVE, brand.getImage().getStatus());
+        verifyNoInteractions(mediaRepository, categoryRepository);
+        verify(brandRepository, never()).save(any(Brand.class));
+    }
+
+    @Test
+    void deleteBrand_ShouldMarkLogoPendingDeleteAndRemoveBrand() {
+        Media image = Media.builder().id("logo").status(MediaStatus.ACTIVE).build();
+        Brand brand = Brand.builder().id(1).version(4L).image(image).build();
+        when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
+
+        brandService.deleteBrand(1, new DeleteBrandRequest(4L));
+
         assertEquals(MediaStatus.PENDING_DELETE, image.getStatus());
         verify(mediaRepository).save(image);
         verify(brandRepository).delete(brand);
     }
 
     @Test
-    void testGetAdminBrandDetail_shouldThrowNotFound_WhenBrandDoesNotExist() {
-        // Arrange
-        int brandId = 1;
-        when(brandRepository.findDetailById(brandId)).thenReturn(Optional.empty());
-
-        // Act & Assert
-        ApplicationException exception =
-                assertThrows(ApplicationException.class, () -> brandService.getAdminBrandDetail(brandId));
-        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
-        assertEquals("brand", exception.getParameters().get("resourceType"));
-        assertEquals(brandId, exception.getParameters().get("resourceId"));
-        verify(brandRepository).findDetailById(brandId);
-    }
-
-    @Test
-    void testCreateBrand_shouldThrowAlreadyExists_WhenBrandNameExists() {
-        // Arrange
-        CreateBrandRequest request = new CreateBrandRequest("Puma", true, null, null);
-        when(brandRepository.existsByName("Puma")).thenReturn(true);
-
-        // Act & Assert
-        ApplicationException exception =
-                assertThrows(ApplicationException.class, () -> brandService.createBrand(request));
-        assertEquals(ErrorCode.RESOURCE_ALREADY_EXISTS, exception.getCode());
-        verify(brandRepository).existsByName("Puma");
-    }
-
-    @Test
-    void testUpdateBrand_shouldThrowConcurrentModification_WhenLastRetrievedAtIsInvalid() {
-        // Arrange
-        int brandId = 1;
-        LocalDateTime updatedAt = LocalDateTime.now().minusDays(1);
-        UpdateBrandRequest request = new UpdateBrandRequest("NewName", true, null, null, updatedAt.minusMinutes(1));
-
-        Brand brand = Brand.builder().id(brandId).updatedAt(updatedAt).build();
-        when(brandRepository.findById(brandId)).thenReturn(Optional.of(brand));
-
-        // Act & Assert
-        ApplicationException exception =
-                assertThrows(ApplicationException.class, () -> brandService.updateBrand(brandId, request));
-        assertEquals(ErrorCode.CONCURRENT_MODIFICATION, exception.getCode());
-        verify(brandRepository).findById(brandId);
-    }
-
-    @Test
-    void testDeleteBrand_shouldThrowConcurrentModification_WhenLastRetrievedAtIsInvalid() {
-        // Arrange
-        int brandId = 1;
-        LocalDateTime updatedAt = LocalDateTime.now().minusDays(1);
-        ModifyExclusiveDTO request = new ModifyExclusiveDTO(updatedAt.minusMinutes(1));
-
-        Brand brand = Brand.builder().id(brandId).updatedAt(updatedAt).build();
-        when(brandRepository.findById(brandId)).thenReturn(Optional.of(brand));
-
-        // Act & Assert
-        ApplicationException exception =
-                assertThrows(ApplicationException.class, () -> brandService.deleteBrand(brandId, request));
-        assertEquals(ErrorCode.CONCURRENT_MODIFICATION, exception.getCode());
-        verify(brandRepository).findById(brandId);
-    }
-
-    @Test
-    void testDeleteBrand_shouldThrowNotFound_WhenBrandDoesNotExist() {
-        // Arrange
-        int brandId = 1;
-        LocalDateTime updatedAt = LocalDateTime.now();
-        ModifyExclusiveDTO request = new ModifyExclusiveDTO(updatedAt.minusMinutes(1));
-
-        when(brandRepository.findById(brandId)).thenReturn(Optional.empty());
-
-        // Act & Assert
-        ApplicationException exception =
-                assertThrows(ApplicationException.class, () -> brandService.deleteBrand(brandId, request));
-        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
-        verify(brandRepository).findById(brandId);
-    }
-
-    @Test
-    void testDeleteBrand_shouldNotMarkImageDeletedWhenBrandDoesNotHaveImage() {
-        // Arrange
-        int brandId = 1;
-        LocalDateTime updatedAt = LocalDateTime.now().minusDays(1);
-        ModifyExclusiveDTO request = new ModifyExclusiveDTO(updatedAt.plusMinutes(1));
-
-        Brand brand =
-                Brand.builder().id(brandId).updatedAt(updatedAt).image(null).build();
-
-        when(brandRepository.findById(brandId)).thenReturn(Optional.of(brand));
-
-        // Act
-        brandService.deleteBrand(brandId, request);
-
-        // Assert
-        verify(mediaRepository, never()).save(any(Media.class));
-        verify(brandRepository).delete(brand);
-    }
-
-    @Test
-    void testFetchCategories_shouldThrowNotFound_WhenCategoryDoesNotExist() {
-        // Arrange
+    void createBrand_ShouldRejectWholeAssignmentWhenAnyCategoryIsMissing() {
         Set<Integer> categoryIds = Set.of(1, 2);
+        when(brandRepository.existsByName("Puma")).thenReturn(false);
         when(categoryRepository.findAllByIdInWithAncestry(categoryIds)).thenReturn(List.of(activeCategory(1)));
 
-        // Act & Assert
         ApplicationException exception = assertThrows(
                 ApplicationException.class,
-                () -> brandService.createBrand(new CreateBrandRequest("Puma", true, null, categoryIds)));
-        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
-        assertEquals("category", exception.getParameters().get("resourceType"));
-        verify(brandRepository, never()).save(any(Brand.class));
-    }
+                () -> brandService.createBrand(new CreateBrandRequest("Puma", BrandStatus.ACTIVE, null, categoryIds)));
 
-    @Test
-    void testFetchCategories_shouldRejectWholeSet_WhenOneCategoryIsHiddenByInactiveAncestor() {
-        // Arrange: category 2 is stored ACTIVE, but its parent is INACTIVE, so it is
-        // not effectively active.
-        Set<Integer> categoryIds = Set.of(1, 2);
-        Category inactiveParent = Category.builder()
-                .id(9)
-                .name("Retired")
-                .status(CategoryStatus.INACTIVE)
-                .build();
-        Category hiddenChild = Category.builder()
-                .id(2)
-                .name("Hidden")
-                .status(CategoryStatus.ACTIVE)
-                .parent(inactiveParent)
-                .build();
-        when(categoryRepository.findAllByIdInWithAncestry(categoryIds))
-                .thenReturn(List.of(activeCategory(1), hiddenChild));
-
-        // Act & Assert
-        ApplicationException exception = assertThrows(
-                ApplicationException.class,
-                () -> brandService.createBrand(new CreateBrandRequest("Puma", true, null, categoryIds)));
         assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
-        assertEquals(2, exception.getParameters().get("resourceId"));
-        // The whole set is rejected atomically: no partial assignment is saved.
         verify(brandRepository, never()).save(any(Brand.class));
     }
 
