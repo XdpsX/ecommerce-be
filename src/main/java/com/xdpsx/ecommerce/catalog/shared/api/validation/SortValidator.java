@@ -1,4 +1,4 @@
-package com.xdpsx.ecommerce.catalog.product.api.validation;
+package com.xdpsx.ecommerce.catalog.shared.api.validation;
 
 import java.util.Arrays;
 import java.util.HashSet;
@@ -18,6 +18,10 @@ public class SortValidator implements ConstraintValidator<SortConstraint, String
 
     @Override
     public boolean isValid(String value, ConstraintValidatorContext context) {
+        if (value == null) {
+            return true;
+        }
+
         String actualField = value;
         if (value.startsWith("-")) {
             actualField = value.substring(1);

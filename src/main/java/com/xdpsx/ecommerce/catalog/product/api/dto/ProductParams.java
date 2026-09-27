@@ -4,7 +4,7 @@ import static com.xdpsx.ecommerce.catalog.shared.persistence.FieldConstants.*;
 
 import jakarta.validation.constraints.Min;
 
-import com.xdpsx.ecommerce.catalog.product.api.validation.SortConstraint;
+import com.xdpsx.ecommerce.catalog.shared.api.validation.SortConstraint;
 import com.xdpsx.ecommerce.common.pagination.AbstractPageParams;
 
 import lombok.Builder;

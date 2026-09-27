@@ -1,4 +1,4 @@
-package com.xdpsx.ecommerce.catalog.product.api.validation;
+package com.xdpsx.ecommerce.catalog.shared.api.validation;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;

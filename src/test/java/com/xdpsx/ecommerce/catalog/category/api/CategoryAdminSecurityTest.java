@@ -1,5 +1,6 @@
 package com.xdpsx.ecommerce.catalog.category.api;
 
+import static org.hamcrest.Matchers.hasItem;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -147,6 +148,24 @@ class CategoryAdminSecurityTest {
                 .thenReturn(PageResponse.of(List.of(), 1, 10, 0, 0));
 
         mockMvc.perform(get("/admin/categories").with(admin())).andExpect(status().isOk());
+    }
+
+    @Test
+    void adminList_ShouldRejectLevelBeyondMaxDepth() throws Exception {
+        mockMvc.perform(get("/admin/categories").with(admin()).param("level", "4"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[*].field").value(hasItem("level")));
+
+        verifyNoInteractions(categoryService);
+    }
+
+    @Test
+    void adminList_ShouldRejectUnknownSortField() throws Exception {
+        mockMvc.perform(get("/admin/categories").with(admin()).param("sort", "unknown"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[*].field").value(hasItem("sort")));
+
+        verifyNoInteractions(categoryService);
     }
 
     @Test
