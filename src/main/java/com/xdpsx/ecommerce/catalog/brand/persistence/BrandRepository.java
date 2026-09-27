@@ -9,11 +9,20 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
+import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
 
 public interface BrandRepository extends JpaRepository<Brand, Integer>, JpaSpecificationExecutor<Brand> {
     boolean existsByNameIgnoreCase(String name);
 
     boolean existsByNameIgnoreCaseAndIdNot(String name, Integer id);
+
+    @Query("SELECT b FROM Brand b LEFT JOIN FETCH b.image " + "WHERE b.status = :status ORDER BY b.name ASC, b.id ASC")
+    List<Brand> findStorefrontBrands(@Param("status") BrandStatus status);
+
+    @Query("SELECT DISTINCT b FROM Brand b JOIN b.categories c LEFT JOIN FETCH b.image "
+            + "WHERE b.status = :status AND c.id = :categoryId ORDER BY b.name ASC, b.id ASC")
+    List<Brand> findStorefrontBrandsByCategoryId(
+            @Param("categoryId") Integer categoryId, @Param("status") BrandStatus status);
 
     /**
      * Batch-fetches the categories collection for one resolved page of Brands. The page query itself must not

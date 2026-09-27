@@ -19,6 +19,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.xdpsx.ecommerce.catalog.brand.api.AdminBrandController;
+import com.xdpsx.ecommerce.catalog.brand.api.StorefrontBrandController;
 import com.xdpsx.ecommerce.catalog.brand.application.BrandService;
 import com.xdpsx.ecommerce.catalog.category.api.AdminCategoryController;
 import com.xdpsx.ecommerce.catalog.category.api.StorefrontCategoryController;
@@ -47,6 +48,7 @@ import tools.jackson.databind.ObjectMapper;
             AdminCategoryController.class,
             StorefrontCategoryController.class,
             AdminBrandController.class,
+            StorefrontBrandController.class,
             MediaController.class
         })
 @Import(SecurityConfigForControllerTests.class)
@@ -120,6 +122,30 @@ class OpenApiDocumentationTest {
 
         JsonNode deleteProperties = openApi.at("/components/schemas/DeleteBrandRequest/properties");
         assertThat(deleteProperties.has("version")).isTrue();
+    }
+
+    @Test
+    void storefrontBrandRoute_shouldDocumentOptionalCategoryFilterAndPublicSchema() {
+        JsonNode operation = openApi.at("/paths/~1brands/get");
+
+        assertThat(operation.isMissingNode()).isFalse();
+        assertThat(operation.path("summary").asString()).isEqualTo("Get storefront brands");
+        assertThat(operation.path("responses").has("200")).isTrue();
+        assertThat(operation.path("responses").has("404")).isTrue();
+        assertThat(operation.at("/responses/200/content/*~1*/schema/items/$ref").asString())
+                .isEqualTo("#/components/schemas/StorefrontBrandResponse");
+        JsonNode categoryParameter = operation.path("parameters").get(0);
+        assertThat(categoryParameter.path("name").asString()).isEqualTo("categoryId");
+        assertThat(categoryParameter.path("in").asString()).isEqualTo("query");
+        assertThat(categoryParameter.path("required").asBoolean()).isFalse();
+
+        JsonNode properties = openApi.at("/components/schemas/StorefrontBrandResponse/properties");
+        assertThat(properties.has("id")).isTrue();
+        assertThat(properties.has("name")).isTrue();
+        assertThat(properties.has("image")).isTrue();
+        assertThat(properties.has("status")).isFalse();
+        assertThat(properties.has("version")).isFalse();
+        assertThat(properties.has("categories")).isFalse();
     }
 
     @Test
