@@ -11,6 +11,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
@@ -59,6 +60,15 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail problem = ApiProblemFactory.create(ErrorCode.INVALID_CREDENTIALS);
         applyRequestContext(problem, request);
         return new ResponseEntity<>(problem, ApiProblemFactory.statusFor(ErrorCode.INVALID_CREDENTIALS));
+    }
+
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<Object> handleOptimisticLockingFailure(
+            ObjectOptimisticLockingFailureException ex, WebRequest request) {
+        log.debug("Concurrent write conflict");
+        ProblemDetail problem = ApiProblemFactory.create(ErrorCode.CONCURRENT_WRITE_CONFLICT);
+        applyRequestContext(problem, request);
+        return new ResponseEntity<>(problem, ApiProblemFactory.statusFor(ErrorCode.CONCURRENT_WRITE_CONFLICT));
     }
 
     @ExceptionHandler(Exception.class)

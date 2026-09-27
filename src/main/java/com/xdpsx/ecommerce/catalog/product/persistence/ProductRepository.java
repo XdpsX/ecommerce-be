@@ -11,6 +11,8 @@ import com.xdpsx.ecommerce.catalog.product.domain.Product;
 public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpecificationExecutor<Product> {
     boolean existsBySlug(String slug);
 
+    boolean existsByBrandId(Integer brandId);
+
     @Query("SELECT p FROM Product p LEFT JOIN FETCH p.images WHERE p.id = :id")
     Optional<Product> findProductById(Long id);
 

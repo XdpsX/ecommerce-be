@@ -11,7 +11,9 @@ import org.springframework.data.repository.query.Param;
 import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
 
 public interface BrandRepository extends JpaRepository<Brand, Integer>, JpaSpecificationExecutor<Brand> {
-    boolean existsByName(String name);
+    boolean existsByNameIgnoreCase(String name);
+
+    boolean existsByNameIgnoreCaseAndIdNot(String name, Integer id);
 
     /**
      * Batch-fetches the categories collection for one resolved page of Brands. The page query itself must not

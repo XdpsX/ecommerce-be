@@ -2,11 +2,14 @@ package com.xdpsx.ecommerce.catalog.brand.application;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.domain.Specification;
@@ -19,6 +22,7 @@ import com.xdpsx.ecommerce.catalog.brand.persistence.BrandRepository;
 import com.xdpsx.ecommerce.catalog.brand.persistence.BrandSpecification;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
+import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
 import com.xdpsx.ecommerce.catalog.shared.application.PageMapper;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
@@ -31,12 +35,17 @@ import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 public class BrandServiceImpl extends AbstractImageUpdatableService implements BrandService {
     private final BrandRepository brandRepository;
     private final CategoryRepository categoryRepository;
+    private final ProductRepository productRepository;
 
     public BrandServiceImpl(
-            MediaRepository mediaRepository, BrandRepository brandRepository, CategoryRepository categoryRepository) {
+            MediaRepository mediaRepository,
+            BrandRepository brandRepository,
+            CategoryRepository categoryRepository,
+            ProductRepository productRepository) {
         super(mediaRepository);
         this.brandRepository = brandRepository;
         this.categoryRepository = categoryRepository;
+        this.productRepository = productRepository;
     }
 
     /**
@@ -75,14 +84,20 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
     @Transactional
     @Override
     public AdminBrandResponse createBrand(CreateBrandRequest request) {
-        if (brandRepository.existsByName(request.name())) {
+        String normalizedName = normalizeName(request.name());
+        if (brandRepository.existsByNameIgnoreCase(normalizedName)) {
             throw new ApplicationException(
                     ErrorCode.RESOURCE_ALREADY_EXISTS,
-                    Map.of("resourceType", "brand", "field", "name", "value", request.name()));
+                    Map.of("resourceType", "brand", "field", "name", "value", normalizedName));
         }
 
         Brand brand = BrandMapper.INSTANCE.toEntity(request);
+        brand.setName(normalizedName);
 
+        if (request.categoryIds() != null) {
+            List<Category> categories = fetchCategories(request.categoryIds());
+            brand.setCategories(categories);
+        }
         if (request.imageId() != null) {
             Media image = mediaRepository
                     .findAttachableById(request.imageId(), MediaPurpose.BRAND_LOGO)
@@ -92,13 +107,16 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
             image.activate();
             brand.setImage(image);
         }
-        if (request.categoryIds() != null) {
-            List<Category> categories = fetchCategories(request.categoryIds());
-            brand.setCategories(categories);
-        }
 
-        Brand savedBrand = brandRepository.saveAndFlush(brand);
-        return BrandMapper.INSTANCE.toAdminBrandResponse(savedBrand);
+        try {
+            Brand savedBrand = brandRepository.saveAndFlush(brand);
+            return BrandMapper.INSTANCE.toAdminBrandResponse(savedBrand);
+        } catch (DataIntegrityViolationException exception) {
+            if (isBrandNameUniqueViolation(exception)) {
+                throw duplicateNameException(normalizedName, exception);
+            }
+            throw exception;
+        }
     }
 
     @Transactional
@@ -116,28 +134,43 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
                     ErrorCode.CONCURRENT_MODIFICATION, Map.of("resourceType", "brand", "resourceId", id));
         }
 
+        String normalizedName = normalizeName(request.name());
+
         // Update name
-        if (!brand.getName().equals(request.name())) {
-            if (brandRepository.existsByName(request.name())) {
+        boolean nameChanged = !brand.getName().equals(normalizedName);
+        if (nameChanged) {
+            if (brandRepository.existsByNameIgnoreCaseAndIdNot(normalizedName, id)) {
                 throw new ApplicationException(
                         ErrorCode.RESOURCE_ALREADY_EXISTS,
-                        Map.of("resourceType", "brand", "field", "name", "value", request.name()));
+                        Map.of("resourceType", "brand", "field", "name", "value", normalizedName));
             }
-            brand.setName(request.name());
         }
-
-        brand.setStatus(request.status());
-
-        // Update image
-        updateImage(brand, request.imageId(), MediaPurpose.BRAND_LOGO);
 
         // Update categories
+        List<Category> categories = null;
         if (request.categoryIds() != null) {
-            List<Category> categories = fetchCategories(request.categoryIds());
+            categories = fetchCategories(request.categoryIds());
+        }
+
+        // Resolve all requested associations before mutating the aggregate. The image helper also validates a
+        // replacement before marking the old image for deletion.
+        updateImage(brand, request.imageId(), MediaPurpose.BRAND_LOGO);
+        if (categories != null) {
             brand.setCategories(categories);
         }
-        Brand savedBrand = brandRepository.saveAndFlush(brand);
-        return BrandMapper.INSTANCE.toAdminBrandResponse(savedBrand);
+        if (nameChanged) {
+            brand.setName(normalizedName);
+        }
+        brand.setStatus(request.status());
+        try {
+            Brand savedBrand = brandRepository.saveAndFlush(brand);
+            return BrandMapper.INSTANCE.toAdminBrandResponse(savedBrand);
+        } catch (DataIntegrityViolationException exception) {
+            if (nameChanged && isBrandNameUniqueViolation(exception)) {
+                throw duplicateNameException(normalizedName, exception);
+            }
+            throw exception;
+        }
     }
 
     @Transactional
@@ -151,12 +184,22 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
             throw new ApplicationException(
                     ErrorCode.CONCURRENT_MODIFICATION, Map.of("resourceType", "brand", "resourceId", id));
         }
+        if (productRepository.existsByBrandId(id)) {
+            throw new ApplicationException(
+                    ErrorCode.RESOURCE_IN_USE, Map.of("resourceType", "brand", "resourceId", id));
+        }
         if (brand.getImage() != null) {
             Media image = brand.getImage();
             image.markPendingDeletion();
             mediaRepository.save(image);
         }
-        brandRepository.delete(brand);
+        try {
+            brandRepository.delete(brand);
+            brandRepository.flush();
+        } catch (DataIntegrityViolationException exception) {
+            throw new ApplicationException(
+                    ErrorCode.RESOURCE_IN_USE, Map.of("resourceType", "brand", "resourceId", id), exception);
+        }
     }
 
     /**
@@ -169,11 +212,15 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
         if (categoryIds.isEmpty()) {
             return List.of();
         }
+        if (categoryIds.stream().anyMatch(Objects::isNull)) {
+            throw new ApplicationException(ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category"));
+        }
         Map<Integer, Category> byId = new HashMap<>();
         for (Category category : categoryRepository.findAllByIdInWithAncestry(categoryIds)) {
             byId.put(category.getId(), category);
         }
         return categoryIds.stream()
+                .sorted()
                 .map(categoryId -> {
                     Category category = byId.get(categoryId);
                     if (category == null || !category.isEffectivelyActive()) {
@@ -184,5 +231,56 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
                     return category;
                 })
                 .collect(Collectors.toList());
+    }
+
+    private static String normalizeName(String name) {
+        return name.trim();
+    }
+
+    /**
+     * A flush can fail for any foreign key or check constraint touched by the aggregate. Only the unique
+     * constraint for {@code brands.name} represents the duplicate-name contract; all other integrity failures
+     * must retain their original cause for the transaction boundary to handle them correctly.
+     */
+    private static boolean isBrandNameUniqueViolation(DataIntegrityViolationException exception) {
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConstraintViolationException violation
+                    && isBrandNameConstraint(violation.getConstraintName())) {
+                return true;
+            }
+
+            String message = cause.getMessage();
+            if (message == null) {
+                continue;
+            }
+            String normalizedMessage = message.toLowerCase(Locale.ROOT);
+            boolean duplicate = normalizedMessage.contains("duplicate") || normalizedMessage.contains("unique");
+            boolean brandNameKey = normalizedMessage.contains("brands.name")
+                    || normalizedMessage.contains("brand_name")
+                    || normalizedMessage.contains("for key 'name'")
+                    || normalizedMessage.contains("for key `name`");
+            if (duplicate && brandNameKey) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isBrandNameConstraint(String constraintName) {
+        if (constraintName == null) {
+            return false;
+        }
+        String normalized =
+                constraintName.toLowerCase(Locale.ROOT).replace("`", "").replace("'", "");
+        return normalized.equals("name")
+                || normalized.equals("brands.name")
+                || (normalized.startsWith("uk") && normalized.contains("brand") && normalized.contains("name"));
+    }
+
+    private static ApplicationException duplicateNameException(String name, Throwable cause) {
+        return new ApplicationException(
+                ErrorCode.RESOURCE_ALREADY_EXISTS,
+                Map.of("resourceType", "brand", "field", "name", "value", name),
+                cause);
     }
 }

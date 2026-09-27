@@ -18,6 +18,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -30,6 +31,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.xdpsx.ecommerce.catalog.brand.api.dto.AdminBrandFilter;
 import com.xdpsx.ecommerce.catalog.brand.api.dto.AdminBrandResponse;
 import com.xdpsx.ecommerce.catalog.brand.application.BrandService;
+import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
 import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
@@ -135,5 +137,18 @@ class BrandControllerTest {
                 .andExpect(header().string("Location", "/admin/brands/101"))
                 .andExpect(jsonPath("$.version").value(0));
         verify(brandService).createBrand(any());
+    }
+
+    @Test
+    void updateBrand_ShouldMapOptimisticLockFailureToConflict() throws Exception {
+        when(brandService.updateBrand(anyInt(), any()))
+                .thenThrow(new ObjectOptimisticLockingFailureException(Brand.class, 100));
+
+        mockMvc.perform(put("/admin/brands/100")
+                        .with(admin())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Nike\",\"status\":\"ACTIVE\",\"version\":1}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONCURRENT_WRITE_CONFLICT"));
     }
 }
