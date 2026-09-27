@@ -45,8 +45,11 @@ public final class ApiProblemFactory {
             case INVALID_CREDENTIALS, AUTHENTICATION_REQUIRED -> HttpStatus.UNAUTHORIZED;
             case ACCESS_DENIED -> HttpStatus.FORBIDDEN;
             case RESOURCE_NOT_FOUND -> HttpStatus.NOT_FOUND;
-            case RESOURCE_ALREADY_EXISTS, RESOURCE_IN_USE, CONCURRENT_MODIFICATION, CONCURRENT_WRITE_CONFLICT ->
-                HttpStatus.CONFLICT;
+            case RESOURCE_ALREADY_EXISTS,
+                    RESOURCE_IN_USE,
+                    VARIANT_OPTION_DEACTIVATION_UNAVAILABLE,
+                    CONCURRENT_MODIFICATION,
+                    CONCURRENT_WRITE_CONFLICT -> HttpStatus.CONFLICT;
             case INVALID_MEDIA_RESOURCE_TYPE -> HttpStatus.UNPROCESSABLE_CONTENT;
             case MEDIA_UPLOAD_FAILED -> HttpStatus.BAD_GATEWAY;
             case INTERNAL_ERROR -> HttpStatus.INTERNAL_SERVER_ERROR;
