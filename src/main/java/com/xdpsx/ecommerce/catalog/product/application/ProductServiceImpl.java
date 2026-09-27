@@ -1,21 +1,21 @@
 package com.xdpsx.ecommerce.catalog.product.application;
 
-import static com.xdpsx.ecommerce.common.validation.FileConstants.*;
-
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
+import org.springframework.transaction.annotation.Transactional;
 
-import com.cloudinary.Transformation;
-import com.cloudinary.utils.ObjectUtils;
 import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
+import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
 import com.xdpsx.ecommerce.catalog.brand.persistence.BrandRepository;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
@@ -28,31 +28,32 @@ import com.xdpsx.ecommerce.catalog.shared.application.PageMapper;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
-import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryUploadResponse;
-import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryUploader;
+import com.xdpsx.ecommerce.media.domain.Media;
+import com.xdpsx.ecommerce.media.domain.MediaPurpose;
+import com.xdpsx.ecommerce.media.domain.MediaStatus;
+import com.xdpsx.ecommerce.media.persistence.MediaRepository;
+import com.xdpsx.ecommerce.order.persistence.OrderItemRepository;
 
 import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
 public class ProductServiceImpl implements ProductService {
+    private static final int MAX_IMAGES = 5;
+
     private final ProductMapper productMapper;
     private final PageMapper pageMapper;
-    private final CloudinaryUploader uploader;
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final BrandRepository brandRepository;
     private final ProductSpecification spec;
+    private final MediaRepository mediaRepository;
+    private final OrderItemRepository orderItemRepository;
 
-    private static final Map uploadOptions = ObjectUtils.asMap(
-            "folder",
-            PRODUCT_IMG_FOLDER,
-            "transformation",
-            new Transformation().width(PRODUCT_IMG_WIDTH).crop("scale"));
-
+    @Transactional(readOnly = true)
     @Override
     public PageResponse<ProductResponse> filterAllProducts(ProductParams params) {
-        Page<Product> productPage = productRepository.findAll(
+        Page<Product> page = productRepository.findAll(
                 spec.getFiltersSpec(
                         params.getSearch(),
                         params.getSort(),
@@ -64,27 +65,25 @@ public class ProductServiceImpl implements ProductService {
                         params.getCategoryId(),
                         params.getBrandId()),
                 PageRequest.of(params.getPageNum() - 1, params.getPageSize()));
-        return pageMapper.toProductPageResponse(productPage);
+        loadImages(page.getContent());
+        return pageMapper.toProductPageResponse(page);
     }
 
+    @Transactional(readOnly = true)
     @Override
     public ProductDetailsDTO getProductById(Long id) {
-        Product product = productRepository
-                .findProductById(id)
-                .orElseThrow(() -> new ApplicationException(
-                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "product", "resourceId", id)));
+        Product product = productRepository.findProductById(id).orElseThrow(() -> notFound("product", id));
         return productMapper.fromEntityToDetailsDTO(product);
     }
 
+    @Transactional(readOnly = true)
     @Override
     public ProductDetailsDTO getProductBySlug(String slug) {
-        Product product = productRepository
-                .findProductBySlug(slug)
-                .orElseThrow(() -> new ApplicationException(
-                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "product", "resourceId", slug)));
+        Product product = productRepository.findProductBySlug(slug).orElseThrow(() -> notFound("product", slug));
         return productMapper.fromEntityToDetailsDTO(product);
     }
 
+    @Transactional
     @Override
     public ProductResponse createProduct(ProductCreateRequest request) {
         if (productRepository.existsBySlug(request.getSlug())) {
@@ -93,41 +92,40 @@ public class ProductServiceImpl implements ProductService {
                     Map.of("resourceType", "product", "field", "slug", "value", request.getSlug()));
         }
         Category category = requireEffectivelyActiveCategory(request.getCategoryId());
-        Brand brand = brandRepository
-                .findById(request.getBrandId())
-                .orElseThrow(() -> new ApplicationException(
-                        ErrorCode.RESOURCE_NOT_FOUND,
-                        Map.of("resourceType", "brand", "resourceId", request.getBrandId())));
-
+        Brand brand = requireActiveBrand(request.getBrandId());
+        List<Media> media = resolveNewMedia(request.getImageIds());
         Product product = productMapper.fromCreateRequestToEntity(request);
         product.setCategory(category);
         product.setBrand(brand);
-
-        if (request.getImages() != null && !request.getImages().isEmpty()) {
-            product.setImages(new ArrayList<>());
-            uploadProductImages(request.getImages(), product);
-            product.setMainImage(product.getImages().get(0).getUrl());
-        }
-
-        Product savedProduct = productRepository.save(product);
-        return productMapper.fromEntityToResponse(savedProduct);
+        replaceImages(product, media);
+        media.forEach(Media::activate);
+        return productMapper.fromEntityToResponse(productRepository.save(product));
     }
 
+    @Transactional
     @Override
     public ProductResponse updateProduct(Long id, ProductUpdateRequest request) {
-        Product product = productRepository
-                .findProductById(id)
-                .orElseThrow(() -> new ApplicationException(
-                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "product", "resourceId", id)));
-
+        Product product = productRepository.findProductById(id).orElseThrow(() -> notFound("product", id));
+        List<Media> replacementMedia =
+                request.getImageIds() == null ? null : resolveReplacementMedia(product, request.getImageIds());
+        Category targetCategory = product.getCategory();
+        if (request.getCategoryId() != null && !Objects.equals(targetCategory.getId(), request.getCategoryId())) {
+            targetCategory = requireEffectivelyActiveCategory(request.getCategoryId());
+        }
+        Brand targetBrand = product.getBrand();
+        if (request.getBrandId() != null && !Objects.equals(targetBrand.getId(), request.getBrandId())) {
+            targetBrand = requireActiveBrand(request.getBrandId());
+        }
+        if (request.isPublished()) {
+            validatePublishEligibility(targetCategory, targetBrand);
+        }
         product.setName(request.getName());
         product.setPrice(request.getPrice());
         product.setDiscountPercent(request.getDiscountPercent());
         product.setInStock(request.isInStock());
         product.setPublished(request.isPublished());
         product.setDescription(request.getDescription());
-
-        if (!request.getSlug().equals(product.getSlug())) {
+        if (!Objects.equals(request.getSlug(), product.getSlug())) {
             if (productRepository.existsBySlug(request.getSlug())) {
                 throw new ApplicationException(
                         ErrorCode.RESOURCE_ALREADY_EXISTS,
@@ -135,109 +133,77 @@ public class ProductServiceImpl implements ProductService {
             }
             product.setSlug(request.getSlug());
         }
-
-        if (request.getCategoryId() != null && !product.getCategory().getId().equals(request.getCategoryId())) {
-            Category category = requireEffectivelyActiveCategory(request.getCategoryId());
-            product.setCategory(category);
+        product.setCategory(targetCategory);
+        product.setBrand(targetBrand);
+        if (replacementMedia != null) {
+            product.getImages().stream()
+                    .map(ProductImage::getMedia)
+                    .filter(item -> replacementMedia.stream()
+                            .noneMatch(retained -> retained.getId().equals(item.getId())))
+                    .forEach(Media::markPendingDeletion);
+            product.getImages().clear();
+            productRepository.flush();
+            appendImages(product, replacementMedia);
+            replacementMedia.stream()
+                    .filter(item -> item.getStatus() == MediaStatus.TEMPORARY)
+                    .forEach(Media::activate);
         }
-
-        if (request.getBrandId() != null && !product.getBrand().getId().equals(request.getBrandId())) {
-            Brand brand = brandRepository
-                    .findById(request.getBrandId())
-                    .orElseThrow(() -> new ApplicationException(
-                            ErrorCode.RESOURCE_NOT_FOUND,
-                            Map.of("resourceType", "brand", "resourceId", request.getBrandId())));
-            product.setBrand(brand);
-        }
-
-        if (request.getImages() != null && !request.getImages().isEmpty()) {
-            if (request.getImages().size() + product.getImages().size() > NUMBER_PRODUCT_IMAGES) {
-                throw new ApplicationException(
-                        ErrorCode.INVALID_PRODUCT_IMAGE_COUNT, Map.of("maxImages", NUMBER_PRODUCT_IMAGES));
-            }
-            uploadProductImages(request.getImages(), product);
-        }
-
-        if (request.getRemovedImageIds() != null
-                && !request.getRemovedImageIds().isEmpty()) {
-            product.getImages().removeIf(image -> {
-                if (request.getRemovedImageIds().contains(image.getId())) {
-                    uploader.deleteFile(image.getUrl());
-                    // remove main image if image is removed
-                    if (image.getUrl().equals(product.getMainImage())) {
-                        product.setMainImage(null);
-                    }
-                    return true;
-                }
-                return false;
-            });
-            // update main image if it is removed
-            if (product.getMainImage() == null && !product.getImages().isEmpty()) {
-                product.setMainImage(product.getImages().get(0).getUrl());
-            }
-        }
-
-        Product updatedProduct = productRepository.save(product);
-        return productMapper.fromEntityToResponse(updatedProduct);
+        return productMapper.fromEntityToResponse(productRepository.save(product));
     }
 
-    /**
-     * Only an effectively active category (itself and every ancestor stored
-     * {@code ACTIVE}) can be assigned to a
-     * product. Hidden categories surface as {@code RESOURCE_NOT_FOUND}, same as a
-     * missing one.
-     */
-    private Category requireEffectivelyActiveCategory(Integer categoryId) {
-        return categoryRepository
-                .findByIdWithAncestry(categoryId)
-                .filter(Category::isEffectivelyActive)
-                .orElseThrow(() -> new ApplicationException(
-                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", categoryId)));
-    }
-
+    @Transactional
     @Override
     public void deleteProduct(Long id) {
-        Product product = productRepository
-                .findProductById(id)
-                .orElseThrow(() -> new ApplicationException(
-                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "product", "resourceId", id)));
-        productRepository.delete(product);
-        for (ProductImage productImage : product.getImages()) {
-            uploader.deleteFile(productImage.getUrl());
+        Product product = productRepository.findProductById(id).orElseThrow(() -> notFound("product", id));
+        if (orderItemRepository.existsByProductId(id)) {
+            throw new ApplicationException(
+                    ErrorCode.RESOURCE_IN_USE, Map.of("resourceType", "product", "resourceId", id));
+        }
+        product.getImages().stream().map(ProductImage::getMedia).forEach(Media::markPendingDeletion);
+        try {
+            productRepository.delete(product);
+            productRepository.flush();
+        } catch (DataIntegrityViolationException exception) {
+            throw new ApplicationException(
+                    ErrorCode.RESOURCE_IN_USE, Map.of("resourceType", "product", "resourceId", id), exception);
         }
     }
 
+    @Transactional
     @Override
     public void publishProduct(Long id, boolean status) {
-        Product product = productRepository
-                .findProductById(id)
-                .orElseThrow(() -> new ApplicationException(
-                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "product", "resourceId", id)));
+        Product product = productRepository.findProductById(id).orElseThrow(() -> notFound("product", id));
+        if (status) {
+            validatePublishEligibility(product.getCategory(), product.getBrand());
+        }
         product.setPublished(status);
         productRepository.save(product);
     }
 
     @Override
     public Map<String, Boolean> checkExistsProduct(String slug) {
-        Map<String, Boolean> exists = new HashMap<>();
-        exists.put("slugExists", productRepository.existsBySlug(slug));
-        return exists;
+        return Map.of("slugExists", productRepository.existsBySlug(slug));
     }
 
+    @Transactional(readOnly = true)
     @Override
     public PageResponse<ProductResponse> getDiscountProducts(int pageNum, int pageSize) {
-        Specification<Product> prodSpec = spec.hasDiscount(true).and(spec.hasPublished(true));
-        Page<Product> productPage = productRepository.findAll(prodSpec, PageRequest.of(pageNum - 1, pageSize));
-        return pageMapper.toProductPageResponse(productPage);
+        Page<Product> page = productRepository.findAll(
+                spec.hasDiscount(true).and(spec.hasPublished(true)), PageRequest.of(pageNum - 1, pageSize));
+        loadImages(page.getContent());
+        return pageMapper.toProductPageResponse(page);
     }
 
+    @Transactional(readOnly = true)
     @Override
     public PageResponse<ProductResponse> getLatestProducts(int pageNum, int pageSize) {
-        Specification<Product> prodSpec = spec.getSortSpec("-date").and(spec.hasPublished(true));
-        Page<Product> productPage = productRepository.findAll(prodSpec, PageRequest.of(pageNum - 1, pageSize));
-        return pageMapper.toProductPageResponse(productPage);
+        Page<Product> page = productRepository.findAll(
+                spec.getSortSpec("-date").and(spec.hasPublished(true)), PageRequest.of(pageNum - 1, pageSize));
+        loadImages(page.getContent());
+        return pageMapper.toProductPageResponse(page);
     }
 
+    @Transactional(readOnly = true)
     @Override
     public PageResponse<ProductResponse> getProductsByCategoryId(
             Integer categoryId,
@@ -247,26 +213,118 @@ public class ProductServiceImpl implements ProductService {
             String sort,
             Double minPrice,
             Double maxPrice) {
-        Category category = categoryRepository
-                .findById(categoryId)
-                .orElseThrow(() -> new ApplicationException(
-                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", categoryId)));
-        Specification<Product> prodSpec = spec.belongsToCategory(categoryId)
+        categoryRepository.findById(categoryId).orElseThrow(() -> notFound("category", categoryId));
+        Specification<Product> productSpec = spec.belongsToCategory(categoryId)
                 .and(spec.belongsToBrands(brandIds))
                 .and(spec.hasPublished(true))
                 .and(spec.getSortSpec(sort))
                 .and(spec.hasMinPrice(minPrice))
                 .and(spec.hasMaxPrice(maxPrice));
-        Page<Product> productPage = productRepository.findAll(prodSpec, PageRequest.of(pageNum - 1, pageSize));
-        return pageMapper.toProductPageResponse(productPage);
+        Page<Product> page = productRepository.findAll(productSpec, PageRequest.of(pageNum - 1, pageSize));
+        loadImages(page.getContent());
+        return pageMapper.toProductPageResponse(page);
     }
 
-    private void uploadProductImages(List<MultipartFile> files, Product product) {
-        for (MultipartFile file : files) {
-            CloudinaryUploadResponse response = uploader.uploadFile(file, uploadOptions);
-            ProductImage productImage =
-                    ProductImage.builder().url(response.url()).product(product).build();
-            product.getImages().add(productImage);
+    private List<Media> resolveNewMedia(List<String> imageIds) {
+        List<String> ids = validateImageIds(imageIds);
+        if (ids.isEmpty()) return List.of();
+        List<Media> media = resolveByIds(ids);
+        if (media.size() != ids.size()) throw notFound("media", ids.get(0));
+        Map<String, Media> byId = media.stream().collect(Collectors.toMap(Media::getId, Function.identity()));
+        return ids.stream()
+                .map(id -> {
+                    Media item = byId.get(id);
+                    if (item.getPurpose() != MediaPurpose.PRODUCT_IMAGE || item.getStatus() != MediaStatus.TEMPORARY) {
+                        throw notFound("media", id);
+                    }
+                    return item;
+                })
+                .toList();
+    }
+
+    private List<Media> resolveReplacementMedia(Product product, List<String> imageIds) {
+        List<String> ids = validateImageIds(imageIds);
+        var current = product.getImages().stream()
+                .map(ProductImage::getMedia)
+                .collect(Collectors.toMap(Media::getId, Function.identity()));
+        if (ids.isEmpty()) {
+            return List.of();
         }
+        List<Media> media = resolveByIds(ids);
+        Map<String, Media> byId = media.stream().collect(Collectors.toMap(Media::getId, Function.identity()));
+        List<Media> ordered = ids.stream()
+                .map(id -> {
+                    Media item = byId.get(id);
+                    if (item == null
+                            || item.getPurpose() != MediaPurpose.PRODUCT_IMAGE
+                            || (item.getStatus() != MediaStatus.TEMPORARY
+                                    && (!current.containsKey(id) || item.getStatus() != MediaStatus.ACTIVE))) {
+                        throw notFound("media", id);
+                    }
+                    return item;
+                })
+                .toList();
+        return ordered;
+    }
+
+    private List<Media> resolveByIds(List<String> ids) {
+        List<Media> loaded = mediaRepository.findAllByIdIn(ids);
+        if (loaded == null) loaded = List.of();
+        Map<String, Media> byId = loaded.stream().collect(Collectors.toMap(Media::getId, Function.identity()));
+        return ids.stream().map(id -> byId.get(id)).filter(Objects::nonNull).toList();
+    }
+
+    private List<String> validateImageIds(List<String> imageIds) {
+        if (imageIds == null) return List.of();
+        if (imageIds.size() > MAX_IMAGES
+                || imageIds.stream().anyMatch(Objects::isNull)
+                || new HashSet<>(imageIds).size() != imageIds.size()) {
+            throw new ApplicationException(ErrorCode.INVALID_PRODUCT_IMAGE_COUNT, Map.of("maxImages", MAX_IMAGES));
+        }
+        return imageIds;
+    }
+
+    private void replaceImages(Product product, List<Media> media) {
+        product.getImages().clear();
+        appendImages(product, media);
+    }
+
+    private void appendImages(Product product, List<Media> media) {
+        for (int index = 0; index < media.size(); index++) {
+            product.getImages()
+                    .add(ProductImage.builder()
+                            .product(product)
+                            .media(media.get(index))
+                            .displayOrder(index)
+                            .build());
+        }
+    }
+
+    private Brand requireActiveBrand(Integer brandId) {
+        Brand brand = brandRepository.findById(brandId).orElseThrow(() -> notFound("brand", brandId));
+        if (brand.getStatus() != BrandStatus.ACTIVE) throw notFound("brand", brandId);
+        return brand;
+    }
+
+    private void validatePublishEligibility(Category category, Brand brand) {
+        requireEffectivelyActiveCategory(category.getId());
+        requireActiveBrand(brand.getId());
+    }
+
+    private Category requireEffectivelyActiveCategory(Integer categoryId) {
+        return categoryRepository
+                .findByIdWithAncestry(categoryId)
+                .filter(Category::isEffectivelyActive)
+                .orElseThrow(() -> notFound("category", categoryId));
+    }
+
+    private void loadImages(List<Product> products) {
+        if (!products.isEmpty())
+            productRepository.findAllWithImagesByIdIn(
+                    products.stream().map(Product::getId).toList());
+    }
+
+    private static ApplicationException notFound(String type, Object id) {
+        return new ApplicationException(ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", type, "resourceId", id));
     }
 }

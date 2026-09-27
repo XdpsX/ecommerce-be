@@ -1,6 +1,7 @@
 package com.xdpsx.ecommerce.media.persistence;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -13,6 +14,9 @@ import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 import com.xdpsx.ecommerce.media.domain.MediaStatus;
 
 public interface MediaRepository extends CrudRepository<Media, String> {
+    @Query("SELECT m FROM Media m WHERE m.id IN :ids")
+    List<Media> findAllByIdIn(@Param("ids") Collection<String> ids);
+
     @Query("SELECT m FROM Media m WHERE m.status = :status")
     List<Media> findAllByStatus(@Param("status") MediaStatus status);
 

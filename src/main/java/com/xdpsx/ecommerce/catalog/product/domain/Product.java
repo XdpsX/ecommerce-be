@@ -46,8 +46,6 @@ public class Product extends AuditEntity {
     @Column(length = 4096)
     private String description;
 
-    private String mainImage;
-
     @ManyToOne
     @JoinColumn(name = "category_id", referencedColumnName = "id")
     private Category category;
@@ -61,6 +59,7 @@ public class Product extends AuditEntity {
             mappedBy = "product",
             cascade = {CascadeType.PERSIST, CascadeType.MERGE, CascadeType.REMOVE},
             orphanRemoval = true)
+    @OrderBy("displayOrder ASC, id ASC")
     private List<ProductImage> images = new ArrayList<>();
 
     public BigDecimal getDiscountedPrice() {

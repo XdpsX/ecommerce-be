@@ -1,14 +1,8 @@
 package com.xdpsx.ecommerce.catalog.product.api.dto;
 
-import static com.xdpsx.ecommerce.common.validation.FileConstants.*;
-
 import java.util.List;
 
 import jakarta.validation.constraints.*;
-
-import org.springframework.web.multipart.MultipartFile;
-
-import com.xdpsx.ecommerce.catalog.product.api.validation.ImgConstraint;
 
 import lombok.*;
 
@@ -47,6 +41,6 @@ public class ProductCreateRequest {
     @NotNull
     private Integer brandId;
 
-    @ImgConstraint(minWidth = PRODUCT_IMG_WIDTH, maxNumber = NUMBER_PRODUCT_IMAGES)
-    private List<MultipartFile> images;
+    @Size(max = 5)
+    private List<String> imageIds;
 }

@@ -1,24 +1,17 @@
 package com.xdpsx.ecommerce.catalog.product.application;
 
-import java.util.ArrayList;
-
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
-import org.springframework.beans.factory.annotation.Autowired;
 
 import com.xdpsx.ecommerce.catalog.product.api.dto.*;
 import com.xdpsx.ecommerce.catalog.product.domain.Product;
-import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryUploader;
 
 @Mapper(componentModel = "spring")
 public abstract class ProductMapper {
-    @Autowired
-    private CloudinaryUploader uploader;
-
-    @Mapping(target = "images", source = "request.images", ignore = true)
+    @Mapping(target = "images", ignore = true)
     public abstract Product fromCreateRequestToEntity(ProductCreateRequest request);
 
-    @Mapping(target = "images", source = "request.images", ignore = true)
+    @Mapping(target = "images", ignore = true)
     public abstract Product fromUpdateRequestToEntity(ProductUpdateRequest request);
 
     @Mapping(target = "mainImage", ignore = true)
@@ -27,22 +20,29 @@ public abstract class ProductMapper {
 
     public ProductResponse fromEntityToResponse(Product entity) {
         ProductResponse response = toResponse(entity);
-        response.setMainImage(uploader.getFileUrl(entity.getMainImage()));
+        response.setMainImage(entity.getImages().stream()
+                .filter(image -> image.getDisplayOrder() == 0)
+                .map(image -> image.getMedia().getUrl())
+                .findFirst()
+                .orElse(null));
         return response;
     }
 
     @Mapping(target = "mainImage", ignore = true)
-    @Mapping(source = "entity.images", target = "images", ignore = true)
+    @Mapping(target = "images", ignore = true)
     protected abstract ProductDetailsDTO toDetailsDTO(Product entity);
 
     public ProductDetailsDTO fromEntityToDetailsDTO(Product entity) {
         ProductDetailsDTO dto = toDetailsDTO(entity);
-        dto.setMainImage(uploader.getFileUrl(entity.getMainImage()));
-        dto.setImages(new ArrayList<>());
-        for (var image : entity.getImages()) {
-            ProductImageDTO imageDTO = new ProductImageDTO(image.getId(), uploader.getFileUrl(image.getUrl()));
-            dto.getImages().add(imageDTO);
-        }
+        dto.setMainImage(entity.getImages().stream()
+                .filter(image -> image.getDisplayOrder() == 0)
+                .map(image -> image.getMedia().getUrl())
+                .findFirst()
+                .orElse(null));
+        dto.setImages(entity.getImages().stream()
+                .map(image -> new ProductImageDTO(
+                        image.getMedia().getId(), image.getMedia().getUrl(), image.getDisplayOrder()))
+                .collect(java.util.stream.Collectors.toList()));
         return dto;
     }
 }

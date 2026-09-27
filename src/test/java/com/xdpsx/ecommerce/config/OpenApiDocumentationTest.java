@@ -24,6 +24,8 @@ import com.xdpsx.ecommerce.catalog.brand.application.BrandService;
 import com.xdpsx.ecommerce.catalog.category.api.AdminCategoryController;
 import com.xdpsx.ecommerce.catalog.category.api.StorefrontCategoryController;
 import com.xdpsx.ecommerce.catalog.category.application.CategoryService;
+import com.xdpsx.ecommerce.catalog.product.api.ProductController;
+import com.xdpsx.ecommerce.catalog.product.application.ProductService;
 import com.xdpsx.ecommerce.media.api.MediaController;
 import com.xdpsx.ecommerce.media.application.MediaService;
 import com.xdpsx.ecommerce.testsupport.SecurityConfigForControllerTests;
@@ -49,6 +51,7 @@ import tools.jackson.databind.ObjectMapper;
             StorefrontCategoryController.class,
             AdminBrandController.class,
             StorefrontBrandController.class,
+            ProductController.class,
             MediaController.class
         })
 @Import(SecurityConfigForControllerTests.class)
@@ -68,6 +71,9 @@ class OpenApiDocumentationTest {
 
     @MockitoBean
     private BrandService brandService;
+
+    @MockitoBean
+    private ProductService productService;
 
     @MockitoBean
     private MediaService mediaService;
@@ -244,6 +250,31 @@ class OpenApiDocumentationTest {
         JsonNode resourceParameter = operation.path("parameters").get(0);
         assertThat(resourceParameter.path("name").asString()).isEqualTo("resource");
         assertThat(resourceParameter.path("description").asString()).isEqualTo("category, brand,...");
+    }
+
+    @Test
+    void productWriteRoutes_shouldUseJsonAndImageIds() {
+        JsonNode create = openApi.at("/paths/~1products~1create/post");
+        JsonNode update = openApi.at("/paths/~1products~1{id}~1update/put");
+        assertThat(create.path("requestBody").path("content").has("application/json"))
+                .isTrue();
+        assertThat(create.path("requestBody").path("content").has("multipart/form-data"))
+                .isFalse();
+        assertThat(update.path("requestBody").path("content").has("application/json"))
+                .isTrue();
+        assertThat(openApi.at("/components/schemas/ProductCreateRequest/properties/imageIds")
+                        .isMissingNode())
+                .isFalse();
+        assertThat(openApi.at("/components/schemas/ProductCreateRequest/properties/images")
+                        .isMissingNode())
+                .isTrue();
+        assertThat(openApi.at("/components/schemas/ProductUpdateRequest/properties/removedImageIds")
+                        .isMissingNode())
+                .isTrue();
+        JsonNode imageProperties = openApi.at("/components/schemas/ProductImageDTO/properties");
+        assertThat(imageProperties.has("id")).isTrue();
+        assertThat(imageProperties.has("url")).isTrue();
+        assertThat(imageProperties.has("displayOrder")).isTrue();
     }
 
     @Test

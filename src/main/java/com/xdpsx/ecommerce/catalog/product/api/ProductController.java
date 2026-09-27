@@ -5,7 +5,6 @@ import java.util.Map;
 import jakarta.validation.Valid;
 
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -39,15 +38,15 @@ public class ProductController {
         return ResponseEntity.ok(product);
     }
 
-    @PostMapping(path = "/create", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<ProductResponse> createProduct(@Valid @ModelAttribute ProductCreateRequest request) {
+    @PostMapping(path = "/create", consumes = "application/json")
+    public ResponseEntity<ProductResponse> createProduct(@Valid @RequestBody ProductCreateRequest request) {
         ProductResponse response = productService.createProduct(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
-    @PutMapping(path = "/{id}/update", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PutMapping(path = "/{id}/update", consumes = "application/json")
     public ResponseEntity<ProductResponse> updateProduct(
-            @PathVariable Long id, @Valid @ModelAttribute ProductUpdateRequest request) {
+            @PathVariable Long id, @Valid @RequestBody ProductUpdateRequest request) {
         ProductResponse response = productService.updateProduct(id, request);
         return ResponseEntity.ok(response);
     }
