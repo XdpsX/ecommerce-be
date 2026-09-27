@@ -8,11 +8,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -28,9 +30,11 @@ import com.xdpsx.ecommerce.catalog.brand.persistence.BrandRepository;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
+import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.domain.Media;
+import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 import com.xdpsx.ecommerce.media.domain.MediaStatus;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
@@ -45,6 +49,9 @@ class BrandServiceImplTest {
 
     @Mock
     private MediaRepository mediaRepository;
+
+    @Mock
+    private ProductRepository productRepository;
 
     @InjectMocks
     private BrandServiceImpl brandService;
@@ -94,7 +101,7 @@ class BrandServiceImplTest {
     void createBrand_ShouldSaveStatusAndResolveCategories() {
         Set<Integer> categoryIds = Set.of(1);
         CreateBrandRequest request = new CreateBrandRequest("Puma", BrandStatus.ACTIVE, null, categoryIds);
-        when(brandRepository.existsByName("Puma")).thenReturn(false);
+        when(brandRepository.existsByNameIgnoreCase("Puma")).thenReturn(false);
         when(categoryRepository.findAllByIdInWithAncestry(categoryIds)).thenReturn(List.of(activeCategory(1)));
         when(brandRepository.saveAndFlush(any(Brand.class))).thenAnswer(invocation -> {
             Brand brand = invocation.getArgument(0);
@@ -109,6 +116,86 @@ class BrandServiceImplTest {
         assertEquals(BrandStatus.ACTIVE, result.status());
         assertEquals(7, result.id());
         verify(categoryRepository).findAllByIdInWithAncestry(categoryIds);
+    }
+
+    @Test
+    void createBrand_ShouldTrimNameBeforeCheckingAndSaving() {
+        when(brandRepository.existsByNameIgnoreCase("Puma")).thenReturn(false);
+        when(brandRepository.saveAndFlush(any(Brand.class))).thenAnswer(invocation -> {
+            Brand brand = invocation.getArgument(0);
+            brand.setId(8);
+            brand.setVersion(0L);
+            return brand;
+        });
+
+        AdminBrandResponse result =
+                brandService.createBrand(new CreateBrandRequest("  Puma  ", BrandStatus.ACTIVE, null, null));
+
+        assertEquals("Puma", result.name());
+        verify(brandRepository).existsByNameIgnoreCase("Puma");
+    }
+
+    @Test
+    void createBrand_ShouldRejectCaseInsensitiveDuplicate() {
+        when(brandRepository.existsByNameIgnoreCase("pUmA")).thenReturn(true);
+
+        ApplicationException exception = assertThrows(
+                ApplicationException.class,
+                () -> brandService.createBrand(new CreateBrandRequest(" pUmA ", BrandStatus.ACTIVE, null, null)));
+
+        assertEquals(ErrorCode.RESOURCE_ALREADY_EXISTS, exception.getCode());
+        verify(brandRepository, never()).saveAndFlush(any(Brand.class));
+    }
+
+    @Test
+    void createBrand_ShouldTranslateDatabaseUniqueConflict() {
+        when(brandRepository.existsByNameIgnoreCase("Puma")).thenReturn(false);
+        doThrow(new DataIntegrityViolationException(
+                        "duplicate key",
+                        new ConstraintViolationException("Duplicate entry for key 'brands.name'", null, "name")))
+                .when(brandRepository)
+                .saveAndFlush(any(Brand.class));
+
+        ApplicationException exception = assertThrows(
+                ApplicationException.class,
+                () -> brandService.createBrand(new CreateBrandRequest("Puma", BrandStatus.ACTIVE, null, null)));
+
+        assertEquals(ErrorCode.RESOURCE_ALREADY_EXISTS, exception.getCode());
+    }
+
+    @Test
+    void createBrand_ShouldRethrowUnrelatedIntegrityViolation() {
+        when(brandRepository.existsByNameIgnoreCase("Puma")).thenReturn(false);
+        DataIntegrityViolationException integrityViolation =
+                new DataIntegrityViolationException("Cannot add or update a child row for constraint 'fk_brand_media'");
+        doThrow(integrityViolation).when(brandRepository).saveAndFlush(any(Brand.class));
+
+        DataIntegrityViolationException exception = assertThrows(
+                DataIntegrityViolationException.class,
+                () -> brandService.createBrand(new CreateBrandRequest("Puma", BrandStatus.ACTIVE, null, null)));
+
+        assertSame(integrityViolation, exception);
+    }
+
+    @Test
+    void updateBrand_ShouldRethrowUnrelatedIntegrityViolationWhenNameChanges() {
+        Brand brand = Brand.builder()
+                .id(1)
+                .name("Old")
+                .status(BrandStatus.ACTIVE)
+                .version(2L)
+                .build();
+        when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
+        when(brandRepository.existsByNameIgnoreCaseAndIdNot("New", 1)).thenReturn(false);
+        DataIntegrityViolationException integrityViolation =
+                new DataIntegrityViolationException("Cannot add or update a child row for constraint 'fk_brand_media'");
+        doThrow(integrityViolation).when(brandRepository).saveAndFlush(any(Brand.class));
+
+        DataIntegrityViolationException exception = assertThrows(
+                DataIntegrityViolationException.class,
+                () -> brandService.updateBrand(1, new UpdateBrandRequest("New", BrandStatus.ACTIVE, null, null, 2L)));
+
+        assertSame(integrityViolation, exception);
     }
 
     @Test
@@ -145,12 +232,128 @@ class BrandServiceImplTest {
         assertEquals(MediaStatus.PENDING_DELETE, image.getStatus());
         verify(mediaRepository).save(image);
         verify(brandRepository).delete(brand);
+        verify(brandRepository).flush();
+    }
+
+    @Test
+    void deleteBrand_ShouldRejectBrandReferencedByProductBeforeChangingMedia() {
+        Media image = Media.builder().id("logo").status(MediaStatus.ACTIVE).build();
+        Brand brand = Brand.builder().id(1).version(4L).image(image).build();
+        when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
+        when(productRepository.existsByBrandId(1)).thenReturn(true);
+
+        ApplicationException exception =
+                assertThrows(ApplicationException.class, () -> brandService.deleteBrand(1, new DeleteBrandRequest(4L)));
+
+        assertEquals(ErrorCode.RESOURCE_IN_USE, exception.getCode());
+        assertEquals(MediaStatus.ACTIVE, image.getStatus());
+        verifyNoInteractions(mediaRepository);
+        verify(brandRepository, never()).delete(any(Brand.class));
+    }
+
+    @Test
+    void updateBrand_ShouldLeaveOldLogoWhenReplacementIsNotAttachable() {
+        Media oldImage =
+                Media.builder().id("old-logo").status(MediaStatus.ACTIVE).build();
+        Brand brand = Brand.builder()
+                .id(1)
+                .name("Old")
+                .status(BrandStatus.ACTIVE)
+                .version(2L)
+                .image(oldImage)
+                .build();
+        when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
+        when(brandRepository.existsByNameIgnoreCaseAndIdNot("New", 1)).thenReturn(false);
+        when(mediaRepository.findAttachableById("missing-logo", MediaPurpose.BRAND_LOGO))
+                .thenReturn(Optional.empty());
+
+        ApplicationException exception = assertThrows(
+                ApplicationException.class,
+                () -> brandService.updateBrand(
+                        1, new UpdateBrandRequest("New", BrandStatus.INACTIVE, "missing-logo", null, 2L)));
+
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
+        assertEquals(MediaStatus.ACTIVE, oldImage.getStatus());
+        assertEquals("Old", brand.getName());
+        assertEquals(BrandStatus.ACTIVE, brand.getStatus());
+        verify(mediaRepository, never()).save(any(Media.class));
+        verify(brandRepository, never()).saveAndFlush(any(Brand.class));
+    }
+
+    @Test
+    void updateBrand_ShouldRejectCaseInsensitiveDuplicateWithoutMutation() {
+        Brand brand = Brand.builder()
+                .id(1)
+                .name("Nike")
+                .status(BrandStatus.ACTIVE)
+                .version(2L)
+                .build();
+        when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
+        when(brandRepository.existsByNameIgnoreCaseAndIdNot("adidas", 1)).thenReturn(true);
+
+        ApplicationException exception = assertThrows(
+                ApplicationException.class,
+                () -> brandService.updateBrand(
+                        1, new UpdateBrandRequest("  adidas ", BrandStatus.INACTIVE, null, null, 2L)));
+
+        assertEquals(ErrorCode.RESOURCE_ALREADY_EXISTS, exception.getCode());
+        assertEquals("Nike", brand.getName());
+        assertEquals(BrandStatus.ACTIVE, brand.getStatus());
+        verify(brandRepository, never()).saveAndFlush(any(Brand.class));
+    }
+
+    @Test
+    void updateBrand_ShouldActivateReplacementAndMarkOldLogoPendingDelete() {
+        Media oldImage =
+                Media.builder().id("old-logo").status(MediaStatus.ACTIVE).build();
+        Media newImage = Media.builder()
+                .id("new-logo")
+                .purpose(MediaPurpose.BRAND_LOGO)
+                .status(MediaStatus.TEMPORARY)
+                .build();
+        Brand brand = Brand.builder()
+                .id(1)
+                .name("Nike")
+                .status(BrandStatus.ACTIVE)
+                .version(2L)
+                .image(oldImage)
+                .build();
+        when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
+        when(mediaRepository.findAttachableById("new-logo", MediaPurpose.BRAND_LOGO))
+                .thenReturn(Optional.of(newImage));
+        when(brandRepository.saveAndFlush(any(Brand.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        brandService.updateBrand(1, new UpdateBrandRequest("Nike", BrandStatus.ACTIVE, "new-logo", null, 2L));
+
+        assertEquals(MediaStatus.PENDING_DELETE, oldImage.getStatus());
+        assertEquals(MediaStatus.ACTIVE, newImage.getStatus());
+        assertSame(newImage, brand.getImage());
+        verify(mediaRepository).save(oldImage);
+        verify(mediaRepository).save(newImage);
+    }
+
+    @Test
+    void updateBrand_ShouldClearAssociationsForEmptyCategorySet() {
+        Brand brand = Brand.builder()
+                .id(1)
+                .name("Nike")
+                .status(BrandStatus.ACTIVE)
+                .version(2L)
+                .categories(List.of(activeCategory(1)))
+                .build();
+        when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
+        when(brandRepository.saveAndFlush(any(Brand.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        brandService.updateBrand(1, new UpdateBrandRequest("Nike", BrandStatus.ACTIVE, null, Set.of(), 2L));
+
+        assertTrue(brand.getCategories().isEmpty());
+        verify(categoryRepository, never()).findAllByIdInWithAncestry(any());
     }
 
     @Test
     void createBrand_ShouldRejectWholeAssignmentWhenAnyCategoryIsMissing() {
         Set<Integer> categoryIds = Set.of(1, 2);
-        when(brandRepository.existsByName("Puma")).thenReturn(false);
+        when(brandRepository.existsByNameIgnoreCase("Puma")).thenReturn(false);
         when(categoryRepository.findAllByIdInWithAncestry(categoryIds)).thenReturn(List.of(activeCategory(1)));
 
         ApplicationException exception = assertThrows(

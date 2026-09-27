@@ -87,7 +87,7 @@ interface AdminBrandApiDocs {
                                         schema = @Schema(implementation = ApiProblemSchema.class))),
                 @ApiResponse(
                         responseCode = "409",
-                        description = "Brand name already exists",
+                        description = "Normalized brand name already exists or concurrent write conflict",
                         content =
                                 @Content(
                                         mediaType = "application/json",
@@ -121,7 +121,8 @@ interface AdminBrandApiDocs {
                                         schema = @Schema(implementation = ApiProblemSchema.class))),
                 @ApiResponse(
                         responseCode = "409",
-                        description = "Brand name already exists / Concurrent modification",
+                        description =
+                                "Normalized brand name already exists / Concurrent modification / concurrent write conflict",
                         content =
                                 @Content(
                                         mediaType = "application/json",
@@ -147,7 +148,7 @@ interface AdminBrandApiDocs {
                                         schema = @Schema(implementation = ApiProblemSchema.class))),
                 @ApiResponse(
                         responseCode = "409",
-                        description = "Concurrent modification / Brand is in use",
+                        description = "Concurrent modification / concurrent write conflict / Brand is in use",
                         content =
                                 @Content(
                                         mediaType = "application/json",

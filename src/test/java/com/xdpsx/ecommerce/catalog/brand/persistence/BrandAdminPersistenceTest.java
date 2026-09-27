@@ -2,6 +2,7 @@ package com.xdpsx.ecommerce.catalog.brand.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 import jakarta.persistence.EntityManager;
@@ -17,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
@@ -38,6 +40,10 @@ import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
+import com.xdpsx.ecommerce.catalog.product.domain.Product;
+import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
+import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
@@ -60,7 +66,12 @@ class BrandAdminPersistenceTest {
     @EnableTransactionManagement
     @EnableJpaAuditing
     @EnableJpaRepositories(
-            basePackageClasses = {BrandRepository.class, CategoryRepository.class, MediaRepository.class})
+            basePackageClasses = {
+                BrandRepository.class,
+                CategoryRepository.class,
+                MediaRepository.class,
+                ProductRepository.class
+            })
     static class PersistenceConfig {
         @Bean
         javax.sql.DataSource dataSource() {
@@ -89,6 +100,7 @@ class BrandAdminPersistenceTest {
             factory.setPackagesToScan(
                     "com.xdpsx.ecommerce.catalog.brand.domain",
                     "com.xdpsx.ecommerce.catalog.category.domain",
+                    "com.xdpsx.ecommerce.catalog.product.domain",
                     "com.xdpsx.ecommerce.media.domain");
             factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
             factory.getJpaPropertyMap().put("hibernate.hbm2ddl.auto", "none");
@@ -115,8 +127,9 @@ class BrandAdminPersistenceTest {
         BrandService brandService(
                 MediaRepository mediaRepository,
                 BrandRepository brandRepository,
-                CategoryRepository categoryRepository) {
-            return new BrandServiceImpl(mediaRepository, brandRepository, categoryRepository);
+                CategoryRepository categoryRepository,
+                ProductRepository productRepository) {
+            return new BrandServiceImpl(mediaRepository, brandRepository, categoryRepository, productRepository);
         }
     }
 
@@ -128,6 +141,9 @@ class BrandAdminPersistenceTest {
 
     @Autowired
     private MediaRepository mediaRepository;
+
+    @Autowired
+    private ProductRepository productRepository;
 
     @Autowired
     private BrandService brandService;
@@ -147,6 +163,8 @@ class BrandAdminPersistenceTest {
     void setUp() {
         statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         transactionTemplate.executeWithoutResult(status -> {
+            productRepository.deleteAll();
+            productRepository.flush();
             brandRepository.deleteAll();
             brandRepository.flush();
             categoryRepository.deleteAll();
@@ -158,6 +176,8 @@ class BrandAdminPersistenceTest {
     @AfterEach
     void tearDown() {
         transactionTemplate.executeWithoutResult(status -> {
+            productRepository.deleteAll();
+            productRepository.flush();
             brandRepository.deleteAll();
             brandRepository.flush();
             categoryRepository.deleteAll();
@@ -199,6 +219,77 @@ class BrandAdminPersistenceTest {
         assertThat(statistics.getQueryExecutionCount()).isLessThanOrEqualTo(3);
         assertThat(statistics.getCollectionFetchCount()).isZero();
         assertThat(statistics.getEntityFetchCount()).isZero();
+    }
+
+    @Test
+    void deleteBrand_ShouldRejectProductReferenceAndLeaveLogoAndBrandIntact() {
+        Brand brand = transactionTemplate.execute(status -> {
+            Media logo = mediaRepository.save(media("delete-logo"));
+            Brand saved = brandRepository.saveAndFlush(brand("Delete Me", logo, List.of()));
+            productRepository.saveAndFlush(Product.builder()
+                    .name("Referenced product")
+                    .slug("referenced-product")
+                    .price(BigDecimal.TEN)
+                    .brand(saved)
+                    .build());
+            return saved;
+        });
+
+        ApplicationException exception = org.junit.jupiter.api.Assertions.assertThrows(
+                ApplicationException.class,
+                () -> brandService.deleteBrand(
+                        brand.getId(),
+                        new com.xdpsx.ecommerce.catalog.brand.api.dto.DeleteBrandRequest(brand.getVersion())));
+
+        assertThat(exception.getCode()).isEqualTo(ErrorCode.RESOURCE_IN_USE);
+        transactionTemplate.executeWithoutResult(status -> {
+            Brand persisted = brandRepository.findById(brand.getId()).orElseThrow();
+            assertThat(persisted.getImage().getStatus()).isEqualTo(MediaStatus.ACTIVE);
+            assertThat(productRepository.existsByBrandId(brand.getId())).isTrue();
+        });
+    }
+
+    @Test
+    void staleBrandWrite_ShouldRollbackAndKeepLogoActiveAfterOptimisticConflict() {
+        Brand seeded = transactionTemplate.execute(status -> {
+            Category category = categoryRepository.save(category("Optimistic Category", "optimistic-category", 0));
+            categoryRepository.flush();
+            Media logo = mediaRepository.save(media("optimistic-logo"));
+            return brandRepository.saveAndFlush(brand("Optimistic Brand", logo, List.of(category)));
+        });
+
+        Brand stale = transactionTemplate.execute(status -> {
+            Brand loaded = brandRepository.findById(seeded.getId()).orElseThrow();
+            loaded.getCategories().size();
+            entityManager.detach(loaded);
+            return loaded;
+        });
+
+        transactionTemplate.executeWithoutResult(status -> {
+            Brand current = brandRepository.findById(seeded.getId()).orElseThrow();
+            current.setStatus(BrandStatus.INACTIVE);
+            brandRepository.saveAndFlush(current);
+        });
+
+        ApplicationException staleRequest = org.junit.jupiter.api.Assertions.assertThrows(
+                ApplicationException.class,
+                () -> brandService.updateBrand(
+                        seeded.getId(),
+                        new com.xdpsx.ecommerce.catalog.brand.api.dto.UpdateBrandRequest(
+                                "Optimistic Brand", BrandStatus.ACTIVE, null, null, stale.getVersion())));
+        assertThat(staleRequest.getCode()).isEqualTo(ErrorCode.CONCURRENT_MODIFICATION);
+
+        stale.setStatus(BrandStatus.ACTIVE);
+        org.junit.jupiter.api.Assertions.assertThrows(
+                ObjectOptimisticLockingFailureException.class,
+                () -> transactionTemplate.executeWithoutResult(status -> brandRepository.saveAndFlush(stale)));
+
+        transactionTemplate.executeWithoutResult(status -> {
+            Brand persisted = brandRepository.findDetailById(seeded.getId()).orElseThrow();
+            assertThat(persisted.getStatus()).isEqualTo(BrandStatus.INACTIVE);
+            assertThat(persisted.getImage().getStatus()).isEqualTo(MediaStatus.ACTIVE);
+            assertThat(persisted.getCategories()).extracting(Category::getSlug).containsExactly("optimistic-category");
+        });
     }
 
     private static Category category(String name, String slug, int order) {
