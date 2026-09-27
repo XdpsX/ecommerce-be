@@ -1,16 +1,9 @@
 package com.xdpsx.ecommerce.catalog.product.api.dto;
 
-import static com.xdpsx.ecommerce.common.validation.FileConstants.NUMBER_PRODUCT_IMAGES;
-import static com.xdpsx.ecommerce.common.validation.FileConstants.PRODUCT_IMG_WIDTH;
-
 import java.math.BigDecimal;
 import java.util.List;
 
 import jakarta.validation.constraints.*;
-
-import org.springframework.web.multipart.MultipartFile;
-
-import com.xdpsx.ecommerce.catalog.product.api.validation.ImgConstraint;
 
 import lombok.Data;
 
@@ -38,8 +31,6 @@ public class ProductUpdateRequest {
     private Integer categoryId;
     private Integer brandId;
 
-    @ImgConstraint(minWidth = PRODUCT_IMG_WIDTH, maxNumber = NUMBER_PRODUCT_IMAGES)
-    private List<MultipartFile> images;
-
-    private List<Long> removedImageIds;
+    @Size(max = 5)
+    private List<String> imageIds;
 }
