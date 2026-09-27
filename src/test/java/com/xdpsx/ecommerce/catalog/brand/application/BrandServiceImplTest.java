@@ -23,6 +23,7 @@ import org.springframework.data.jpa.domain.Specification;
 import com.xdpsx.ecommerce.catalog.brand.api.dto.AdminBrandResponse;
 import com.xdpsx.ecommerce.catalog.brand.api.dto.CreateBrandRequest;
 import com.xdpsx.ecommerce.catalog.brand.api.dto.DeleteBrandRequest;
+import com.xdpsx.ecommerce.catalog.brand.api.dto.StorefrontBrandResponse;
 import com.xdpsx.ecommerce.catalog.brand.api.dto.UpdateBrandRequest;
 import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
 import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
@@ -95,6 +96,70 @@ class BrandServiceImplTest {
         brandService.getAdminBrands(new com.xdpsx.ecommerce.catalog.brand.api.dto.AdminBrandFilter());
 
         verify(brandRepository).fetchCategories(List.of(first, second));
+    }
+
+    @Test
+    void getStorefrontBrands_ShouldReturnActiveReadModelInStableRepositoryOrder() {
+        Brand adidas = Brand.builder()
+                .id(2)
+                .name("Adidas")
+                .status(BrandStatus.ACTIVE)
+                .version(4L)
+                .image(Media.builder().url("https://example.test/adidas.png").build())
+                .categories(List.of(activeCategory(7)))
+                .build();
+        Brand nike = Brand.builder()
+                .id(1)
+                .name("Nike")
+                .status(BrandStatus.ACTIVE)
+                .version(9L)
+                .build();
+        when(brandRepository.findStorefrontBrands(BrandStatus.ACTIVE)).thenReturn(List.of(adidas, nike));
+
+        List<StorefrontBrandResponse> result = brandService.getStorefrontBrands(null);
+
+        assertEquals(
+                List.of("Adidas", "Nike"),
+                result.stream().map(StorefrontBrandResponse::name).toList());
+        assertEquals("https://example.test/adidas.png", result.get(0).image());
+        verify(brandRepository).findStorefrontBrands(BrandStatus.ACTIVE);
+        verifyNoInteractions(categoryRepository);
+    }
+
+    @Test
+    void getStorefrontBrands_ShouldRejectHiddenCategoryBeforeBrandQuery() {
+        Category hidden = Category.builder()
+                .id(9)
+                .name("Hidden")
+                .slug("hidden")
+                .status(CategoryStatus.INACTIVE)
+                .build();
+        when(categoryRepository.findByIdWithAncestry(9)).thenReturn(Optional.of(hidden));
+
+        ApplicationException exception =
+                assertThrows(ApplicationException.class, () -> brandService.getStorefrontBrands(9));
+
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
+        verify(brandRepository, never()).findStorefrontBrandsByCategoryId(anyInt(), any(BrandStatus.class));
+    }
+
+    @Test
+    void getStorefrontBrands_ShouldFilterDirectlyByVisibleCategory() {
+        Category category = activeCategory(7);
+        when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(category));
+        when(brandRepository.findStorefrontBrandsByCategoryId(7, BrandStatus.ACTIVE))
+                .thenReturn(List.of(Brand.builder()
+                        .id(3)
+                        .name("Puma")
+                        .status(BrandStatus.ACTIVE)
+                        .build()));
+
+        List<StorefrontBrandResponse> result = brandService.getStorefrontBrands(7);
+
+        assertEquals(
+                List.of("Puma"),
+                result.stream().map(StorefrontBrandResponse::name).toList());
+        verify(brandRepository).findStorefrontBrandsByCategoryId(7, BrandStatus.ACTIVE);
     }
 
     @Test

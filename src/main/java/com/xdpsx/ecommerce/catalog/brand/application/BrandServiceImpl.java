@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.xdpsx.ecommerce.catalog.brand.api.dto.*;
 import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
+import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
 import com.xdpsx.ecommerce.catalog.brand.persistence.BrandRepository;
 import com.xdpsx.ecommerce.catalog.brand.persistence.BrandSpecification;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
@@ -69,6 +70,26 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
         }
 
         return PageMapper.toPageResponse(brandPage, BrandMapper.INSTANCE::toAdminBrandResponse);
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public List<StorefrontBrandResponse> getStorefrontBrands(Integer categoryId) {
+        List<Brand> brands;
+        if (categoryId == null) {
+            brands = brandRepository.findStorefrontBrands(BrandStatus.ACTIVE);
+        } else {
+            categoryRepository
+                    .findByIdWithAncestry(categoryId)
+                    .filter(Category::isEffectivelyActive)
+                    .orElseThrow(() -> new ApplicationException(
+                            ErrorCode.RESOURCE_NOT_FOUND,
+                            Map.of("resourceType", "category", "resourceId", categoryId)));
+            brands = brandRepository.findStorefrontBrandsByCategoryId(categoryId, BrandStatus.ACTIVE);
+        }
+        return brands.stream()
+                .map(BrandMapper.INSTANCE::toStorefrontBrandResponse)
+                .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)

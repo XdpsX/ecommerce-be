@@ -5,7 +5,7 @@ public class SecurityConstants {
     public static final String[] PUBLIC_GET_ENDPOINTS = {
         "/categories",
         "/categories/*",
-        "/categories/*/brands",
+        "/brands",
         "/categories/*/products",
         "/products/*",
         "/products",
