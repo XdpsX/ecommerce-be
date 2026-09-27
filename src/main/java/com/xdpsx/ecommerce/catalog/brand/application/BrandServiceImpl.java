@@ -3,6 +3,7 @@ package com.xdpsx.ecommerce.catalog.brand.application;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -18,8 +19,6 @@ import com.xdpsx.ecommerce.catalog.brand.persistence.BrandRepository;
 import com.xdpsx.ecommerce.catalog.brand.persistence.BrandSpecification;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
-import com.xdpsx.ecommerce.catalog.shared.api.dto.CheckExistResponse;
-import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
 import com.xdpsx.ecommerce.catalog.shared.application.PageMapper;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
@@ -40,33 +39,49 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
         this.categoryRepository = categoryRepository;
     }
 
+    /**
+     * Two-step admin read: page the filtered/sorted Brands first (image fetched, collection deliberately not
+     * fetched so the page and count queries stay exact), then batch-fetch the categories for just that page.
+     * Total bounded queries: page + count + one detail batch, independent of page size.
+     */
+    @Transactional(readOnly = true)
     @Override
     public PageResponse<AdminBrandResponse> getAdminBrands(AdminBrandFilter filter) {
         Specification<Brand> spec = BrandSpecification.getInstance()
-                .buildAdminBrandsSpec(filter.getName(), filter.getPublicFlg(), filter.getSort());
+                .buildAdminBrandsSpec(filter.getName(), filter.getStatus(), filter.getSort());
         Page<Brand> brandPage =
                 brandRepository.findAll(spec, PageRequest.of(filter.getPageNum() - 1, filter.getPageSize()));
+
+        List<Brand> content = brandPage.getContent();
+        if (!content.isEmpty()) {
+            // Initializes the collection on the same managed entities; page order is preserved because the
+            // batch fetch only populates the already-loaded instances in the persistence context.
+            brandRepository.fetchCategories(content);
+        }
+
         return PageMapper.toPageResponse(brandPage, BrandMapper.INSTANCE::toAdminBrandResponse);
     }
 
+    @Transactional(readOnly = true)
     @Override
-    public BrandDetailResponse getAdminBrandDetail(Integer id) {
+    public AdminBrandResponse getAdminBrand(Integer id) {
         Brand brand = brandRepository
                 .findDetailById(id)
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "brand", "resourceId", id)));
-        return BrandMapper.INSTANCE.toBrandDetailResponse(brand);
+        return BrandMapper.INSTANCE.toAdminBrandResponse(brand);
     }
 
     @Transactional
     @Override
-    public BrandDetailResponse createBrand(CreateBrandRequest request) {
-        Brand brand = BrandMapper.INSTANCE.toEntity(request);
+    public AdminBrandResponse createBrand(CreateBrandRequest request) {
         if (brandRepository.existsByName(request.name())) {
             throw new ApplicationException(
                     ErrorCode.RESOURCE_ALREADY_EXISTS,
                     Map.of("resourceType", "brand", "field", "name", "value", request.name()));
         }
+
+        Brand brand = BrandMapper.INSTANCE.toEntity(request);
 
         if (request.imageId() != null) {
             Media image = mediaRepository
@@ -82,19 +97,21 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
             brand.setCategories(categories);
         }
 
-        Brand savedBrand = brandRepository.save(brand);
-        return BrandMapper.INSTANCE.toBrandDetailResponse(savedBrand);
+        Brand savedBrand = brandRepository.saveAndFlush(brand);
+        return BrandMapper.INSTANCE.toAdminBrandResponse(savedBrand);
     }
 
     @Transactional
     @Override
-    public BrandDetailResponse updateBrand(Integer id, UpdateBrandRequest request) {
+    public AdminBrandResponse updateBrand(Integer id, UpdateBrandRequest request) {
         Brand brand = brandRepository
                 .findById(id)
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "brand", "resourceId", id)));
 
-        if (brand.getUpdatedAt() != null && !request.lastRetrievedAt().isAfter(brand.getUpdatedAt())) {
+        // Optimistic-concurrency pre-check on the client-visible version. JPA @Version still guards the write
+        // itself; this check turns a stale token into a controlled 409 before any state is mutated.
+        if (!Objects.equals(brand.getVersion(), request.version())) {
             throw new ApplicationException(
                     ErrorCode.CONCURRENT_MODIFICATION, Map.of("resourceType", "brand", "resourceId", id));
         }
@@ -109,7 +126,7 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
             brand.setName(request.name());
         }
 
-        brand.setPublicFlg(request.publicFlg());
+        brand.setStatus(request.status());
 
         // Update image
         updateImage(brand, request.imageId(), MediaPurpose.BRAND_LOGO);
@@ -119,18 +136,18 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
             List<Category> categories = fetchCategories(request.categoryIds());
             brand.setCategories(categories);
         }
-        Brand savedBrand = brandRepository.save(brand);
-        return BrandMapper.INSTANCE.toBrandDetailResponse(savedBrand);
+        Brand savedBrand = brandRepository.saveAndFlush(brand);
+        return BrandMapper.INSTANCE.toAdminBrandResponse(savedBrand);
     }
 
     @Transactional
     @Override
-    public void deleteBrand(Integer id, ModifyExclusiveDTO request) {
+    public void deleteBrand(Integer id, DeleteBrandRequest request) {
         Brand brand = brandRepository
                 .findById(id)
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "brand", "resourceId", id)));
-        if (!request.lastRetrievedAt().isAfter(brand.getUpdatedAt())) {
+        if (!Objects.equals(brand.getVersion(), request.version())) {
             throw new ApplicationException(
                     ErrorCode.CONCURRENT_MODIFICATION, Map.of("resourceType", "brand", "resourceId", id));
         }
@@ -142,11 +159,6 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
         brandRepository.delete(brand);
     }
 
-    @Override
-    public CheckExistResponse checkBrandExist(BrandExistRequest request) {
-        return new CheckExistResponse("name", brandRepository.existsByName(request.name()));
-    }
-
     /**
      * Resolves the requested set in one query and rejects the whole operation when
      * any category is missing or not
@@ -154,6 +166,9 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
      * partial brand assignment is saved.
      */
     private List<Category> fetchCategories(Set<Integer> categoryIds) {
+        if (categoryIds.isEmpty()) {
+            return List.of();
+        }
         Map<Integer, Category> byId = new HashMap<>();
         for (Category category : categoryRepository.findAllByIdInWithAncestry(categoryIds)) {
             byId.put(category.getId(), category);

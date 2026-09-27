@@ -26,7 +26,22 @@ public class Brand extends AuditEntity implements HasImage {
     @Column(length = 64, nullable = false, unique = true)
     private String name;
 
-    private boolean publicFlg;
+    /**
+     * Admin-controlled lifecycle. Never cascaded to Category associations or Products.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 16, nullable = false)
+    private BrandStatus status;
+
+    /**
+     * JPA optimistic-lock token. Brand is a single-row aggregate with no hierarchy
+     * locking requirement, so a plain
+     * version column is sufficient; the admin API exposes it to clients as the
+     * concurrency token.
+     */
+    @Version
+    @Column(nullable = false)
+    private Long version;
 
     @OneToOne
     @JoinColumn(name = "image_id", referencedColumnName = "id")

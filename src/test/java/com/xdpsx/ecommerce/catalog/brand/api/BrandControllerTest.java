@@ -2,35 +2,61 @@ package com.xdpsx.ecommerce.catalog.brand.api;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Set;
 
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.xdpsx.ecommerce.catalog.brand.api.dto.*;
+import com.xdpsx.ecommerce.catalog.brand.api.dto.AdminBrandFilter;
+import com.xdpsx.ecommerce.catalog.brand.api.dto.AdminBrandResponse;
 import com.xdpsx.ecommerce.catalog.brand.application.BrandService;
-import com.xdpsx.ecommerce.catalog.shared.api.dto.CheckExistResponse;
-import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
+import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
-import com.xdpsx.ecommerce.testsupport.SecurityConfigForControllerTests;
 
-import tools.jackson.databind.ObjectMapper;
-
-@WebMvcTest(controllers = BrandController.class)
-@Import(SecurityConfigForControllerTests.class)
+@WebMvcTest(controllers = AdminBrandController.class)
+@Import({BrandControllerTest.MethodSecurityConfig.class, BrandControllerTest.TestSecurityConfig.class})
 class BrandControllerTest {
+
+    @TestConfiguration
+    @EnableMethodSecurity(proxyTargetClass = true)
+    static class MethodSecurityConfig {}
+
+    @TestConfiguration
+    @EnableWebSecurity
+    static class TestSecurityConfig {
+        @org.springframework.context.annotation.Bean
+        SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+            http.csrf(AbstractHttpConfigurer::disable)
+                    .authorizeHttpRequests(auth -> auth.requestMatchers("/admin/brands", "/admin/brands/**")
+                            .authenticated()
+                            .anyRequest()
+                            .permitAll())
+                    .exceptionHandling(exceptions ->
+                            exceptions.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)));
+            return http.build();
+        }
+    }
 
     @Autowired
     private MockMvc mockMvc;
@@ -38,139 +64,76 @@ class BrandControllerTest {
     @MockitoBean
     private BrandService brandService;
 
-    @Autowired
-    private ObjectMapper objectMapper;
+    private static org.springframework.test.web.servlet.request.RequestPostProcessor admin() {
+        return user("admin").roles("ADMIN");
+    }
 
     @Test
-    void getAdminBrands_shouldReturnPageResponse() throws Exception {
-        // Arrange
-        PageResponse<AdminBrandResponse> mockPage = PageResponse.of(List.of(), 1, 10, 0, 0);
+    void getAdminBrands_ShouldReturnPageResponse_ForAdmin() throws Exception {
+        when(brandService.getAdminBrands(any(AdminBrandFilter.class)))
+                .thenReturn(PageResponse.of(List.of(), 1, 10, 0, 0));
 
-        Mockito.when(brandService.getAdminBrands(any(AdminBrandFilter.class))).thenReturn(mockPage);
-
-        // Act & Assert
-        mockMvc.perform(get("/admin/brands")
-                        .param("pageNum", "1")
-                        .param("pageSize", "10")
-                        .contentType(MediaType.APPLICATION_JSON))
+        mockMvc.perform(get("/admin/brands").with(admin()).param("pageNum", "1").param("pageSize", "10"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data").isArray())
-                .andExpect(jsonPath("$.data").isEmpty())
-                .andExpect(jsonPath("$.meta.page").value(1))
-                .andExpect(jsonPath("$.meta.size").value(10))
-                .andExpect(jsonPath("$.meta.totalElements").value(0))
-                .andExpect(jsonPath("$.meta.totalPages").value(0));
+                .andExpect(jsonPath("$.meta.page").value(1));
     }
 
     @Test
-    void getAdminBrandDetail_shouldReturnBrandDetail() throws Exception {
-        // Arrange
-        ViewMediaDTO media =
-                new ViewMediaDTO("media-123", "Brand logo", "image/png", "http://example.com/media/brand.png");
-
-        BrandDetailResponse.CategoryDTO category1 = new BrandDetailResponse.CategoryDTO(1, "Electronics");
-        BrandDetailResponse.CategoryDTO category2 = new BrandDetailResponse.CategoryDTO(2, "Fashion");
-
-        BrandDetailResponse response = new BrandDetailResponse(100, "Nike", true, media, List.of(category1, category2));
-
-        Mockito.when(brandService.getAdminBrandDetail(anyInt())).thenReturn(response);
-
-        // Act & Assert
-        mockMvc.perform(get("/admin/brands/100").contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(100))
-                .andExpect(jsonPath("$.name").value("Nike"))
-                .andExpect(jsonPath("$.publicFlg").value(true))
-                .andExpect(jsonPath("$.image.id").value("media-123"))
-                .andExpect(jsonPath("$.image.caption").value("Brand logo"))
-                .andExpect(jsonPath("$.image.contentType").value("image/png"))
-                .andExpect(jsonPath("$.image.url").value("http://example.com/media/brand.png"))
-                .andExpect(jsonPath("$.categories").isArray())
-                .andExpect(jsonPath("$.categories[0].id").value(1))
-                .andExpect(jsonPath("$.categories[0].name").value("Electronics"))
-                .andExpect(jsonPath("$.categories[1].id").value(2))
-                .andExpect(jsonPath("$.categories[1].name").value("Fashion"));
+    void getAdminBrands_ShouldRejectInvalidSort() throws Exception {
+        mockMvc.perform(get("/admin/brands").with(admin()).param("sort", "unknown"))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(brandService);
     }
 
     @Test
-    void createBrand_shouldReturnCreatedBrand() throws Exception {
-        // Arrange
-        CreateBrandRequest request = new CreateBrandRequest("Adidas", true, "media-123", Set.of(1, 2));
-        BrandDetailResponse response = new BrandDetailResponse(
-                101,
-                "Adidas",
-                true,
-                new ViewMediaDTO("media-123", "Brand logo", "image/png", "http://example.com/media/adidas.png"),
-                List.of(
-                        new BrandDetailResponse.CategoryDTO(1, "Electronics"),
-                        new BrandDetailResponse.CategoryDTO(2, "Fashion")));
-
-        Mockito.when(brandService.createBrand(any(CreateBrandRequest.class))).thenReturn(response);
-
-        // Act & Assert
-        mockMvc.perform(post("/brands/create")
+    void adminBoundary_ShouldRejectAnonymousAndNonAdminCallers() throws Exception {
+        mockMvc.perform(get("/admin/brands/100")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/admin/brands/100").with(user("customer").roles("USER")))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/admin/brands")
+                        .with(user("customer").roles("USER"))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
+                        .content("{\"name\":\"Nike\",\"status\":\"ACTIVE\"}"))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(brandService);
+    }
+
+    @Test
+    void getAdminBrand_ShouldReturnStatusVersionAndAssociations() throws Exception {
+        ViewMediaDTO image = new ViewMediaDTO("logo-1", "Nike logo", "image/png", "https://example.test/logo.png");
+        AdminBrandResponse response = new AdminBrandResponse(
+                100, "Nike", BrandStatus.ACTIVE, 4L, image, List.of(new AdminBrandResponse.CategoryDTO(1, "Shoes")));
+        when(brandService.getAdminBrand(anyInt())).thenReturn(response);
+
+        mockMvc.perform(get("/admin/brands/100").with(admin()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.version").value(4))
+                .andExpect(jsonPath("$.categories[0].name").value("Shoes"))
+                .andExpect(jsonPath("$.image.url").value("https://example.test/logo.png"));
+    }
+
+    @Test
+    void legacyRoutes_ShouldNotBeExposed() throws Exception {
+        mockMvc.perform(post("/brands/create")).andExpect(status().isNotFound());
+        mockMvc.perform(put("/brands/100/update")).andExpect(status().isNotFound());
+        mockMvc.perform(delete("/100/delete")).andExpect(status().isNotFound());
+        mockMvc.perform(post("/brands/exists")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void createBrand_ShouldReturnCreatedLocation_ForAdmin() throws Exception {
+        AdminBrandResponse response = new AdminBrandResponse(101, "Adidas", BrandStatus.ACTIVE, 0L, null, List.of());
+        when(brandService.createBrand(any())).thenReturn(response);
+
+        mockMvc.perform(post("/admin/brands")
+                        .with(admin())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Adidas\",\"status\":\"ACTIVE\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", "/admin/brands/101"))
-                .andExpect(jsonPath("$.id").value(101))
-                .andExpect(jsonPath("$.name").value("Adidas"));
-    }
-
-    @Test
-    void updateBrand_shouldReturnUpdatedBrand() throws Exception {
-        // Arrange
-        UpdateBrandRequest request =
-                new UpdateBrandRequest("Adidas Updated", true, "media-456", Set.of(1), LocalDateTime.now());
-        BrandDetailResponse response = new BrandDetailResponse(
-                101,
-                "Adidas Updated",
-                true,
-                new ViewMediaDTO(
-                        "media-456", "Updated logo", "image/png", "http://example.com/media/adidas-updated.png"),
-                List.of(new BrandDetailResponse.CategoryDTO(1, "Electronics")));
-
-        Mockito.when(brandService.updateBrand(anyInt(), any(UpdateBrandRequest.class)))
-                .thenReturn(response);
-
-        // Act & Assert
-        mockMvc.perform(put("/brands/101/update")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(101))
-                .andExpect(jsonPath("$.name").value("Adidas Updated"));
-    }
-
-    @Test
-    void deleteBrand_shouldReturnNoContent() throws Exception {
-        // Arrange
-        ModifyExclusiveDTO request = new ModifyExclusiveDTO(LocalDateTime.now());
-
-        Mockito.doNothing().when(brandService).deleteBrand(anyInt(), any(ModifyExclusiveDTO.class));
-
-        // Act & Assert
-        mockMvc.perform(delete("/101/delete")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isNoContent())
-                .andExpect(content().string(""));
-    }
-
-    @Test
-    void checkBrandExist_shouldReturnExistenceStatus() throws Exception {
-        // Arrange
-        BrandExistRequest request = new BrandExistRequest("Nike");
-        CheckExistResponse response = new CheckExistResponse("name", true);
-
-        Mockito.when(brandService.checkBrandExist(any(BrandExistRequest.class))).thenReturn(response);
-
-        // Act & Assert
-        mockMvc.perform(post("/brands/exists")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.field").value("name"))
-                .andExpect(jsonPath("$.exists").value(true));
+                .andExpect(jsonPath("$.version").value(0));
+        verify(brandService).createBrand(any());
     }
 }

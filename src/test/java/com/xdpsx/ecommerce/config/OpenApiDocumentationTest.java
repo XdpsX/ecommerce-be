@@ -18,6 +18,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.xdpsx.ecommerce.catalog.brand.api.AdminBrandController;
+import com.xdpsx.ecommerce.catalog.brand.application.BrandService;
 import com.xdpsx.ecommerce.catalog.category.api.AdminCategoryController;
 import com.xdpsx.ecommerce.catalog.category.api.StorefrontCategoryController;
 import com.xdpsx.ecommerce.catalog.category.application.CategoryService;
@@ -40,7 +42,13 @@ import tools.jackson.databind.ObjectMapper;
  * mocked services are loaded. No
  * database, Liquibase, or Cloudinary connection is started.
  */
-@WebMvcTest(controllers = {AdminCategoryController.class, StorefrontCategoryController.class, MediaController.class})
+@WebMvcTest(
+        controllers = {
+            AdminCategoryController.class,
+            StorefrontCategoryController.class,
+            AdminBrandController.class,
+            MediaController.class
+        })
 @Import(SecurityConfigForControllerTests.class)
 @ImportAutoConfiguration({
     SpringDocConfiguration.class,
@@ -55,6 +63,9 @@ class OpenApiDocumentationTest {
 
     @MockitoBean
     private CategoryService categoryService;
+
+    @MockitoBean
+    private BrandService brandService;
 
     @MockitoBean
     private MediaService mediaService;
@@ -84,6 +95,31 @@ class OpenApiDocumentationTest {
         JsonNode pathParameter = operation.path("parameters").get(0);
         assertThat(pathParameter.path("name").asString()).isEqualTo("id");
         assertThat(pathParameter.path("in").asString()).isEqualTo("path");
+    }
+
+    @Test
+    void adminBrandRoutes_shouldUseResourcePathsAndVersionedContracts() {
+        assertThat(openApi.at("/paths/~1admin~1brands").has("get")).isTrue();
+        assertThat(openApi.at("/paths/~1admin~1brands").has("post")).isTrue();
+        assertThat(openApi.at("/paths/~1admin~1brands~1{id}").has("get")).isTrue();
+        assertThat(openApi.at("/paths/~1admin~1brands~1{id}").has("put")).isTrue();
+        assertThat(openApi.at("/paths/~1admin~1brands~1{id}").has("delete")).isTrue();
+
+        assertThat(openApi.at("/paths/~1brands~1create").isMissingNode()).isTrue();
+        assertThat(openApi.at("/paths/~1brands~1{id}~1update").isMissingNode()).isTrue();
+        assertThat(openApi.at("/paths/~1brands~1{id}~1delete").isMissingNode()).isTrue();
+        assertThat(openApi.at("/paths/~1brands~1exists").isMissingNode()).isTrue();
+
+        JsonNode responseProperties = openApi.at("/components/schemas/AdminBrandResponse/properties");
+        assertThat(responseProperties.has("status")).isTrue();
+        assertThat(responseProperties.has("version")).isTrue();
+
+        JsonNode updateProperties = openApi.at("/components/schemas/UpdateBrandRequest/properties");
+        assertThat(updateProperties.has("version")).isTrue();
+        assertThat(updateProperties.has("lastRetrievedAt")).isFalse();
+
+        JsonNode deleteProperties = openApi.at("/components/schemas/DeleteBrandRequest/properties");
+        assertThat(deleteProperties.has("version")).isTrue();
     }
 
     @Test
