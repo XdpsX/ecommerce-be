@@ -9,9 +9,11 @@ import com.xdpsx.ecommerce.catalog.product.domain.Product;
 @Mapper(componentModel = "spring")
 public abstract class ProductMapper {
     @Mapping(target = "images", ignore = true)
+    @Mapping(target = "variants", ignore = true)
     public abstract Product fromCreateRequestToEntity(ProductCreateRequest request);
 
     @Mapping(target = "images", ignore = true)
+    @Mapping(target = "variants", ignore = true)
     public abstract Product fromUpdateRequestToEntity(ProductUpdateRequest request);
 
     @Mapping(target = "mainImage", ignore = true)

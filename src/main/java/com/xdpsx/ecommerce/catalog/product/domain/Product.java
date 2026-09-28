@@ -62,6 +62,12 @@ public class Product extends AuditEntity {
     @OrderBy("displayOrder ASC, id ASC")
     private List<ProductImage> images = new ArrayList<>();
 
+    /** Loaded explicitly by Variant read operations; Product list responses do not traverse this collection. */
+    @OneToMany(mappedBy = "product", fetch = FetchType.LAZY)
+    @OrderBy("id ASC")
+    @Builder.Default
+    private List<ProductVariant> variants = new ArrayList<>();
+
     public BigDecimal getDiscountedPrice() {
         if (this.discountPercent > 0) {
             BigDecimal discountAmount = price.multiply(BigDecimal.valueOf(discountPercent / 100));

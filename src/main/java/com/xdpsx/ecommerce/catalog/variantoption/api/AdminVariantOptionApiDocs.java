@@ -62,7 +62,7 @@ interface AdminVariantOptionApiDocs {
     @Operation(
             summary = "Update variant option",
             description =
-                    "Update display metadata or lifecycle. The canonical code is immutable; ACTIVE to INACTIVE is enabled with Variant reference checks in CR2.",
+                    "Update display metadata or lifecycle. The canonical code is immutable; an option in use by an active Variant cannot be deactivated.",
             security = @SecurityRequirement(name = "Bearer Authorization"),
             responses = {
                 @ApiResponse(responseCode = "200", description = "OK"),
@@ -72,7 +72,7 @@ interface AdminVariantOptionApiDocs {
                         content = @Content(schema = @Schema(implementation = ApiProblemSchema.class))),
                 @ApiResponse(
                         responseCode = "409",
-                        description = "Display order already exists or lifecycle deactivation is unavailable until CR2",
+                        description = "Display order already exists or an active Variant still references the option",
                         content = @Content(schema = @Schema(implementation = ApiProblemSchema.class)))
             })
     VariantOptionResponse updateVariantOption(Long id, @Valid UpdateVariantOptionRequest request);
@@ -97,7 +97,7 @@ interface AdminVariantOptionApiDocs {
     @Operation(
             summary = "Update variant option value",
             description =
-                    "Update value label, order or lifecycle. The canonical code is immutable; ACTIVE to INACTIVE is enabled with Variant reference checks in CR2.",
+                    "Update value label, order or lifecycle. The canonical code is immutable; a value in use by an active Variant cannot be deactivated.",
             security = @SecurityRequirement(name = "Bearer Authorization"),
             responses = {
                 @ApiResponse(responseCode = "200", description = "OK"),
@@ -107,7 +107,7 @@ interface AdminVariantOptionApiDocs {
                         content = @Content(schema = @Schema(implementation = ApiProblemSchema.class))),
                 @ApiResponse(
                         responseCode = "409",
-                        description = "Display order already exists or lifecycle deactivation is unavailable until CR2",
+                        description = "Display order already exists or an active Variant still references the value",
                         content = @Content(schema = @Schema(implementation = ApiProblemSchema.class)))
             })
     VariantOptionValueResponse updateValue(Long optionId, Long valueId, @Valid UpdateVariantOptionValueRequest request);

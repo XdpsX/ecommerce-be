@@ -30,6 +30,7 @@ import com.xdpsx.ecommerce.catalog.product.api.dto.ProductUpdateRequest;
 import com.xdpsx.ecommerce.catalog.product.domain.Product;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductSpecification;
+import com.xdpsx.ecommerce.catalog.product.persistence.ProductVariantRepository;
 import com.xdpsx.ecommerce.catalog.shared.application.PageMapper;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
@@ -77,6 +78,9 @@ class ProductServiceImplTest {
 
     @Mock
     private ProductSpecification productSpecification;
+
+    @Mock
+    private ProductVariantRepository productVariantRepository;
 
     @InjectMocks
     private ProductServiceImpl productService;
@@ -171,7 +175,7 @@ class ProductServiceImplTest {
         request.setPrice(BigDecimal.TEN);
         request.setCategoryId(7);
 
-        when(productRepository.findProductById(1L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
         when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(hidden));
 
         // Act & Assert
@@ -232,7 +236,7 @@ class ProductServiceImplTest {
         ProductUpdateRequest request = updateRequest();
         request.setImageIds(java.util.List.of("m-retained", "m-new"));
 
-        when(productRepository.findProductById(1L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
         when(mediaRepository.findAllByIdIn(request.getImageIds())).thenReturn(java.util.List.of(retained, added));
         when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -266,7 +270,7 @@ class ProductServiceImplTest {
         ProductUpdateRequest request = updateRequest();
         request.setImageIds(java.util.List.of("m-missing"));
 
-        when(productRepository.findProductById(1L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
         when(mediaRepository.findAllByIdIn(request.getImageIds())).thenReturn(java.util.List.of());
 
         assertThrows(ApplicationException.class, () -> productService.updateProduct(1L, request));
@@ -299,10 +303,39 @@ class ProductServiceImplTest {
         ProductUpdateRequest request = updateRequest();
         request.setPublished(true);
 
-        when(productRepository.findProductById(1L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
         when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(hidden));
 
         assertThrows(ApplicationException.class, () -> productService.updateProduct(1L, request));
+        assertThat(product.isPublished()).isFalse();
+        verify(productRepository, never()).save(any(Product.class));
+    }
+
+    @Test
+    void updateProduct_ShouldRequireAnActiveVariantBeforePublishing() {
+        Category category = activeCategory(7);
+        Brand brand = Brand.builder()
+                .id(5)
+                .name("Logitech")
+                .status(BrandStatus.ACTIVE)
+                .build();
+        Product product = new Product();
+        product.setCategory(category);
+        product.setBrand(brand);
+        product.setPublished(false);
+        product.setImages(new java.util.ArrayList<>());
+        ProductUpdateRequest request = updateRequest();
+        request.setPublished(true);
+
+        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
+        when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(category));
+        when(brandRepository.findById(5)).thenReturn(Optional.of(brand));
+        when(productVariantRepository.existsActiveByProductId(1L)).thenReturn(false);
+
+        ApplicationException exception =
+                assertThrows(ApplicationException.class, () -> productService.updateProduct(1L, request));
+
+        assertEquals(ErrorCode.VALIDATION_FAILED, exception.getCode());
         assertThat(product.isPublished()).isFalse();
         verify(productRepository, never()).save(any(Product.class));
     }
