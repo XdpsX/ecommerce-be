@@ -1,6 +1,5 @@
 package com.xdpsx.ecommerce.media.infrastructure.scheduling;
 
-import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import java.time.LocalDateTime;

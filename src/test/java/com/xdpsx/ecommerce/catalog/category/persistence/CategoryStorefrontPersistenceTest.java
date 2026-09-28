@@ -188,7 +188,7 @@ class CategoryStorefrontPersistenceTest {
         // Arrange: three levels plus a stored-active subtree hidden by an inactive
         // parent.
         Integer electronics = persist("Electronics", CategoryStatus.ACTIVE, 1, null);
-        Integer fashion = persist("Fashion", CategoryStatus.ACTIVE, 0, null);
+        persist("Fashion", CategoryStatus.ACTIVE, 0, null);
         Integer retired = persist("Retired", CategoryStatus.INACTIVE, 2, null);
         Integer laptops = persist("Laptops", CategoryStatus.ACTIVE, 0, electronics);
         persist("Phones", CategoryStatus.ACTIVE, 1, electronics);

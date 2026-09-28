@@ -18,16 +18,15 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
 
+import com.xdpsx.ecommerce.testsupport.MySqlTestContainerFactory;
+
 /** Verifies the option dictionary migration itself, rather than Hibernate's generated schema. */
 @Testcontainers
 class VariantOptionMigrationTest {
     private static final Path CHANGESET = Path.of("src/main/resources/db/changelog/changesets/changeset-10.sql");
 
     @Container
-    private static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.4")
-            .withDatabaseName("variant_option_migration")
-            .withUsername("test")
-            .withPassword("test");
+    private static final MySQLContainer MYSQL = MySqlTestContainerFactory.create("variant_option_migration");
 
     @Test
     void migration_ShouldCreateDictionaryConstraintsForeignKeyAndIndexes() throws Exception {

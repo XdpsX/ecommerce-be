@@ -17,6 +17,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
 
+import com.xdpsx.ecommerce.testsupport.MySqlTestContainerFactory;
+
 /** Runs the Brand lifecycle migration against MySQL rows from the legacy schema. */
 @Testcontainers
 class BrandMigrationTest {
@@ -24,10 +26,7 @@ class BrandMigrationTest {
     private static final Path CHANGESET = Path.of("src/main/resources/db/changelog/changesets/changeset-8.sql");
 
     @Container
-    private static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.4")
-            .withDatabaseName("brand_migration")
-            .withUsername("test")
-            .withPassword("test");
+    private static final MySQLContainer MYSQL = MySqlTestContainerFactory.create("brand_migration");
 
     private static List<String> statements(String sql) {
         String withoutComments = Arrays.stream(sql.split("\\n"))

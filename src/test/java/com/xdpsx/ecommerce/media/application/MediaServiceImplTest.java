@@ -229,8 +229,6 @@ class MediaServiceImplTest {
         @Test
         void deleteMedia_ShouldMarkPendingDeletionAndSave_WhenTemporaryMediaExists() {
             // Arrange
-            Media media =
-                    Media.builder().id(mediaId).status(MediaStatus.TEMPORARY).build();
             when(mediaRepository.claimTemporaryForDeletion(mediaId)).thenReturn(1);
 
             // Act

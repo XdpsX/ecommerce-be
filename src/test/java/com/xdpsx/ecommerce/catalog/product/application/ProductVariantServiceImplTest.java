@@ -13,6 +13,7 @@ import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -47,6 +48,9 @@ class ProductVariantServiceImplTest {
     @InjectMocks
     private ProductVariantServiceImpl service;
 
+    @Captor
+    private ArgumentCaptor<List<ProductVariant>> captor;
+
     @Test
     void createVariants_ShouldPersistAnOptionMatrixWithStableCombinationKeys() {
         Product product = Product.builder().id(1L).name("Shirt").slug("shirt").build();
@@ -71,7 +75,6 @@ class ProductVariantServiceImplTest {
 
         service.createVariants(1L, request);
 
-        ArgumentCaptor<List<ProductVariant>> captor = ArgumentCaptor.forClass(List.class);
         verify(variantRepository).saveAll(captor.capture());
         assertThat(captor.getValue()).hasSize(4);
         assertThat(captor.getValue().get(0).getSku()).isEqualTo("SHIRT-BLACK-M");

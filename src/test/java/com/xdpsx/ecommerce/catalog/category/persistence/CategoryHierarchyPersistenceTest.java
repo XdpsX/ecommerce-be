@@ -31,7 +31,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import com.xdpsx.ecommerce.catalog.category.api.dto.CreateCategoryRequest;
 import com.xdpsx.ecommerce.catalog.category.api.dto.MoveCategoryRequest;
@@ -42,6 +41,7 @@ import com.xdpsx.ecommerce.catalog.category.application.CategoryServiceImpl;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
+import com.xdpsx.ecommerce.testsupport.MySqlTestContainerFactory;
 
 /**
  * Runs the Category hierarchy write queries against a real MySQL server.
@@ -60,11 +60,8 @@ import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 class CategoryHierarchyPersistenceTest {
 
     @Container
-    private static final MySQLContainer MYSQL = new MySQLContainer(DockerImageName.parse("mysql:8.4"))
-            .withDatabaseName("category_hierarchy")
-            .withUsername("test")
-            .withPassword("test")
-            .withCommand("--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci");
+    private static final MySQLContainer MYSQL = MySqlTestContainerFactory.create(
+            "category_hierarchy", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci");
 
     @org.springframework.context.annotation.Configuration
     @EnableTransactionManagement

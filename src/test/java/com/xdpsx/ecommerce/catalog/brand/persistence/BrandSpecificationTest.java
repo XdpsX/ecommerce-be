@@ -8,29 +8,30 @@ import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Root;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.jpa.domain.Specification;
 
 import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
 import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
 
+@ExtendWith(MockitoExtension.class)
 class BrandSpecificationTest {
 
+    @Mock
     private Root<Brand> root;
-    private CriteriaQuery<?> query;
-    private CriteriaBuilder criteriaBuilder;
 
-    @BeforeEach
-    void setUp() {
-        root = mock(Root.class);
-        query = mock(CriteriaQuery.class);
-        criteriaBuilder = mock(CriteriaBuilder.class);
-        doReturn(Brand.class).when(query).getResultType();
-    }
+    @Mock
+    private CriteriaQuery<?> query;
+
+    @Mock
+    private CriteriaBuilder criteriaBuilder;
 
     @Test
     void adminSpecification_ShouldFilterByStatusAndFetchOnlyToOneImage() {
+        doReturn(Brand.class).when(query).getResultType();
         Specification<Brand> specification =
                 BrandSpecification.getInstance().buildAdminBrandsSpec("Nike", BrandStatus.ACTIVE, "name");
 

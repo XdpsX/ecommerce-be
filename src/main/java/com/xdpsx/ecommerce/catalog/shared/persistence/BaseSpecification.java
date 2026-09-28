@@ -32,18 +32,16 @@ public abstract class BaseSpecification<T> {
                                 "%" + criteria.getValue().toString().toLowerCase() + "%"));
                         break;
                     case GREATER_THAN:
-                        predicates.add(cb.greaterThan(root.get(criteria.getKey()), (Comparable) criteria.getValue()));
+                        predicates.add(cb.greaterThan(root.get(criteria.getKey()), comparableValue(criteria)));
                         break;
                     case LESS_THAN:
-                        predicates.add(cb.lessThan(root.get(criteria.getKey()), (Comparable) criteria.getValue()));
+                        predicates.add(cb.lessThan(root.get(criteria.getKey()), comparableValue(criteria)));
                         break;
                     case GREATER_THAN_EQUAL:
-                        predicates.add(
-                                cb.greaterThanOrEqualTo(root.get(criteria.getKey()), (Comparable) criteria.getValue()));
+                        predicates.add(cb.greaterThanOrEqualTo(root.get(criteria.getKey()), comparableValue(criteria)));
                         break;
                     case LESS_THAN_EQUAL:
-                        predicates.add(
-                                cb.lessThanOrEqualTo(root.get(criteria.getKey()), (Comparable) criteria.getValue()));
+                        predicates.add(cb.lessThanOrEqualTo(root.get(criteria.getKey()), comparableValue(criteria)));
                         break;
                     case IN:
                         predicates.add(root.get(criteria.getKey()).in((Collection<?>) criteria.getValue()));
@@ -56,6 +54,11 @@ public abstract class BaseSpecification<T> {
 
             return cb.and(predicates.toArray(new Predicate[0]));
         };
+    }
+
+    @SuppressWarnings("unchecked")
+    private Comparable<Object> comparableValue(SearchCriteria criteria) {
+        return (Comparable<Object>) criteria.getValue();
     }
 
     /**

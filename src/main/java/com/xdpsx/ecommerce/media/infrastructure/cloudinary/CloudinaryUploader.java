@@ -20,9 +20,9 @@ public class CloudinaryUploader {
     private final Cloudinary cloudinary;
     private final ObjectMapper objectMapper;
 
-    public CloudinaryUploadResponse uploadFile(MultipartFile file, Map uploadOptions) {
+    public CloudinaryUploadResponse uploadFile(MultipartFile file, Map<String, Object> uploadOptions) {
         try {
-            Map response = cloudinary.uploader().upload(file.getBytes(), uploadOptions);
+            Map<?, ?> response = cloudinary.uploader().upload(file.getBytes(), uploadOptions);
             return objectMapper.convertValue(response, CloudinaryUploadResponse.class);
         } catch (IOException io) {
             throw new RuntimeException("Uploading image to Cloudinary failed!", io);
@@ -43,7 +43,7 @@ public class CloudinaryUploader {
 
         while (attempt < maxRetries) {
             try {
-                Map result = cloudinary.uploader().destroy(publicId, ObjectUtils.emptyMap());
+                Map<?, ?> result = cloudinary.uploader().destroy(publicId, ObjectUtils.emptyMap());
                 Object destroyResult = (result == null) ? null : result.get("result");
                 if ("ok".equals(destroyResult) || "not found".equals(destroyResult)) {
                     return true;

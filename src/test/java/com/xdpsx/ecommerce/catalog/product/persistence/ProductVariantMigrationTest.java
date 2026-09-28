@@ -16,16 +16,15 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
 
+import com.xdpsx.ecommerce.testsupport.MySqlTestContainerFactory;
+
 /** Verifies the MySQL constraints that make SKU identity and option ownership durable. */
 @Testcontainers
 class ProductVariantMigrationTest {
     private static final Path CHANGESET = Path.of("src/main/resources/db/changelog/changesets/changeset-11.sql");
 
     @Container
-    private static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.4")
-            .withDatabaseName("product_variant_migration")
-            .withUsername("test")
-            .withPassword("test");
+    private static final MySQLContainer MYSQL = MySqlTestContainerFactory.create("product_variant_migration");
 
     @Test
     void migration_ShouldCreateSkuConstraintsAndRejectMismatchedOptionValue() throws Exception {

@@ -2,6 +2,7 @@ package com.xdpsx.ecommerce.catalog.brand.application;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.*;
 
 import java.util.List;
@@ -11,6 +12,7 @@ import java.util.Set;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -90,7 +92,7 @@ class BrandServiceImplTest {
                 .status(BrandStatus.ACTIVE)
                 .version(0L)
                 .build();
-        when(brandRepository.findAll(any(Specification.class), any(Pageable.class)))
+        when(brandRepository.findAll(ArgumentMatchers.<Specification<Brand>>any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(first, second), PageRequest.of(0, 10), 2));
 
         brandService.getAdminBrands(new com.xdpsx.ecommerce.catalog.brand.api.dto.AdminBrandFilter());

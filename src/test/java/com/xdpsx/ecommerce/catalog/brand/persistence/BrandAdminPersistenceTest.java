@@ -29,7 +29,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import com.xdpsx.ecommerce.catalog.brand.api.dto.AdminBrandFilter;
 import com.xdpsx.ecommerce.catalog.brand.api.dto.AdminBrandResponse;
@@ -49,6 +48,7 @@ import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 import com.xdpsx.ecommerce.media.domain.MediaStatus;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
+import com.xdpsx.ecommerce.testsupport.MySqlTestContainerFactory;
 
 /** Verifies the real paged Brand read path against MySQL and Hibernate statistics. */
 @Testcontainers
@@ -56,11 +56,8 @@ import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 class BrandAdminPersistenceTest {
 
     @Container
-    private static final MySQLContainer MYSQL = new MySQLContainer(DockerImageName.parse("mysql:8.4"))
-            .withDatabaseName("brand_admin_persistence")
-            .withUsername("test")
-            .withPassword("test")
-            .withCommand("--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci");
+    private static final MySQLContainer MYSQL = MySqlTestContainerFactory.create(
+            "brand_admin_persistence", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci");
 
     @org.springframework.context.annotation.Configuration
     @EnableTransactionManagement

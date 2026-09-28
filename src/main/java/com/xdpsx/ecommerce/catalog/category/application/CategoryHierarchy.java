@@ -10,6 +10,7 @@ import java.util.function.Supplier;
 
 import jakarta.persistence.PessimisticLockException;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -56,6 +57,7 @@ public class CategoryHierarchy {
 
     private final int maxWriteAttempts;
 
+    @Autowired
     public CategoryHierarchy(CategoryRepository categoryRepository) {
         this(categoryRepository, DEFAULT_MAX_WRITE_ATTEMPTS);
     }

@@ -16,16 +16,15 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
 
+import com.xdpsx.ecommerce.testsupport.MySqlTestContainerFactory;
+
 /** Verifies the Product image and OrderItem foreign-key migration against MySQL. */
 @Testcontainers
 class ProductMigrationTest {
     private static final Path CHANGESET = Path.of("src/main/resources/db/changelog/changesets/changeset-9.sql");
 
     @Container
-    private static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.4")
-            .withDatabaseName("product_migration")
-            .withUsername("test")
-            .withPassword("test");
+    private static final MySQLContainer MYSQL = MySqlTestContainerFactory.create("product_migration");
 
     @Test
     void migration_ShouldReplaceLegacyImageColumnsAndRestrictOrderDeletion() throws Exception {

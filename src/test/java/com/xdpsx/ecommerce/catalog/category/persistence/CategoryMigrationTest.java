@@ -25,6 +25,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
 
+import com.xdpsx.ecommerce.testsupport.MySqlTestContainerFactory;
+
 /**
  * Executes the Category backfill in {@code changeset-6.sql} on a real MySQL server.
  *
@@ -46,11 +48,8 @@ class CategoryMigrationTest {
     private static final Path FIXTURE = Path.of("src/test/resources/db/category-cr1-legacy-fixture.sql");
 
     @Container
-    private static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.4")
-            .withDatabaseName("category_migration")
-            .withUsername("test")
-            .withPassword("test")
-            .withCommand("--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci");
+    private static final MySQLContainer MYSQL = MySqlTestContainerFactory.create(
+            "category_migration", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci");
 
     /**
      * Ids 4 and 12 collide across the two collision sources: id 4 is punctuation-only and falls back to
