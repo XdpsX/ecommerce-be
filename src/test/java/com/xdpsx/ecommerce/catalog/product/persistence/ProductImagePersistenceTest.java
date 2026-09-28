@@ -1,8 +1,15 @@
 package com.xdpsx.ecommerce.catalog.product.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
@@ -187,6 +194,39 @@ class ProductImagePersistenceTest {
                 .containsExactly(0, 1);
     }
 
+    @Test
+    void productImageFlow_ShouldHoldProductAndBulkMediaLocksAgainstCleanup() throws Exception {
+        Seed seed = seedProducts();
+        transactionTemplate.executeWithoutResult(status -> {
+            mediaRepository.save(temporaryMedia("media-temp"));
+            entityManager.flush();
+        });
+
+        CountDownLatch locksReady = new CountDownLatch(1);
+        CountDownLatch releaseLocks = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> productImageUpdate = executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+                productRepository.findByIdForUpdate(seed.firstId()).orElseThrow();
+                mediaRepository.findAllByIdInForUpdate(List.of("media-temp"));
+                locksReady.countDown();
+                await(releaseLocks);
+            }));
+            assertThat(locksReady.await(20, TimeUnit.SECONDS)).isTrue();
+
+            Future<Integer> cleanupClaim = executor.submit(() ->
+                    transactionTemplate.execute(status -> mediaRepository.claimTemporaryForDeletion("media-temp")));
+            assertThatThrownBy(() -> cleanupClaim.get(1, TimeUnit.SECONDS)).isInstanceOf(TimeoutException.class);
+
+            releaseLocks.countDown();
+            productImageUpdate.get(20, TimeUnit.SECONDS);
+            assertThat(cleanupClaim.get(20, TimeUnit.SECONDS)).isEqualTo(1);
+        } finally {
+            releaseLocks.countDown();
+            executor.shutdownNow();
+        }
+    }
+
     private Seed seedProducts() {
         return transactionTemplate.execute(status -> {
             Category category = categoryRepository.save(category());
@@ -249,6 +289,26 @@ class ProductImagePersistenceTest {
                 .purpose(MediaPurpose.PRODUCT_IMAGE)
                 .status(MediaStatus.ACTIVE)
                 .build();
+    }
+
+    private static Media temporaryMedia(String id) {
+        return Media.builder()
+                .id(id)
+                .externalId("external-" + id)
+                .url("https://example.test/" + id)
+                .contentType("image/png")
+                .purpose(MediaPurpose.PRODUCT_IMAGE)
+                .status(MediaStatus.TEMPORARY)
+                .build();
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await(20, TimeUnit.SECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Concurrent test participant was interrupted", exception);
+        }
     }
 
     private record Seed(Long firstId, Long secondId) {}

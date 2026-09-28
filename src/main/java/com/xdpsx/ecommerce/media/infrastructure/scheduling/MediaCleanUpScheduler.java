@@ -46,10 +46,11 @@ public class MediaCleanUpScheduler {
     public void cleanUpExpiredMedia() {
         LocalDateTime expiryTime = LocalDateTime.now().minusDays(1);
         mediaRepository.findExpiredTemporaryMedia(expiryTime).forEach(media -> {
-            // Persist the pending state first: if provider deletion fails, the next run can retry it.
-            media.markPendingDeletion();
-            mediaRepository.save(media);
-            deleteAssetAndRecord(media);
+            // Claim in a separate short transaction. An attachment that wins the race changes the row to ACTIVE,
+            // making this update affect zero rows and preventing deletion of an in-use asset.
+            if (mediaRepository.claimExpiredTemporaryForDeletion(media.getId(), expiryTime) == 1) {
+                deleteAssetAndRecord(media);
+            }
         });
     }
 

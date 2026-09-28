@@ -304,7 +304,7 @@ public class ProductServiceImpl implements ProductService {
     }
 
     private List<Media> resolveByIds(List<String> ids) {
-        List<Media> loaded = mediaRepository.findAllByIdIn(ids);
+        List<Media> loaded = mediaRepository.findAllByIdInForUpdate(ids);
         if (loaded == null) loaded = List.of();
         Map<String, Media> byId = loaded.stream().collect(Collectors.toMap(Media::getId, Function.identity()));
         return ids.stream().map(id -> byId.get(id)).filter(Objects::nonNull).toList();

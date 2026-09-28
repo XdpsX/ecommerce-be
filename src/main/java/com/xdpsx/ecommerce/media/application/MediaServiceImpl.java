@@ -79,12 +79,10 @@ public class MediaServiceImpl implements MediaService {
     @Override
     public void deleteMedia(String id) {
         // Only temporary uploads may be discarded through the Media API; active Media belongs to an aggregate.
-        Media media = mediaRepository
-                .findByIdAndStatus(id, MediaStatus.TEMPORARY)
-                .orElseThrow(() -> new ApplicationException(
-                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "media", "resourceId", id)));
-        media.markPendingDeletion();
-        mediaRepository.save(media);
+        if (mediaRepository.claimTemporaryForDeletion(id) == 0) {
+            throw new ApplicationException(
+                    ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "media", "resourceId", id));
+        }
     }
 
     private void validateImageSize(MultipartFile file, MediaPurpose purpose) {

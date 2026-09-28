@@ -7,7 +7,6 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.util.Optional;
 import javax.imageio.ImageIO;
 
 import org.junit.jupiter.api.*;
@@ -232,15 +231,13 @@ class MediaServiceImplTest {
             // Arrange
             Media media =
                     Media.builder().id(mediaId).status(MediaStatus.TEMPORARY).build();
-            when(mediaRepository.findByIdAndStatus(mediaId, MediaStatus.TEMPORARY))
-                    .thenReturn(Optional.of(media));
+            when(mediaRepository.claimTemporaryForDeletion(mediaId)).thenReturn(1);
 
             // Act
             mediaService.deleteMedia(mediaId);
 
             // Assert
-            assertEquals(MediaStatus.PENDING_DELETE, media.getStatus());
-            verify(mediaRepository).save(media);
+            verify(mediaRepository).claimTemporaryForDeletion(mediaId);
             verify(mediaStorage, never()).delete(any());
         }
 
@@ -248,8 +245,7 @@ class MediaServiceImplTest {
         @Test
         void deleteMedia_ShouldThrowResourceNotFound_WhenNoTemporaryMedia() {
             // Arrange
-            when(mediaRepository.findByIdAndStatus(mediaId, MediaStatus.TEMPORARY))
-                    .thenReturn(Optional.empty());
+            when(mediaRepository.claimTemporaryForDeletion(mediaId)).thenReturn(0);
 
             // Act & Assert
             ApplicationException exception =
@@ -258,7 +254,7 @@ class MediaServiceImplTest {
             assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
             assertEquals("media", exception.getParameters().get("resourceType"));
             assertEquals(mediaId, exception.getParameters().get("resourceId"));
-            verify(mediaRepository, never()).save(any());
+            verify(mediaRepository).claimTemporaryForDeletion(mediaId);
         }
     }
 

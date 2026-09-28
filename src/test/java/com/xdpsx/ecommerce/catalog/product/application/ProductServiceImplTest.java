@@ -212,7 +212,7 @@ class ProductServiceImplTest {
         when(productRepository.existsBySlug("keyboard")).thenReturn(false);
         when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(category));
         when(brandRepository.findById(5)).thenReturn(Optional.of(brand));
-        when(mediaRepository.findAllByIdIn(java.util.List.of("m-1", "m-2")))
+        when(mediaRepository.findAllByIdInForUpdate(java.util.List.of("m-1", "m-2")))
                 .thenReturn(java.util.List.of(first, second));
         when(productMapper.fromCreateRequestToEntity(any())).thenReturn(new Product());
         when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -248,7 +248,8 @@ class ProductServiceImplTest {
         request.setImageIds(java.util.List.of("m-retained", "m-new"));
 
         when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
-        when(mediaRepository.findAllByIdIn(request.getImageIds())).thenReturn(java.util.List.of(retained, added));
+        when(mediaRepository.findAllByIdInForUpdate(request.getImageIds()))
+                .thenReturn(java.util.List.of(retained, added));
         when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         productService.updateProduct(1L, request);
@@ -282,7 +283,7 @@ class ProductServiceImplTest {
         request.setImageIds(java.util.List.of("m-missing"));
 
         when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
-        when(mediaRepository.findAllByIdIn(request.getImageIds())).thenReturn(java.util.List.of());
+        when(mediaRepository.findAllByIdInForUpdate(request.getImageIds())).thenReturn(java.util.List.of());
 
         assertThrows(ApplicationException.class, () -> productService.updateProduct(1L, request));
         assertEquals(MediaStatus.ACTIVE, existing.getStatus());

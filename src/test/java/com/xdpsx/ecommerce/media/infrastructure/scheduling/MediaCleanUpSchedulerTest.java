@@ -96,7 +96,7 @@ class MediaCleanUpSchedulerTest {
     }
 
     @Test
-    void cleanUpExpiredMedia_ShouldPersistPendingDeletionBeforeDeleting() {
+    void cleanUpExpiredMedia_ShouldClaimBeforeDeleting() {
         // Arrange
         Media media = Media.builder()
                 .id("expiredId")
@@ -105,16 +105,36 @@ class MediaCleanUpSchedulerTest {
                 .build();
         when(mediaRepository.findExpiredTemporaryMedia(any(LocalDateTime.class)))
                 .thenReturn(List.of(media));
+        when(mediaRepository.claimExpiredTemporaryForDeletion(eq("expiredId"), any(LocalDateTime.class)))
+                .thenReturn(1);
 
         // Act
         mediaCleanUpScheduler.cleanUpExpiredMedia();
 
         // Assert
-        assertEquals(MediaStatus.PENDING_DELETE, media.getStatus());
         InOrder inOrder = inOrder(mediaRepository, mediaStorage);
-        inOrder.verify(mediaRepository).save(media);
+        inOrder.verify(mediaRepository).claimExpiredTemporaryForDeletion(eq("expiredId"), any(LocalDateTime.class));
         inOrder.verify(mediaStorage).delete("expired_external_id");
         inOrder.verify(mediaRepository).delete(media);
+    }
+
+    @Test
+    void cleanUpExpiredMedia_ShouldSkipAsset_WhenTemporaryClaimIsLost() {
+        Media media = Media.builder()
+                .id("attachedId")
+                .externalId("attached_external_id")
+                .status(MediaStatus.TEMPORARY)
+                .build();
+        when(mediaRepository.findExpiredTemporaryMedia(any(LocalDateTime.class)))
+                .thenReturn(List.of(media));
+        when(mediaRepository.claimExpiredTemporaryForDeletion(eq("attachedId"), any(LocalDateTime.class)))
+                .thenReturn(0);
+
+        mediaCleanUpScheduler.cleanUpExpiredMedia();
+
+        verify(mediaRepository).claimExpiredTemporaryForDeletion(eq("attachedId"), any(LocalDateTime.class));
+        verify(mediaStorage, never()).delete(any());
+        verify(mediaRepository, never()).delete(any());
     }
 
     @Test
@@ -127,6 +147,8 @@ class MediaCleanUpSchedulerTest {
                 .build();
         when(mediaRepository.findExpiredTemporaryMedia(any(LocalDateTime.class)))
                 .thenReturn(List.of(media));
+        when(mediaRepository.claimExpiredTemporaryForDeletion(eq("expiredId"), any(LocalDateTime.class)))
+                .thenReturn(1);
         doThrow(new MediaStorageException("provider unavailable"))
                 .when(mediaStorage)
                 .delete("expired_external_id");
@@ -136,8 +158,7 @@ class MediaCleanUpSchedulerTest {
 
         // Assert
         // The row must survive in PENDING_DELETE so the next pending-deletion run can retry it.
-        assertEquals(MediaStatus.PENDING_DELETE, media.getStatus());
-        verify(mediaRepository).save(media);
+        verify(mediaRepository).claimExpiredTemporaryForDeletion(eq("expiredId"), any(LocalDateTime.class));
         verify(mediaRepository, never()).delete(any());
     }
 
