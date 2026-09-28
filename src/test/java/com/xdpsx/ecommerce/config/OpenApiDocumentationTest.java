@@ -26,6 +26,8 @@ import com.xdpsx.ecommerce.catalog.category.api.StorefrontCategoryController;
 import com.xdpsx.ecommerce.catalog.category.application.CategoryService;
 import com.xdpsx.ecommerce.catalog.product.api.ProductController;
 import com.xdpsx.ecommerce.catalog.product.application.ProductService;
+import com.xdpsx.ecommerce.catalog.variantoption.api.AdminVariantOptionController;
+import com.xdpsx.ecommerce.catalog.variantoption.application.VariantOptionService;
 import com.xdpsx.ecommerce.media.api.MediaController;
 import com.xdpsx.ecommerce.media.application.MediaService;
 import com.xdpsx.ecommerce.testsupport.SecurityConfigForControllerTests;
@@ -35,8 +37,8 @@ import tools.jackson.databind.ObjectMapper;
 
 /**
  * Guards that documentation-only interfaces ({@code AdminCategoryApiDocs},
- * {@code StorefrontCategoryApiDocs},
- * {@code MediaControllerApi}) are still discovered by Springdoc while Spring
+ * {@code StorefrontCategoryApiDocs}, {@code AdminBrandApiDocs},
+ * {@code AdminVariantOptionApiDocs}, {@code MediaControllerApi}) are still discovered by Springdoc while Spring
  * MVC behavior lives exclusively on the
  * controllers.
  *
@@ -52,6 +54,7 @@ import tools.jackson.databind.ObjectMapper;
             AdminBrandController.class,
             StorefrontBrandController.class,
             ProductController.class,
+            AdminVariantOptionController.class,
             MediaController.class
         })
 @Import(SecurityConfigForControllerTests.class)
@@ -74,6 +77,9 @@ class OpenApiDocumentationTest {
 
     @MockitoBean
     private ProductService productService;
+
+    @MockitoBean
+    private VariantOptionService variantOptionService;
 
     @MockitoBean
     private MediaService mediaService;
@@ -376,5 +382,39 @@ class OpenApiDocumentationTest {
         assertThat(operation.isMissingNode()).isFalse();
         assertThat(operation.path("summary").asString()).isEqualTo("Delete media");
         assertThat(operation.path("tags").get(0).asString()).isEqualTo("Media API");
+    }
+
+    @Test
+    void adminVariantOptionRoutes_shouldExposeDictionaryResourcesAndLifecycleSchemas() {
+        assertThat(openApi.at("/paths/~1admin~1variant-options").has("get")).isTrue();
+        assertThat(openApi.at("/paths/~1admin~1variant-options").has("post")).isTrue();
+        assertThat(openApi.at("/paths/~1admin~1variant-options~1{id}").has("get"))
+                .isTrue();
+        assertThat(openApi.at("/paths/~1admin~1variant-options~1{id}").has("put"))
+                .isTrue();
+        assertThat(openApi.at("/paths/~1admin~1variant-options~1{id}").has("delete"))
+                .isFalse();
+        assertThat(openApi.at("/paths/~1admin~1variant-options~1{optionId}~1values")
+                        .has("post"))
+                .isTrue();
+        assertThat(openApi.at("/paths/~1admin~1variant-options~1{optionId}~1values~1{valueId}")
+                        .has("put"))
+                .isTrue();
+        assertThat(openApi.at("/paths/~1admin~1variant-options~1{optionId}~1values~1{valueId}")
+                        .has("delete"))
+                .isFalse();
+        assertThat(openApi.at("/paths/~1admin~1variant-options~1{optionId}~1values~1order")
+                        .has("put"))
+                .isTrue();
+
+        JsonNode optionProperties = openApi.at("/components/schemas/VariantOptionResponse/properties");
+        assertThat(optionProperties.has("code")).isTrue();
+        assertThat(optionProperties.has("status")).isTrue();
+        assertThat(optionProperties.has("values")).isTrue();
+
+        JsonNode valueProperties = openApi.at("/components/schemas/VariantOptionValueResponse/properties");
+        assertThat(valueProperties.has("code")).isTrue();
+        assertThat(valueProperties.has("displayOrder")).isTrue();
+        assertThat(valueProperties.has("status")).isTrue();
     }
 }
