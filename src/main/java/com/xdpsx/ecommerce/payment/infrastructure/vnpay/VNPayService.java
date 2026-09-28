@@ -3,6 +3,7 @@ package com.xdpsx.ecommerce.payment.infrastructure.vnpay;
 import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.*;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -79,17 +80,19 @@ public class VNPayService implements PaymentService {
     }
 
     public boolean verifyIpn(Map<String, String> params) {
-        var reqSecureHash = params.get(VNPayParams.SECURE_HASH);
-        params.remove(VNPayParams.SECURE_HASH);
-        params.remove(VNPayParams.SECURE_HASH_TYPE);
+        Map<String, String> signedParams = new HashMap<>(params);
+        var reqSecureHash = signedParams.remove(VNPayParams.SECURE_HASH);
+        signedParams.remove(VNPayParams.SECURE_HASH_TYPE);
+        if (reqSecureHash == null || !tmnCode.equals(signedParams.get(VNPayParams.TMN_CODE))) return false;
+
         var hashPayload = new StringBuilder();
-        var fieldNames = new ArrayList<>(params.keySet());
+        var fieldNames = new ArrayList<>(signedParams.keySet());
         Collections.sort(fieldNames);
 
         var itr = fieldNames.iterator();
         while (itr.hasNext()) {
             var fieldName = itr.next();
-            var fieldValue = params.get(fieldName);
+            var fieldValue = signedParams.get(fieldName);
             if ((fieldValue != null) && (!fieldValue.isEmpty())) {
                 // Build hash data
                 hashPayload.append(fieldName);
@@ -103,7 +106,8 @@ public class VNPayService implements PaymentService {
         }
 
         var secureHash = cryptoService.sign(hashPayload.toString());
-        return secureHash.equals(reqSecureHash);
+        return MessageDigest.isEqual(
+                secureHash.getBytes(StandardCharsets.US_ASCII), reqSecureHash.getBytes(StandardCharsets.US_ASCII));
     }
 
     private String buildPaymentDetail(InitPaymentRequest request) {

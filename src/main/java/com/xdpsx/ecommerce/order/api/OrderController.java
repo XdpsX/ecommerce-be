@@ -5,6 +5,7 @@ import jakarta.validation.Valid;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -51,12 +52,14 @@ public class OrderController {
     }
 
     @GetMapping("/{orderId}")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<OrderDetailsDTO> getOrderById(@PathVariable Long orderId) {
         OrderDetailsDTO response = orderService.getOrderById(orderId);
         return ResponseEntity.ok(response);
     }
 
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<PageResponse<OrderDTO>> getPageOrders(
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "5") int pageSize,
@@ -67,6 +70,7 @@ public class OrderController {
     }
 
     @PatchMapping("/{id}/status")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<OrderDTO> updateOrderStatus(
             @PathVariable Long id, @Valid @RequestBody OrderStatusUpdate request) {
         OrderDTO response = orderService.updateOrderStatus(id, request);

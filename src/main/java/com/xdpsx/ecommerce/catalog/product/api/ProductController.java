@@ -7,6 +7,7 @@ import jakarta.validation.Valid;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import com.xdpsx.ecommerce.catalog.product.api.dto.*;
@@ -48,12 +49,14 @@ public class ProductController {
     }
 
     @PostMapping(path = "/create", consumes = "application/json")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ProductResponse> createProduct(@Valid @RequestBody ProductCreateRequest request) {
         ProductResponse response = productService.createProduct(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PutMapping(path = "/{id}/update", consumes = "application/json")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ProductResponse> updateProduct(
             @PathVariable Long id, @Valid @RequestBody ProductUpdateRequest request) {
         ProductResponse response = productService.updateProduct(id, request);
@@ -61,12 +64,14 @@ public class ProductController {
     }
 
     @DeleteMapping("/{id}/delete")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> deleteProduct(@PathVariable Long id) {
         productService.deleteProduct(id);
         return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/{id}/public/{status}")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> updateProductPublicStatus(@PathVariable Long id, @PathVariable boolean status) {
         productService.publishProduct(id, status);
         return ResponseEntity.noContent().build();

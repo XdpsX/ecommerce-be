@@ -120,6 +120,31 @@ public class OrderServiceImpl implements OrderService {
         paymentRepository.save(payment);
     }
 
+    @Transactional
+    @Override
+    public PaymentCallbackResult processPaymentCallback(long orderId, BigDecimal amount, boolean successful) {
+        Order order = orderRepository
+                .findByIdForUpdate(orderId)
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "order", "resourceId", orderId)));
+        if (order.getTotalAmount() == null
+                || amount == null
+                || order.getTotalAmount().compareTo(amount) != 0) {
+            throw new ApplicationException(ErrorCode.MALFORMED_REQUEST);
+        }
+
+        Payment payment = order.getPayment();
+        if (payment == null) throw new ApplicationException(ErrorCode.MALFORMED_REQUEST);
+        if (payment.getStatus() == PaymentStatus.PAID) return PaymentCallbackResult.ALREADY_CONFIRMED;
+        if (!successful) return PaymentCallbackResult.CONFIRMED;
+
+        payment.setStatus(PaymentStatus.PAID);
+        payment.setPaymentMethod(PaymentMethod.VNPAY);
+        payment.setPaymentDate(LocalDateTime.now());
+        paymentRepository.save(payment);
+        return PaymentCallbackResult.CONFIRMED;
+    }
+
     @Override
     public PageResponse<OrderDTO> getMyOrders(String userEmail, int pageNum, int pageSize) {
         User user = getUser(userEmail);

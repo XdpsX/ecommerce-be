@@ -3,6 +3,8 @@ package com.xdpsx.ecommerce.payment.infrastructure.vnpay;
 public class VNPayParams {
     public static final String SECURE_HASH = "vnp_SecureHash";
     public static final String SECURE_HASH_TYPE = "vnp_SecureHashType";
+    public static final String RESPONSE_CODE = "vnp_ResponseCode";
+    public static final String TRANSACTION_STATUS = "vnp_TransactionStatus";
     public static final String AMOUNT = "vnp_Amount";
     public static final String ORDER_INFO = "vnp_OrderInfo";
     public static final String ORDER_TYPE = "vnp_OrderType";

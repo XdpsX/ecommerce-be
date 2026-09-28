@@ -6,6 +6,7 @@ import jakarta.validation.Valid;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import com.xdpsx.ecommerce.common.error.ApplicationException;
@@ -18,11 +19,13 @@ import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 import lombok.RequiredArgsConstructor;
 
 @RestController
+@RequestMapping("/media")
 @RequiredArgsConstructor
+@PreAuthorize("hasRole('ADMIN')")
 public class MediaController implements MediaControllerApi {
     private final MediaService mediaService;
 
-    @PostMapping(path = "/media/image-upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PostMapping(path = "/image-upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public ViewMediaDTO createMedia(@RequestParam String resource, @Valid @ModelAttribute CreateMediaDTO request) {
         MediaPurpose purpose = MediaPurpose.fromResource(resource);
@@ -32,7 +35,7 @@ public class MediaController implements MediaControllerApi {
         return mediaService.createMedia(request, purpose);
     }
 
-    @DeleteMapping("/media/{id}")
+    @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteMedia(@PathVariable String id) {
         mediaService.deleteMedia(id);
