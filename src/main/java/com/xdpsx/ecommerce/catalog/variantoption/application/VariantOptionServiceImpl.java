@@ -13,6 +13,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.xdpsx.ecommerce.catalog.product.persistence.ProductVariantRepository;
 import com.xdpsx.ecommerce.catalog.variantoption.api.dto.*;
 import com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOption;
 import com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus;
@@ -29,6 +30,7 @@ import lombok.RequiredArgsConstructor;
 public class VariantOptionServiceImpl implements VariantOptionService {
     private final VariantOptionRepository optionRepository;
     private final VariantOptionValueRepository valueRepository;
+    private final ProductVariantRepository productVariantRepository;
 
     @Transactional(readOnly = true)
     @Override
@@ -94,8 +96,8 @@ public class VariantOptionServiceImpl implements VariantOptionService {
     @Transactional
     @Override
     public VariantOptionResponse updateVariantOption(Long id, UpdateVariantOptionRequest request) {
-        VariantOption option = optionRepository.findById(id).orElseThrow(() -> notFound("variant-option", id));
-        rejectDeactivationUntilVariantReferencesExist(option.getStatus(), request.status(), "variant-option", id);
+        VariantOption option = optionRepository.findByIdForUpdate(id).orElseThrow(() -> notFound("variant-option", id));
+        rejectDeactivationWhenReferenced(option.getStatus(), request.status(), "variant-option", id, true);
         option.setName(normalizeName(request.name()));
         option.setDisplayOrder(request.displayOrder());
         option.setStatus(request.status());
@@ -146,11 +148,11 @@ public class VariantOptionServiceImpl implements VariantOptionService {
     @Override
     public VariantOptionValueResponse updateValue(
             Long optionId, Long valueId, UpdateVariantOptionValueRequest request) {
+        optionRepository.findByIdForUpdate(optionId).orElseThrow(() -> notFound("variant-option", optionId));
         VariantOptionValue value = valueRepository
-                .findByIdAndOptionId(valueId, optionId)
+                .findByIdAndOptionIdForUpdate(valueId, optionId)
                 .orElseThrow(() -> notFound("variant-option-value", valueId));
-        rejectDeactivationUntilVariantReferencesExist(
-                value.getStatus(), request.status(), "variant-option-value", valueId);
+        rejectDeactivationWhenReferenced(value.getStatus(), request.status(), "variant-option-value", valueId, false);
         value.setName(normalizeName(request.name()));
         value.setDisplayOrder(request.displayOrder());
         value.setStatus(request.status());
@@ -196,19 +198,20 @@ public class VariantOptionServiceImpl implements VariantOptionService {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * CR1 has no Variant table yet, so it cannot prove that a value is unused. Failing closed keeps the lifecycle
-     * invariant safe until CR2 supplies the real active-Variant reference query.
-     */
-    private static void rejectDeactivationUntilVariantReferencesExist(
+    private void rejectDeactivationWhenReferenced(
             VariantOptionStatus currentStatus,
             VariantOptionStatus requestedStatus,
             String resourceType,
-            Long resourceId) {
+            Long resourceId,
+            boolean option) {
         if (currentStatus == VariantOptionStatus.ACTIVE && requestedStatus == VariantOptionStatus.INACTIVE) {
-            throw new ApplicationException(
-                    ErrorCode.VARIANT_OPTION_DEACTIVATION_UNAVAILABLE,
-                    Map.of("resourceType", resourceType, "resourceId", resourceId));
+            boolean referenced = option
+                    ? productVariantRepository.existsActiveReferenceToOption(resourceId)
+                    : productVariantRepository.existsActiveReferenceToValue(resourceId);
+            if (referenced) {
+                throw new ApplicationException(
+                        ErrorCode.RESOURCE_IN_USE, Map.of("resourceType", resourceType, "resourceId", resourceId));
+            }
         }
     }
 

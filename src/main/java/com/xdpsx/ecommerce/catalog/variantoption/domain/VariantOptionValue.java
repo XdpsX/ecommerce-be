@@ -20,6 +20,9 @@ import lombok.experimental.SuperBuilder;
                     name = "uk_variant_option_value_code",
                     columnNames = {"option_id", "code"}),
             @UniqueConstraint(
+                    name = "uk_variant_option_value_option_id",
+                    columnNames = {"option_id", "id"}),
+            @UniqueConstraint(
                     name = "uk_variant_option_value_order",
                     columnNames = {"option_id", "display_order"})
         },

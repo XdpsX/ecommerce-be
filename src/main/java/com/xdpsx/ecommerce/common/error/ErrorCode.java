@@ -18,7 +18,7 @@ public enum ErrorCode {
     RESOURCE_IN_USE("Resource in use", "The resource is still referenced and cannot be deleted"),
     VARIANT_OPTION_DEACTIVATION_UNAVAILABLE(
             "Variant option deactivation unavailable",
-            "Option and value deactivation requires the active Variant reference check introduced in the next phase"),
+            "Option and value deactivation cannot proceed until their active Variant references are safe"),
     CONCURRENT_MODIFICATION("Concurrent modification", "The resource was modified after it was retrieved"),
     CONCURRENT_WRITE_CONFLICT(
             "Concurrent write conflict", "A concurrent write could not be completed, the request can be retried"),

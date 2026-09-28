@@ -16,6 +16,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 
+import com.xdpsx.ecommerce.catalog.product.persistence.ProductVariantRepository;
 import com.xdpsx.ecommerce.catalog.variantoption.api.dto.*;
 import com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOption;
 import com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus;
@@ -32,6 +33,9 @@ class VariantOptionServiceImplTest {
 
     @Mock
     private VariantOptionValueRepository valueRepository;
+
+    @Mock
+    private ProductVariantRepository productVariantRepository;
 
     @InjectMocks
     private VariantOptionServiceImpl service;
@@ -114,31 +118,34 @@ class VariantOptionServiceImplTest {
     }
 
     @Test
-    void updateValue_ShouldRejectDeactivationUntilVariantReferenceCheckExists() {
+    void updateValue_ShouldRejectDeactivationWhenAnActiveVariantReferencesIt() {
         VariantOption option = optionWithValues();
         VariantOptionValue value = option.getValues().get(0);
-        when(valueRepository.findByIdAndOptionId(20L, 10L)).thenReturn(Optional.of(value));
+        when(optionRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(option));
+        when(valueRepository.findByIdAndOptionIdForUpdate(20L, 10L)).thenReturn(Optional.of(value));
+        when(productVariantRepository.existsActiveReferenceToValue(20L)).thenReturn(true);
 
         ApplicationException exception = assertThrows(
                 ApplicationException.class,
                 () -> service.updateValue(
                         10L, 20L, new UpdateVariantOptionValueRequest(" Jet Black ", 3, VariantOptionStatus.INACTIVE)));
 
-        assertThat(exception.getCode()).isEqualTo(ErrorCode.VARIANT_OPTION_DEACTIVATION_UNAVAILABLE);
+        assertThat(exception.getCode()).isEqualTo(ErrorCode.RESOURCE_IN_USE);
         verify(valueRepository, never()).saveAndFlush(any());
     }
 
     @Test
-    void updateOption_ShouldRejectDeactivationUntilVariantReferenceCheckExists() {
+    void updateOption_ShouldRejectDeactivationWhenAnActiveVariantReferencesIt() {
         VariantOption option = optionWithValues();
-        when(optionRepository.findById(10L)).thenReturn(Optional.of(option));
+        when(optionRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(option));
+        when(productVariantRepository.existsActiveReferenceToOption(10L)).thenReturn(true);
 
         ApplicationException exception = assertThrows(
                 ApplicationException.class,
                 () -> service.updateVariantOption(
                         10L, new UpdateVariantOptionRequest("Color", 0, VariantOptionStatus.INACTIVE)));
 
-        assertThat(exception.getCode()).isEqualTo(ErrorCode.VARIANT_OPTION_DEACTIVATION_UNAVAILABLE);
+        assertThat(exception.getCode()).isEqualTo(ErrorCode.RESOURCE_IN_USE);
         verify(optionRepository, never()).saveAndFlush(any());
     }
 

@@ -24,6 +24,7 @@ import com.xdpsx.ecommerce.catalog.product.domain.Product;
 import com.xdpsx.ecommerce.catalog.product.domain.ProductImage;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductSpecification;
+import com.xdpsx.ecommerce.catalog.product.persistence.ProductVariantRepository;
 import com.xdpsx.ecommerce.catalog.shared.application.PageMapper;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
@@ -47,6 +48,7 @@ public class ProductServiceImpl implements ProductService {
     private final CategoryRepository categoryRepository;
     private final BrandRepository brandRepository;
     private final ProductSpecification spec;
+    private final ProductVariantRepository productVariantRepository;
     private final MediaRepository mediaRepository;
     private final OrderItemRepository orderItemRepository;
 
@@ -86,6 +88,11 @@ public class ProductServiceImpl implements ProductService {
     @Transactional
     @Override
     public ProductResponse createProduct(ProductCreateRequest request) {
+        if (request.isPublished()) {
+            throw new ApplicationException(
+                    ErrorCode.VALIDATION_FAILED,
+                    Map.of("field", "published", "reason", "create variants before publishing the product"));
+        }
         if (productRepository.existsBySlug(request.getSlug())) {
             throw new ApplicationException(
                     ErrorCode.RESOURCE_ALREADY_EXISTS,
@@ -105,7 +112,7 @@ public class ProductServiceImpl implements ProductService {
     @Transactional
     @Override
     public ProductResponse updateProduct(Long id, ProductUpdateRequest request) {
-        Product product = productRepository.findProductById(id).orElseThrow(() -> notFound("product", id));
+        Product product = productRepository.findByIdForUpdate(id).orElseThrow(() -> notFound("product", id));
         List<Media> replacementMedia =
                 request.getImageIds() == null ? null : resolveReplacementMedia(product, request.getImageIds());
         Category targetCategory = product.getCategory();
@@ -118,6 +125,7 @@ public class ProductServiceImpl implements ProductService {
         }
         if (request.isPublished()) {
             validatePublishEligibility(targetCategory, targetBrand);
+            requireActiveVariant(id);
         }
         product.setName(request.getName());
         product.setPrice(request.getPrice());
@@ -172,9 +180,10 @@ public class ProductServiceImpl implements ProductService {
     @Transactional
     @Override
     public void publishProduct(Long id, boolean status) {
-        Product product = productRepository.findProductById(id).orElseThrow(() -> notFound("product", id));
+        Product product = productRepository.findByIdForUpdate(id).orElseThrow(() -> notFound("product", id));
         if (status) {
             validatePublishEligibility(product.getCategory(), product.getBrand());
+            requireActiveVariant(id);
         }
         product.setPublished(status);
         productRepository.save(product);
@@ -309,6 +318,14 @@ public class ProductServiceImpl implements ProductService {
     private void validatePublishEligibility(Category category, Brand brand) {
         requireEffectivelyActiveCategory(category.getId());
         requireActiveBrand(brand.getId());
+    }
+
+    private void requireActiveVariant(Long productId) {
+        if (!productVariantRepository.existsActiveByProductId(productId)) {
+            throw new ApplicationException(
+                    ErrorCode.VALIDATION_FAILED,
+                    Map.of("field", "published", "reason", "product must have at least one active variant"));
+        }
     }
 
     private Category requireEffectivelyActiveCategory(Integer categoryId) {
