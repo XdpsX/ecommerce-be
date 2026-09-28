@@ -12,4 +12,6 @@ import lombok.experimental.SuperBuilder;
 public class ProductDetailsDTO extends ProductResponse {
     private String description;
     private List<ProductImageDTO> images;
+    private List<ProductOptionResponse> options;
+    private List<ProductVariantSelectionResponse> variants;
 }

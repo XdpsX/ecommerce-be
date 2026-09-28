@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -21,6 +22,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -81,6 +85,7 @@ class ProductVariantPersistenceTest {
                     "com.xdpsx.ecommerce.media.domain");
             factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
             factory.getJpaPropertyMap().put("hibernate.hbm2ddl.auto", "create-drop");
+            factory.getJpaPropertyMap().put("hibernate.generate_statistics", "true");
             return factory;
         }
 
@@ -100,6 +105,8 @@ class ProductVariantPersistenceTest {
 
     @Autowired
     private ProductVariantRepository variantRepository;
+
+    private final ProductSpecification productSpecification = new ProductSpecification();
 
     @Autowired
     private VariantOptionRepository optionRepository;
@@ -289,6 +296,143 @@ class ProductVariantPersistenceTest {
         }
     }
 
+    @Test
+    void storefrontVariantRead_ShouldFetchOnlyActiveVariantsAndDictionaryRowsInOneQuery() {
+        Long productId = transactionTemplate.execute(status -> {
+            VariantOption color = optionRepository.saveAndFlush(option("read-color", 1));
+            VariantOption size = optionRepository.saveAndFlush(option("read-size", 0));
+            VariantOptionValue black = valueRepository.save(value(color, "read-black", 0));
+            VariantOptionValue medium = valueRepository.saveAndFlush(value(size, "read-medium", 0));
+            Product product = productRepository.saveAndFlush(Product.builder()
+                    .name("Read product")
+                    .slug("read-product")
+                    .price(java.math.BigDecimal.TEN)
+                    .published(true)
+                    .build());
+            ProductVariant active = variant(product, "READ-ACTIVE", "read-active");
+            active.getSelections().add(selection(active, color, black));
+            active.getSelections().add(selection(active, size, medium));
+            ProductVariant inactive = variant(product, "READ-INACTIVE", "read-inactive");
+            inactive.setStatus(ProductVariantStatus.INACTIVE);
+            inactive.getSelections().add(selection(inactive, color, black));
+            variantRepository.save(active);
+            variantRepository.saveAndFlush(inactive);
+            return product.getId();
+        });
+
+        entityManager.clear();
+        entityManager
+                .getEntityManagerFactory()
+                .unwrap(org.hibernate.SessionFactory.class)
+                .getStatistics()
+                .clear();
+        List<ProductVariant> variants = transactionTemplate.execute(
+                status -> variantRepository.findActiveWithSelectionsAndOptionsByProductId(productId));
+
+        assertThat(variants).hasSize(1);
+        assertThat(variants.get(0).getStatus()).isEqualTo(ProductVariantStatus.ACTIVE);
+        assertThat(variants.get(0).getSelections())
+                .extracting(selection -> selection.getOptionValue().getCode())
+                .containsExactlyInAnyOrder("read-medium", "read-black");
+        assertThat(entityManager
+                        .getEntityManagerFactory()
+                        .unwrap(org.hibernate.SessionFactory.class)
+                        .getStatistics()
+                        .getPrepareStatementCount())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void optionFilter_ShouldRequireAllOptionGroupsOnTheSameActiveVariantAndKeepProductsDistinctAcrossPages() {
+        Long[] valueIds = transactionTemplate.execute(status -> {
+            VariantOption color = optionRepository.saveAndFlush(option("filter-color", 0));
+            VariantOption size = optionRepository.saveAndFlush(option("filter-size", 1));
+            VariantOptionValue black = valueRepository.save(value(color, "filter-black", 0));
+            VariantOptionValue white = valueRepository.save(value(color, "filter-white", 1));
+            VariantOptionValue medium = valueRepository.save(value(size, "filter-medium", 0));
+            VariantOptionValue large = valueRepository.saveAndFlush(value(size, "filter-large", 1));
+
+            Product split = productRepository.save(product("split-filter"));
+            ProductVariant blackMedium = variant(split, "SPLIT-BLACK-M", "split-black-medium");
+            blackMedium.getSelections().add(selection(blackMedium, color, black));
+            blackMedium.getSelections().add(selection(blackMedium, size, medium));
+            ProductVariant whiteLarge = variant(split, "SPLIT-WHITE-L", "split-white-large");
+            whiteLarge.getSelections().add(selection(whiteLarge, color, white));
+            whiteLarge.getSelections().add(selection(whiteLarge, size, large));
+            variantRepository.save(blackMedium);
+            variantRepository.saveAndFlush(whiteLarge);
+
+            Product repeated = productRepository.saveAndFlush(product("repeated-filter"));
+            ProductVariant repeatedBlackMedium = variant(repeated, "REPEATED-BLACK-M", "repeated-black-medium");
+            repeatedBlackMedium.getSelections().add(selection(repeatedBlackMedium, color, black));
+            repeatedBlackMedium.getSelections().add(selection(repeatedBlackMedium, size, medium));
+            ProductVariant repeatedWhiteMedium = variant(repeated, "REPEATED-WHITE-M", "repeated-white-medium");
+            repeatedWhiteMedium.getSelections().add(selection(repeatedWhiteMedium, color, white));
+            repeatedWhiteMedium.getSelections().add(selection(repeatedWhiteMedium, size, medium));
+            variantRepository.save(repeatedBlackMedium);
+            variantRepository.saveAndFlush(repeatedWhiteMedium);
+
+            Product matching = productRepository.saveAndFlush(product("matching-filter"));
+            ProductVariant blackLarge = variant(matching, "MATCH-BLACK-L", "matching-black-large");
+            blackLarge.getSelections().add(selection(blackLarge, color, black));
+            blackLarge.getSelections().add(selection(blackLarge, size, large));
+            variantRepository.saveAndFlush(blackLarge);
+            return new Long[] {color.getId(), size.getId(), black.getId(), white.getId(), medium.getId(), large.getId()
+            };
+        });
+
+        Page<Product> sameVariantResult = productRepository.findAll(
+                productSpecification.hasMatchingActiveVariant(
+                        Map.of(valueIds[0], List.of(valueIds[2]), valueIds[1], List.of(valueIds[5]))),
+                PageRequest.of(0, 10));
+        var optionFilter = productSpecification.hasMatchingActiveVariant(
+                Map.of(valueIds[0], List.of(valueIds[2], valueIds[3]), valueIds[1], List.of(valueIds[4])));
+        Page<Product> firstPage =
+                productRepository.findAll(optionFilter, PageRequest.of(0, 1, Sort.by(Sort.Direction.ASC, "id")));
+        Page<Product> secondPage =
+                productRepository.findAll(optionFilter, PageRequest.of(1, 1, Sort.by(Sort.Direction.ASC, "id")));
+
+        assertThat(sameVariantResult.getContent()).extracting(Product::getSlug).containsExactly("matching-filter");
+        assertThat(firstPage.getContent()).hasSize(1);
+        assertThat(secondPage.getContent()).hasSize(1);
+        assertThat(firstPage.getTotalElements()).isEqualTo(2);
+        assertThat(secondPage.getTotalElements()).isEqualTo(2);
+        assertThat(firstPage.hasNext()).isTrue();
+        assertThat(secondPage.hasNext()).isFalse();
+        assertThat(List.of(
+                        firstPage.getContent().get(0).getSlug(),
+                        secondPage.getContent().get(0).getSlug()))
+                .containsExactlyInAnyOrder("split-filter", "repeated-filter");
+    }
+
+    @Test
+    void filterFacet_ShouldReturnOnlyValuesFromPublishedProductsWithActiveVariants() {
+        transactionTemplate.executeWithoutResult(status -> {
+            VariantOption color = optionRepository.saveAndFlush(option("facet-color", 0));
+            VariantOptionValue black = valueRepository.save(value(color, "facet-black", 0));
+            VariantOptionValue white = valueRepository.saveAndFlush(value(color, "facet-white", 1));
+
+            Product published = productRepository.saveAndFlush(product("published-facet"));
+            ProductVariant active = variant(published, "FACET-ACTIVE", "facet-active");
+            active.getSelections().add(selection(active, color, black));
+            variantRepository.saveAndFlush(active);
+
+            Product unpublished = product("unpublished-facet");
+            unpublished.setPublished(false);
+            ProductVariant unpublishedVariant = variant(unpublished, "FACET-HIDDEN", "facet-hidden");
+            unpublishedVariant.getSelections().add(selection(unpublishedVariant, color, white));
+            productRepository.save(unpublished);
+            variantRepository.saveAndFlush(unpublishedVariant);
+        });
+
+        List<ProductVariantRepository.FilterOptionValueView> views =
+                variantRepository.findActiveFilterOptionValues(null, null);
+
+        assertThat(views)
+                .extracting(ProductVariantRepository.FilterOptionValueView::getValueCode)
+                .containsExactly("facet-black");
+    }
+
     private static void await(CyclicBarrier barrier) {
         try {
             barrier.await(20, TimeUnit.SECONDS);
@@ -353,6 +497,15 @@ class ProductVariantPersistenceTest {
                 .sku(sku)
                 .status(ProductVariantStatus.ACTIVE)
                 .combinationKey(combinationKey)
+                .build();
+    }
+
+    private static Product product(String slug) {
+        return Product.builder()
+                .name(slug)
+                .slug(slug)
+                .price(java.math.BigDecimal.TEN)
+                .published(true)
                 .build();
     }
 }

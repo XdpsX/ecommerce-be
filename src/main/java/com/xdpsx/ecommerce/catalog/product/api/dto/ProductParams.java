@@ -2,7 +2,10 @@ package com.xdpsx.ecommerce.catalog.product.api.dto;
 
 import static com.xdpsx.ecommerce.catalog.shared.persistence.FieldConstants.*;
 
+import java.util.List;
+
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Size;
 
 import com.xdpsx.ecommerce.catalog.shared.api.validation.SortConstraint;
 import com.xdpsx.ecommerce.common.pagination.AbstractPageParams;
@@ -31,4 +34,7 @@ public class ProductParams extends AbstractPageParams {
     private Boolean inStock;
     private Integer categoryId;
     private Integer brandId;
+
+    @Size(max = 50)
+    private List<Long> optionValueIds;
 }

@@ -1,6 +1,8 @@
 package com.xdpsx.ecommerce.catalog.product.application;
 
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -22,10 +24,15 @@ import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.product.api.dto.*;
 import com.xdpsx.ecommerce.catalog.product.domain.Product;
 import com.xdpsx.ecommerce.catalog.product.domain.ProductImage;
+import com.xdpsx.ecommerce.catalog.product.domain.ProductVariant;
+import com.xdpsx.ecommerce.catalog.product.domain.ProductVariantSelection;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductSpecification;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductVariantRepository;
 import com.xdpsx.ecommerce.catalog.shared.application.PageMapper;
+import com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus;
+import com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionValue;
+import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionValueRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
@@ -49,14 +56,16 @@ public class ProductServiceImpl implements ProductService {
     private final BrandRepository brandRepository;
     private final ProductSpecification spec;
     private final ProductVariantRepository productVariantRepository;
+    private final VariantOptionValueRepository variantOptionValueRepository;
     private final MediaRepository mediaRepository;
     private final OrderItemRepository orderItemRepository;
 
     @Transactional(readOnly = true)
     @Override
     public PageResponse<ProductResponse> filterAllProducts(ProductParams params) {
-        Page<Product> page = productRepository.findAll(
-                spec.getFiltersSpec(
+        Map<Long, List<Long>> optionValueIdsByOption = validateOptionValueIds(params.getOptionValueIds());
+        Specification<Product> productSpec = optionValueIdsByOption.isEmpty()
+                ? spec.getFiltersSpec(
                         params.getSearch(),
                         params.getSort(),
                         params.getHasPublished(),
@@ -65,8 +74,20 @@ public class ProductServiceImpl implements ProductService {
                         params.getHasDiscount(),
                         params.getInStock(),
                         params.getCategoryId(),
-                        params.getBrandId()),
-                PageRequest.of(params.getPageNum() - 1, params.getPageSize()));
+                        params.getBrandId())
+                : spec.getFiltersSpec(
+                        params.getSearch(),
+                        params.getSort(),
+                        params.getHasPublished(),
+                        params.getMinPrice(),
+                        params.getMaxPrice(),
+                        params.getHasDiscount(),
+                        params.getInStock(),
+                        params.getCategoryId(),
+                        params.getBrandId(),
+                        optionValueIdsByOption);
+        Page<Product> page =
+                productRepository.findAll(productSpec, PageRequest.of(params.getPageNum() - 1, params.getPageSize()));
         loadImages(page.getContent());
         return pageMapper.toProductPageResponse(page);
     }
@@ -75,14 +96,20 @@ public class ProductServiceImpl implements ProductService {
     @Override
     public ProductDetailsDTO getProductById(Long id) {
         Product product = productRepository.findProductById(id).orElseThrow(() -> notFound("product", id));
-        return productMapper.fromEntityToDetailsDTO(product);
+        return withVariantSelection(productMapper.fromEntityToDetailsDTO(product), id);
     }
 
     @Transactional(readOnly = true)
     @Override
     public ProductDetailsDTO getProductBySlug(String slug) {
         Product product = productRepository.findProductBySlug(slug).orElseThrow(() -> notFound("product", slug));
-        return productMapper.fromEntityToDetailsDTO(product);
+        return withVariantSelection(productMapper.fromEntityToDetailsDTO(product), product.getId());
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public List<ProductOptionResponse> getFilterOptions(Integer categoryId, Integer brandId) {
+        return toOptions(productVariantRepository.findActiveFilterOptionValues(categoryId, brandId));
     }
 
     @Transactional
@@ -339,6 +366,148 @@ public class ProductServiceImpl implements ProductService {
         if (!products.isEmpty())
             productRepository.findAllWithImagesByIdIn(
                     products.stream().map(Product::getId).toList());
+    }
+
+    private ProductDetailsDTO withVariantSelection(ProductDetailsDTO details, Long productId) {
+        List<ProductVariant> variants =
+                productVariantRepository.findActiveWithSelectionsAndOptionsByProductId(productId);
+        Map<Long, ProductOptionAccumulator> options = new LinkedHashMap<>();
+        List<ProductVariantSelectionResponse> variantResponses = variants.stream()
+                .map(variant -> {
+                    if (variant.getSelections().stream().anyMatch(selection -> !isActiveSelection(selection))) {
+                        return null;
+                    }
+                    List<ProductVariantSelection> selections = variant.getSelections().stream()
+                            .sorted(Comparator.comparingInt((ProductVariantSelection selection) -> selection
+                                            .getOptionValue()
+                                            .getOption()
+                                            .getDisplayOrder())
+                                    .thenComparing(selection ->
+                                            selection.getOptionValue().getId()))
+                            .toList();
+                    List<Long> valueIds = selections.stream()
+                            .map(ProductVariantSelection::getOptionValueId)
+                            .toList();
+                    selections.forEach(selection -> {
+                        VariantOptionValue value = selection.getOptionValue();
+                        if (value == null
+                                || value.getOption() == null
+                                || value.getStatus() != VariantOptionStatus.ACTIVE
+                                || value.getOption().getStatus() != VariantOptionStatus.ACTIVE) return;
+                        options.computeIfAbsent(
+                                        value.getOption().getId(),
+                                        ignored -> new ProductOptionAccumulator(
+                                                value.getOption().getId(),
+                                                value.getOption().getCode(),
+                                                value.getOption().getName(),
+                                                value.getOption().getDisplayOrder()))
+                                .values
+                                .putIfAbsent(
+                                        value.getId(),
+                                        new ProductOptionValueResponse(
+                                                value.getId(),
+                                                value.getCode(),
+                                                value.getName(),
+                                                value.getDisplayOrder()));
+                    });
+                    return new ProductVariantSelectionResponse(variant.getId(), variant.getSku(), valueIds);
+                })
+                .filter(Objects::nonNull)
+                .toList();
+        details.setOptions(options.values().stream()
+                .sorted(Comparator.comparingInt((ProductOptionAccumulator option) -> option.displayOrder)
+                        .thenComparing(option -> option.id))
+                .map(ProductOptionAccumulator::toResponse)
+                .toList());
+        details.setVariants(variantResponses);
+        return details;
+    }
+
+    private List<ProductOptionResponse> toOptions(List<ProductVariantRepository.FilterOptionValueView> views) {
+        Map<Long, ProductOptionAccumulator> options = new LinkedHashMap<>();
+        for (ProductVariantRepository.FilterOptionValueView view : views) {
+            options.computeIfAbsent(
+                            view.getOptionId(),
+                            ignored -> new ProductOptionAccumulator(
+                                    view.getOptionId(),
+                                    view.getOptionCode(),
+                                    view.getOptionName(),
+                                    view.getOptionDisplayOrder()))
+                    .values
+                    .putIfAbsent(
+                            view.getValueId(),
+                            new ProductOptionValueResponse(
+                                    view.getValueId(),
+                                    view.getValueCode(),
+                                    view.getValueName(),
+                                    view.getValueDisplayOrder()));
+        }
+        return options.values().stream()
+                .sorted(Comparator.comparingInt((ProductOptionAccumulator option) -> option.displayOrder)
+                        .thenComparing(option -> option.id))
+                .map(ProductOptionAccumulator::toResponse)
+                .toList();
+    }
+
+    private static boolean isActiveSelection(ProductVariantSelection selection) {
+        VariantOptionValue value = selection.getOptionValue();
+        return value != null
+                && value.getOption() != null
+                && value.getStatus() == VariantOptionStatus.ACTIVE
+                && value.getOption().getStatus() == VariantOptionStatus.ACTIVE;
+    }
+
+    private Map<Long, List<Long>> validateOptionValueIds(List<Long> optionValueIds) {
+        if (optionValueIds == null || optionValueIds.isEmpty()) return Map.of();
+        if (optionValueIds.stream().anyMatch(Objects::isNull)
+                || new HashSet<>(optionValueIds).size() != optionValueIds.size()) {
+            throw invalidOptionValues("must not contain duplicate values");
+        }
+        List<VariantOptionValue> values = variantOptionValueRepository.findAllByIdInWithOption(optionValueIds);
+        if (values.size() != optionValueIds.size()
+                || values.stream()
+                        .anyMatch(value -> value.getStatus() != VariantOptionStatus.ACTIVE
+                                || value.getOption() == null
+                                || value.getOption().getStatus() != VariantOptionStatus.ACTIVE)) {
+            throw invalidOptionValues("every option value must exist and be active");
+        }
+        return values.stream()
+                .collect(Collectors.groupingBy(
+                        value -> value.getOption().getId(),
+                        LinkedHashMap::new,
+                        Collectors.mapping(VariantOptionValue::getId, Collectors.toList())));
+    }
+
+    private static ApplicationException invalidOptionValues(String reason) {
+        return new ApplicationException(
+                ErrorCode.VALIDATION_FAILED, Map.of("field", "optionValueIds", "reason", reason));
+    }
+
+    private static final class ProductOptionAccumulator {
+        private final Long id;
+        private final String code;
+        private final String name;
+        private final Integer displayOrder;
+        private final Map<Long, ProductOptionValueResponse> values = new LinkedHashMap<>();
+
+        private ProductOptionAccumulator(Long id, String code, String name, Integer displayOrder) {
+            this.id = id;
+            this.code = code;
+            this.name = name;
+            this.displayOrder = displayOrder;
+        }
+
+        private ProductOptionResponse toResponse() {
+            return new ProductOptionResponse(
+                    id,
+                    code,
+                    name,
+                    displayOrder,
+                    values.values().stream()
+                            .sorted(Comparator.comparingInt((ProductOptionValueResponse value) -> value.displayOrder())
+                                    .thenComparing(value -> value.id()))
+                            .toList());
+        }
     }
 
     private static ApplicationException notFound(String type, Object id) {

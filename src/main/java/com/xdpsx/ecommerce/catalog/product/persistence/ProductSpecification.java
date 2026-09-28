@@ -3,6 +3,7 @@ package com.xdpsx.ecommerce.catalog.product.persistence;
 import static com.xdpsx.ecommerce.catalog.shared.persistence.FieldConstants.*;
 
 import java.util.List;
+import java.util.Map;
 
 import jakarta.persistence.criteria.CriteriaBuilder;
 
@@ -10,6 +11,8 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Component;
 
 import com.xdpsx.ecommerce.catalog.product.domain.Product;
+import com.xdpsx.ecommerce.catalog.product.domain.ProductVariant;
+import com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus;
 import com.xdpsx.ecommerce.catalog.shared.persistence.BasicSpecification;
 
 @Component
@@ -34,6 +37,44 @@ public class ProductSpecification extends BasicSpecification<Product> {
                 .and(isInStock(inStock))
                 .and(belongsToCategory(categoryId))
                 .and(belongsToBrand(brandId));
+    }
+
+    public Specification<Product> getFiltersSpec(
+            String name,
+            String sort,
+            Boolean hasPublished,
+            Double minPrice,
+            Double maxPrice,
+            Boolean hasDiscount,
+            Boolean inStock,
+            Integer categoryId,
+            Integer brandId,
+            Map<Long, List<Long>> optionValueIdsByOption) {
+        return getFiltersSpec(name, sort, hasPublished, minPrice, maxPrice, hasDiscount, inStock, categoryId, brandId)
+                .and(hasMatchingActiveVariant(optionValueIdsByOption));
+    }
+
+    public Specification<Product> hasMatchingActiveVariant(Map<Long, List<Long>> optionValueIdsByOption) {
+        if (optionValueIdsByOption == null || optionValueIdsByOption.isEmpty()) {
+            return (root, query, criteriaBuilder) -> criteriaBuilder.conjunction();
+        }
+        List<Long> selectedValueIds =
+                optionValueIdsByOption.values().stream().flatMap(List::stream).toList();
+        int optionGroupCount = optionValueIdsByOption.size();
+        return (root, query, criteriaBuilder) -> {
+            var subquery = query.subquery(Long.class);
+            var variant = subquery.from(ProductVariant.class);
+            var selection = variant.join("selections");
+            subquery.select(variant.get("id"));
+            subquery.where(
+                    criteriaBuilder.equal(variant.get("product").get("id"), root.get("id")),
+                    criteriaBuilder.equal(variant.get("status"), ProductVariantStatus.ACTIVE),
+                    selection.get("optionValueId").in(selectedValueIds));
+            subquery.groupBy(variant.get("id"));
+            subquery.having(criteriaBuilder.equal(
+                    criteriaBuilder.countDistinct(selection.get("id").get("optionId")), (long) optionGroupCount));
+            return criteriaBuilder.exists(subquery);
+        };
     }
 
     @Override
