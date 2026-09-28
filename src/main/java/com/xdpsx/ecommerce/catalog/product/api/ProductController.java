@@ -4,6 +4,7 @@ import java.util.Map;
 
 import jakarta.validation.Valid;
 
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -12,6 +13,7 @@ import com.xdpsx.ecommerce.catalog.product.api.dto.*;
 import com.xdpsx.ecommerce.catalog.product.application.ProductService;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 
+import io.swagger.v3.oas.annotations.Operation;
 import lombok.RequiredArgsConstructor;
 
 @RestController
@@ -21,7 +23,7 @@ public class ProductController {
     private final ProductService productService;
 
     @GetMapping
-    public ResponseEntity<PageResponse<ProductResponse>> getAllProducts(@Valid ProductParams params) {
+    public ResponseEntity<PageResponse<ProductResponse>> getAllProducts(@Valid @ParameterObject ProductParams params) {
         PageResponse<ProductResponse> response = productService.filterAllProducts(params);
         return ResponseEntity.ok(response);
     }
@@ -30,6 +32,13 @@ public class ProductController {
     public ResponseEntity<ProductDetailsDTO> getProduct(@PathVariable Long id) {
         ProductDetailsDTO product = productService.getProductById(id);
         return ResponseEntity.ok(product);
+    }
+
+    @Operation(summary = "Get storefront product filter options")
+    @GetMapping("/filter-options")
+    public ResponseEntity<java.util.List<ProductOptionResponse>> getFilterOptions(
+            @RequestParam(required = false) Integer categoryId, @RequestParam(required = false) Integer brandId) {
+        return ResponseEntity.ok(productService.getFilterOptions(categoryId, brandId));
     }
 
     @GetMapping("/slug/{slug}")

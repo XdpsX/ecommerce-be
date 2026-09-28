@@ -29,6 +29,52 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
 
     @Query("SELECT DISTINCT v FROM ProductVariant v "
             + "LEFT JOIN FETCH v.selections s "
+            + "LEFT JOIN FETCH s.optionValue value "
+            + "LEFT JOIN FETCH value.option option "
+            + "WHERE v.product.id = :productId "
+            + "AND v.status = com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus.ACTIVE "
+            + "ORDER BY v.id ASC")
+    List<ProductVariant> findActiveWithSelectionsAndOptionsByProductId(@Param("productId") Long productId);
+
+    interface FilterOptionValueView {
+        Long getOptionId();
+
+        String getOptionCode();
+
+        String getOptionName();
+
+        Integer getOptionDisplayOrder();
+
+        Long getValueId();
+
+        String getValueCode();
+
+        String getValueName();
+
+        Integer getValueDisplayOrder();
+    }
+
+    @Query("SELECT DISTINCT "
+            + "option.id AS optionId, option.code AS optionCode, option.name AS optionName, "
+            + "option.displayOrder AS optionDisplayOrder, value.id AS valueId, value.code AS valueCode, "
+            + "value.name AS valueName, value.displayOrder AS valueDisplayOrder "
+            + "FROM ProductVariantSelection selection "
+            + "JOIN selection.variant variant "
+            + "JOIN selection.optionValue value "
+            + "JOIN value.option option "
+            + "JOIN variant.product product "
+            + "WHERE variant.status = com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus.ACTIVE "
+            + "AND product.published = true "
+            + "AND option.status = com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus.ACTIVE "
+            + "AND value.status = com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus.ACTIVE "
+            + "AND (:categoryId IS NULL OR product.category.id = :categoryId) "
+            + "AND (:brandId IS NULL OR product.brand.id = :brandId) "
+            + "ORDER BY option.displayOrder ASC, option.id ASC, value.displayOrder ASC, value.id ASC")
+    List<FilterOptionValueView> findActiveFilterOptionValues(
+            @Param("categoryId") Integer categoryId, @Param("brandId") Integer brandId);
+
+    @Query("SELECT DISTINCT v FROM ProductVariant v "
+            + "LEFT JOIN FETCH v.selections s "
             + "WHERE v.id = :variantId AND v.product.id = :productId")
     Optional<ProductVariant> findByIdAndProductIdWithSelections(
             @Param("variantId") Long variantId, @Param("productId") Long productId);

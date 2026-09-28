@@ -417,4 +417,39 @@ class OpenApiDocumentationTest {
         assertThat(valueProperties.has("displayOrder")).isTrue();
         assertThat(valueProperties.has("status")).isTrue();
     }
+
+    @Test
+    void storefrontProductVariantReadModel_shouldExposeSelectionMatrixAndFacetRoute() {
+        JsonNode filterOptions = openApi.at("/paths/~1products~1filter-options/get");
+        assertThat(filterOptions.isMissingNode()).isFalse();
+        assertThat(filterOptions.path("summary").asString()).isEqualTo("Get storefront product filter options");
+        assertThat(filterOptions.at("/responses/200/content/*~1*/schema/type").asString())
+                .isEqualTo("array");
+        assertThat(filterOptions
+                        .at("/responses/200/content/*~1*/schema/items/$ref")
+                        .asString())
+                .isEqualTo("#/components/schemas/ProductOptionResponse");
+
+        assertThat(filterOptions.findValues("name").stream()
+                        .map(JsonNode::asString)
+                        .toList())
+                .contains("categoryId", "brandId");
+        JsonNode productList = openApi.at("/paths/~1products/get");
+        assertThat(productList.path("parameters").findValues("name").stream()
+                        .map(JsonNode::asString)
+                        .toList())
+                .contains("optionValueIds");
+
+        JsonNode details = openApi.at("/components/schemas/ProductDetailsDTO/properties");
+        assertThat(details.has("options")).isTrue();
+        assertThat(details.has("variants")).isTrue();
+
+        JsonNode optionProperties = openApi.at("/components/schemas/ProductOptionResponse/properties");
+        assertThat(optionProperties.has("status")).isFalse();
+        assertThat(optionProperties.has("values")).isTrue();
+        JsonNode variantProperties = openApi.at("/components/schemas/ProductVariantSelectionResponse/properties");
+        assertThat(variantProperties.has("variantId")).isTrue();
+        assertThat(variantProperties.has("sku")).isTrue();
+        assertThat(variantProperties.has("optionValueIds")).isTrue();
+    }
 }

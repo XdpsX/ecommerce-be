@@ -25,13 +25,21 @@ import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.product.api.dto.ProductCreateRequest;
+import com.xdpsx.ecommerce.catalog.product.api.dto.ProductDetailsDTO;
+import com.xdpsx.ecommerce.catalog.product.api.dto.ProductOptionResponse;
+import com.xdpsx.ecommerce.catalog.product.api.dto.ProductOptionValueResponse;
 import com.xdpsx.ecommerce.catalog.product.api.dto.ProductParams;
 import com.xdpsx.ecommerce.catalog.product.api.dto.ProductUpdateRequest;
-import com.xdpsx.ecommerce.catalog.product.domain.Product;
+import com.xdpsx.ecommerce.catalog.product.api.dto.ProductVariantSelectionResponse;
+import com.xdpsx.ecommerce.catalog.product.domain.*;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductSpecification;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductVariantRepository;
 import com.xdpsx.ecommerce.catalog.shared.application.PageMapper;
+import com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOption;
+import com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus;
+import com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionValue;
+import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionValueRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.domain.Media;
@@ -81,6 +89,9 @@ class ProductServiceImplTest {
 
     @Mock
     private ProductVariantRepository productVariantRepository;
+
+    @Mock
+    private VariantOptionValueRepository variantOptionValueRepository;
 
     @InjectMocks
     private ProductServiceImpl productService;
@@ -382,12 +393,98 @@ class ProductServiceImplTest {
         verify(productMapper, never()).fromEntityToResponse(any(Product.class));
     }
 
+    @Test
+    void getProductById_ShouldExposeSortedActiveVariantMatrix() {
+        Product product = new Product();
+        product.setId(1L);
+        product.setImages(new java.util.ArrayList<>());
+        ProductDetailsDTO details = ProductDetailsDTO.builder().build();
+        VariantOption size = option(20L, "size", "Size", 0);
+        VariantOption color = option(10L, "color", "Color", 1);
+        VariantOptionValue medium = value(200L, size, "medium", "Medium", 0);
+        VariantOptionValue black = value(100L, color, "black", "Black", 0);
+        VariantOptionValue inactive = value(300L, color, "inactive", "Inactive", 1);
+        inactive.setStatus(VariantOptionStatus.INACTIVE);
+        ProductVariant variant = ProductVariant.builder()
+                .id(30L)
+                .sku("SHIRT-BLACK-M")
+                .status(ProductVariantStatus.ACTIVE)
+                .build();
+        variant.getSelections().add(selection(variant, color, black));
+        variant.getSelections().add(selection(variant, size, medium));
+        ProductVariant hidden = ProductVariant.builder()
+                .id(31L)
+                .sku("SHIRT-INACTIVE")
+                .status(ProductVariantStatus.ACTIVE)
+                .build();
+        hidden.getSelections().add(selection(hidden, color, inactive));
+
+        when(productRepository.findProductById(1L)).thenReturn(Optional.of(product));
+        when(productMapper.fromEntityToDetailsDTO(product)).thenReturn(details);
+        when(productVariantRepository.findActiveWithSelectionsAndOptionsByProductId(1L))
+                .thenReturn(List.of(variant, hidden));
+
+        ProductDetailsDTO result = productService.getProductById(1L);
+
+        assertThat(result.getOptions()).extracting(ProductOptionResponse::code).containsExactly("size", "color");
+        assertThat(result.getOptions().get(0).values())
+                .extracting(ProductOptionValueResponse::code)
+                .containsExactly("medium");
+        assertThat(result.getVariants())
+                .extracting(ProductVariantSelectionResponse::sku)
+                .containsExactly("SHIRT-BLACK-M");
+        assertThat(result.getVariants().get(0).optionValueIds()).containsExactly(200L, 100L);
+    }
+
+    @Test
+    void filterAllProducts_ShouldRejectDuplicateOptionValueIdsBeforeQueryingProducts() {
+        ProductParams params =
+                ProductParams.builder().optionValueIds(List.of(101L, 101L)).build();
+
+        ApplicationException exception =
+                assertThrows(ApplicationException.class, () -> productService.filterAllProducts(params));
+
+        assertThat(exception.getCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+        verifyNoInteractions(variantOptionValueRepository, productRepository);
+    }
+
     private static ProductUpdateRequest updateRequest() {
         ProductUpdateRequest request = new ProductUpdateRequest();
         request.setName("Keyboard");
         request.setSlug("keyboard");
         request.setPrice(BigDecimal.TEN);
         return request;
+    }
+
+    private static VariantOption option(Long id, String code, String name, int displayOrder) {
+        return VariantOption.builder()
+                .id(id)
+                .code(code)
+                .name(name)
+                .displayOrder(displayOrder)
+                .status(VariantOptionStatus.ACTIVE)
+                .build();
+    }
+
+    private static VariantOptionValue value(Long id, VariantOption option, String code, String name, int displayOrder) {
+        return VariantOptionValue.builder()
+                .id(id)
+                .option(option)
+                .code(code)
+                .name(name)
+                .displayOrder(displayOrder)
+                .status(VariantOptionStatus.ACTIVE)
+                .build();
+    }
+
+    private static ProductVariantSelection selection(
+            ProductVariant variant, VariantOption option, VariantOptionValue value) {
+        return ProductVariantSelection.builder()
+                .id(new ProductVariantSelectionId(variant.getId(), option.getId()))
+                .variant(variant)
+                .optionValueId(value.getId())
+                .optionValue(value)
+                .build();
     }
 
     private static Product productWithImages(Category category, Brand brand, Media... media) {

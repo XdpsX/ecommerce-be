@@ -9,6 +9,8 @@ import com.xdpsx.ecommerce.common.pagination.PageResponse;
 public interface ProductService {
     PageResponse<ProductResponse> filterAllProducts(ProductParams params);
 
+    List<ProductOptionResponse> getFilterOptions(Integer categoryId, Integer brandId);
+
     ProductDetailsDTO getProductById(Long id);
 
     ProductDetailsDTO getProductBySlug(String slug);
