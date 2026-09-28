@@ -72,6 +72,7 @@ class ProductImagePersistenceTest {
                     "com.xdpsx.ecommerce.catalog.product.domain",
                     "com.xdpsx.ecommerce.catalog.brand.domain",
                     "com.xdpsx.ecommerce.catalog.category.domain",
+                    "com.xdpsx.ecommerce.catalog.variantoption.domain",
                     "com.xdpsx.ecommerce.media.domain");
             factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
             factory.getJpaPropertyMap().put("hibernate.hbm2ddl.auto", "create-drop");
