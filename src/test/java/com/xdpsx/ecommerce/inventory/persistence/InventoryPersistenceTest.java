@@ -26,6 +26,9 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.xdpsx.ecommerce.cart.domain.CartItem;
+import com.xdpsx.ecommerce.cart.domain.CartItemId;
+import com.xdpsx.ecommerce.cart.persistence.CartItemRepository;
 import com.xdpsx.ecommerce.catalog.brand.persistence.BrandRepository;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.product.domain.Product;
@@ -41,6 +44,11 @@ import com.xdpsx.ecommerce.inventory.application.InventoryProvisioningService;
 import com.xdpsx.ecommerce.inventory.application.InventoryProvisioningServiceImpl;
 import com.xdpsx.ecommerce.inventory.application.InventoryService;
 import com.xdpsx.ecommerce.inventory.application.InventoryServiceImpl;
+import com.xdpsx.ecommerce.inventory.domain.InventoryBalance;
+import com.xdpsx.ecommerce.user.domain.AuthProvider;
+import com.xdpsx.ecommerce.user.domain.Role;
+import com.xdpsx.ecommerce.user.domain.User;
+import com.xdpsx.ecommerce.user.persistence.UserRepository;
 
 @SpringJUnitConfig(InventoryPersistenceTest.PersistenceConfig.class)
 class InventoryPersistenceTest {
@@ -55,6 +63,8 @@ class InventoryPersistenceTest {
                 ProductVariantRepository.class,
                 VariantOptionRepository.class,
                 VariantOptionValueRepository.class,
+                CartItemRepository.class,
+                UserRepository.class,
                 InventoryBalanceRepository.class,
                 InventoryAdjustmentRepository.class
             })
@@ -78,8 +88,10 @@ class InventoryPersistenceTest {
                     "com.xdpsx.ecommerce.catalog.category.domain",
                     "com.xdpsx.ecommerce.catalog.product.domain",
                     "com.xdpsx.ecommerce.catalog.variantoption.domain",
+                    "com.xdpsx.ecommerce.cart.domain",
                     "com.xdpsx.ecommerce.inventory.domain",
-                    "com.xdpsx.ecommerce.media.domain");
+                    "com.xdpsx.ecommerce.media.domain",
+                    "com.xdpsx.ecommerce.user.domain");
             factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
             factory.getJpaPropertyMap().put("hibernate.hbm2ddl.auto", "create-drop");
             return factory;
@@ -117,6 +129,12 @@ class InventoryPersistenceTest {
     private InventoryBalanceRepository balanceRepository;
 
     @Autowired
+    private CartItemRepository cartItemRepository;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
     private InventoryAdjustmentRepository adjustmentRepository;
 
     @Autowired
@@ -133,8 +151,10 @@ class InventoryPersistenceTest {
         transactionTemplate.executeWithoutResult(status -> {
             adjustmentRepository.deleteAll();
             balanceRepository.deleteAll();
+            cartItemRepository.deleteAll();
             variantRepository.deleteAll();
             productRepository.deleteAll();
+            userRepository.deleteAll();
         });
     }
 
@@ -205,5 +225,60 @@ class InventoryPersistenceTest {
         assertThat(inventoryService.getBalance(variantId).onHand()).isEqualTo(12);
         assertThat(adjustmentRepository.findAllByVariantIdOrderByCreatedAtAscIdAsc(variantId))
                 .hasSize(2);
+    }
+
+    @Test
+    void cartStockQuery_ShouldUseActiveVariantInventoryAvailability() {
+        Long userId = transactionTemplate.execute(status -> userRepository
+                .saveAndFlush(User.builder()
+                        .name("Customer")
+                        .email("customer@example.test")
+                        .role(Role.USER)
+                        .authProvider(AuthProvider.LOCAL)
+                        .build())
+                .getId());
+        Long[] productIds = transactionTemplate.execute(status -> {
+            Product availableProduct = productRepository.saveAndFlush(Product.builder()
+                    .name("Available product")
+                    .slug("available-product")
+                    .price(BigDecimal.TEN)
+                    .build());
+            Product soldOutProduct = productRepository.saveAndFlush(Product.builder()
+                    .name("Sold out product")
+                    .slug("sold-out-product")
+                    .price(BigDecimal.TEN)
+                    .build());
+            ProductVariant availableVariant = variantRepository.saveAndFlush(ProductVariant.builder()
+                    .product(availableProduct)
+                    .sku("AVAILABLE-CART-SKU")
+                    .status(ProductVariantStatus.ACTIVE)
+                    .combinationKey("")
+                    .build());
+            ProductVariant soldOutVariant = variantRepository.saveAndFlush(ProductVariant.builder()
+                    .product(soldOutProduct)
+                    .sku("SOLD-OUT-CART-SKU")
+                    .status(ProductVariantStatus.ACTIVE)
+                    .combinationKey("")
+                    .build());
+            InventoryBalance availableBalance = InventoryBalance.zero(availableVariant);
+            availableBalance.adjustOnHand(2);
+            balanceRepository.saveAndFlush(availableBalance);
+            balanceRepository.saveAndFlush(InventoryBalance.zero(soldOutVariant));
+            cartItemRepository.save(new CartItem(
+                    new CartItemId(userId, availableProduct.getId()),
+                    userRepository.getReferenceById(userId),
+                    availableProduct,
+                    1));
+            cartItemRepository.save(new CartItem(
+                    new CartItemId(userId, soldOutProduct.getId()),
+                    userRepository.getReferenceById(userId),
+                    soldOutProduct,
+                    1));
+            return new Long[] {availableProduct.getId(), soldOutProduct.getId()};
+        });
+
+        assertThat(cartItemRepository.findInStockCartByUserId(userId))
+                .extracting(item -> item.getProduct().getId())
+                .containsExactly(productIds[0]);
     }
 }

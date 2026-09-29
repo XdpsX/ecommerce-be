@@ -488,5 +488,16 @@ class OpenApiDocumentationTest {
         assertThat(variantProperties.has("variantId")).isTrue();
         assertThat(variantProperties.has("sku")).isTrue();
         assertThat(variantProperties.has("optionValueIds")).isTrue();
+        assertThat(variantProperties.has("available")).isTrue();
+
+        JsonNode storefrontSummary = openApi.at("/components/schemas/StorefrontProductSummaryResponse/properties");
+        assertThat(storefrontSummary.has("inStock")).isTrue();
+        JsonNode productCreate = openApi.at("/components/schemas/ProductCreateRequest/properties");
+        JsonNode productUpdate = openApi.at("/components/schemas/ProductUpdateRequest/properties");
+        assertThat(productCreate.has("inStock")).isFalse();
+        assertThat(productUpdate.has("inStock")).isFalse();
+        assertThat(openApi.at("/components/schemas/ProductResponse/properties/inStock")
+                        .isMissingNode())
+                .isTrue();
     }
 }

@@ -28,12 +28,15 @@ import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.product.api.dto.*;
 import com.xdpsx.ecommerce.catalog.product.domain.Product;
+import com.xdpsx.ecommerce.catalog.product.domain.ProductVariant;
+import com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductSpecification;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductVariantRepository;
 import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionValueRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
+import com.xdpsx.ecommerce.inventory.persistence.InventoryBalanceRepository;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 import com.xdpsx.ecommerce.order.persistence.OrderItemRepository;
 
@@ -53,6 +56,9 @@ class ProductServiceImplTest {
 
     @Mock
     private MediaRepository mediaRepository;
+
+    @Mock
+    private InventoryBalanceRepository inventoryBalanceRepository;
 
     @Mock
     private OrderItemRepository orderItemRepository;
@@ -148,6 +154,33 @@ class ProductServiceImplTest {
     }
 
     @Test
+    void getStorefrontProductBySlug_ShouldDeriveProductAndVariantAvailabilityFromInventory() {
+        Product product = product(1L, activeCategory(7), activeBrand(5));
+        ProductVariant variant = ProductVariant.builder()
+                .id(10L)
+                .product(product)
+                .sku("SKU-10")
+                .status(ProductVariantStatus.ACTIVE)
+                .combinationKey("")
+                .build();
+        when(productRepository.findStorefrontProductBySlug("available")).thenReturn(Optional.of(product));
+        when(productVariantRepository.findActiveWithSelectionsAndOptionsByProductId(1L))
+                .thenReturn(List.of(variant));
+        when(inventoryBalanceRepository.findAvailableVariantIdsByProductId(1L)).thenReturn(List.of(10L));
+        when(productMapper.toStorefrontDetail(eq(product), anyList(), anyList(), eq(true)))
+                .thenReturn(null);
+
+        productService.getStorefrontProductBySlug("available");
+
+        verify(productMapper)
+                .toStorefrontDetail(
+                        eq(product),
+                        anyList(),
+                        argThat(variants -> variants.get(0).available()),
+                        eq(true));
+    }
+
+    @Test
     void getStorefrontProducts_ShouldBatchLoadImagesAndUseStorefrontSpecification() {
         Product first = product(1L, activeCategory(7), activeBrand(5));
         Product second = product(2L, activeCategory(7), activeBrand(5));
@@ -159,15 +192,15 @@ class ProductServiceImplTest {
         when(productRepository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(page);
         when(page.getContent()).thenReturn(List.of(first, second));
-        when(productMapper.toStorefrontSummary(any(Product.class)))
+        when(productMapper.toStorefrontSummary(any(Product.class), anyBoolean()))
                 .thenReturn(new StorefrontProductSummaryResponse(
                         1L, "Product", "product", BigDecimal.TEN, null, 0, true, null, null, null));
 
         productService.getStorefrontProducts(StorefrontProductFilter.builder().build());
 
         verify(productRepository).findAllWithImagesByIdIn(List.of(1L, 2L));
-        verify(productMapper).toStorefrontSummary(first);
-        verify(productMapper).toStorefrontSummary(second);
+        verify(productMapper).toStorefrontSummary(first, false);
+        verify(productMapper).toStorefrontSummary(second, false);
     }
 
     @Test
