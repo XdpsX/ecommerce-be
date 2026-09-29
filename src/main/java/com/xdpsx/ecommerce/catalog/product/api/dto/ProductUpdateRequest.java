@@ -22,7 +22,6 @@ public class ProductUpdateRequest {
     private BigDecimal price;
 
     private double discountPercent;
-    private boolean inStock;
 
     @Size(max = 4096)
     private String description;
