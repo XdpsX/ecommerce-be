@@ -20,14 +20,6 @@ public class ProductCreateRequest {
     @Size(max = 255)
     private String slug;
 
-    @Min(value = 0)
-    @Max(value = 1_000_000_000)
-    private double price;
-
-    @Min(value = 0)
-    @Max(value = 100)
-    private double discountPercent;
-
     @Size(max = 4096)
     private String description;
 

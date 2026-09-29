@@ -11,5 +11,7 @@ public interface ProductVariantService {
 
     ProductVariantResponse updateBarcode(Long productId, Long variantId, UpdateProductVariantBarcodeRequest request);
 
+    ProductVariantResponse updatePrice(Long productId, Long variantId, UpdateProductVariantPriceRequest request);
+
     ProductVariantResponse updateStatus(Long productId, Long variantId, UpdateProductVariantStatusRequest request);
 }

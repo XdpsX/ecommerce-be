@@ -494,6 +494,10 @@ class OpenApiDocumentationTest {
         assertThat(storefrontSummary.has("inStock")).isTrue();
         JsonNode productCreate = openApi.at("/components/schemas/ProductCreateRequest/properties");
         JsonNode productUpdate = openApi.at("/components/schemas/ProductUpdateRequest/properties");
+        assertThat(productCreate.has("price")).isFalse();
+        assertThat(productCreate.has("discountPercent")).isFalse();
+        assertThat(productUpdate.has("price")).isFalse();
+        assertThat(productUpdate.has("discountPercent")).isFalse();
         assertThat(productCreate.has("inStock")).isFalse();
         assertThat(productUpdate.has("inStock")).isFalse();
         assertThat(openApi.at("/components/schemas/ProductResponse/properties/inStock")

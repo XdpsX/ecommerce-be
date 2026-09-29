@@ -20,6 +20,7 @@ import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionReposi
 import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionValueRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
+import com.xdpsx.ecommerce.config.StorePricingProperties;
 import com.xdpsx.ecommerce.inventory.application.InventoryProvisioningService;
 
 import lombok.RequiredArgsConstructor;
@@ -33,13 +34,14 @@ public class ProductVariantServiceImpl implements ProductVariantService {
     private final VariantOptionValueRepository optionValueRepository;
     private final EntityManager entityManager;
     private final InventoryProvisioningService inventoryProvisioningService;
+    private final StorePricingProperties pricingProperties;
 
     @Transactional(readOnly = true)
     @Override
     public List<ProductVariantResponse> getVariants(Long productId) {
         requireProduct(productId);
         return variantRepository.findAllWithSelectionsByProductId(productId).stream()
-                .map(ProductVariantServiceImpl::toResponse)
+                .map(this::toResponse)
                 .toList();
     }
 
@@ -114,6 +116,7 @@ public class ProductVariantServiceImpl implements ProductVariantService {
                     .product(product)
                     .sku(skus.get(index))
                     .barcode(barcodesForIndex(requested, index))
+                    .basePrice(normalizeBasePrice(item.basePrice()))
                     .status(ProductVariantStatus.ACTIVE)
                     .combinationKey(combinationKey)
                     .build();
@@ -137,7 +140,8 @@ public class ProductVariantServiceImpl implements ProductVariantService {
             throw translateConstraint(exception);
         }
         inventoryProvisioningService.provisionBalances(variants);
-        return variants.stream().map(ProductVariantServiceImpl::toResponse).toList();
+        recomputeProductPrice(product);
+        return variants.stream().map(this::toResponse).toList();
     }
 
     @Transactional
@@ -156,6 +160,22 @@ public class ProductVariantServiceImpl implements ProductVariantService {
         } catch (DataIntegrityViolationException exception) {
             throw translateConstraint(exception);
         }
+        return toResponse(variant);
+    }
+
+    @Transactional
+    @Override
+    public ProductVariantResponse updatePrice(
+            Long productId, Long variantId, UpdateProductVariantPriceRequest request) {
+        Product product = lockProduct(productId);
+        ProductVariant variant = findVariant(productId, variantId);
+        try {
+            variant.changeBasePrice(request.basePrice());
+        } catch (IllegalArgumentException exception) {
+            throw invalid("basePrice", exception.getMessage());
+        }
+        variantRepository.saveAndFlush(variant);
+        recomputeProductPrice(product);
         return toResponse(variant);
     }
 
@@ -184,6 +204,7 @@ public class ProductVariantServiceImpl implements ProductVariantService {
         }
         variant.setStatus(target);
         variantRepository.saveAndFlush(variant);
+        recomputeProductPrice(product);
         return toResponse(variant);
     }
 
@@ -300,6 +321,12 @@ public class ProductVariantServiceImpl implements ProductVariantService {
         return normalizeBarcode(requests.get(index).barcode());
     }
 
+    private static java.math.BigDecimal normalizeBasePrice(java.math.BigDecimal value) {
+        ProductVariant variant = new ProductVariant();
+        variant.changeBasePrice(value);
+        return variant.getBasePrice();
+    }
+
     private static void rejectDuplicates(List<String> values, String field) {
         Set<String> unique = new HashSet<>();
         for (String value : values) {
@@ -327,13 +354,32 @@ public class ProductVariantServiceImpl implements ProductVariantService {
         return text.toString().toLowerCase(Locale.ROOT);
     }
 
-    private static ProductVariantResponse toResponse(ProductVariant variant) {
+    private ProductVariantResponse toResponse(ProductVariant variant) {
         List<Long> optionValueIds = variant.getSelections().stream()
                 .sorted(Comparator.comparing(selection -> selection.getId().getOptionId()))
                 .map(ProductVariantSelection::getOptionValueId)
                 .toList();
         return new ProductVariantResponse(
-                variant.getId(), variant.getSku(), variant.getBarcode(), variant.getStatus(), optionValueIds);
+                variant.getId(),
+                variant.getSku(),
+                variant.getBarcode(),
+                variant.getBasePrice(),
+                currency(),
+                variant.getStatus(),
+                optionValueIds);
+    }
+
+    private String currency() {
+        if (pricingProperties == null || pricingProperties.getCurrency() == null) return "VND";
+        String value = pricingProperties.getCurrency().trim();
+        return value.isEmpty() ? "VND" : value;
+    }
+
+    private void recomputeProductPrice(Product product) {
+        java.util.Optional<java.math.BigDecimal> minimum =
+                variantRepository.findMinimumActiveBasePrice(product.getId());
+        product.setPrice(minimum == null ? java.math.BigDecimal.ZERO : minimum.orElse(java.math.BigDecimal.ZERO));
+        productRepository.saveAndFlush(product);
     }
 
     private static ApplicationException notFound(String type, Long id) {

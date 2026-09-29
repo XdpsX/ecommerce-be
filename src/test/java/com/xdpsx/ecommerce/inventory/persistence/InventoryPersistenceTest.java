@@ -169,6 +169,7 @@ class InventoryPersistenceTest {
             ProductVariant variant = variantRepository.saveAndFlush(ProductVariant.builder()
                     .product(product)
                     .sku("INVENTORY-SKU")
+                    .basePrice(BigDecimal.TEN)
                     .status(ProductVariantStatus.ACTIVE)
                     .combinationKey("")
                     .build());
@@ -202,6 +203,7 @@ class InventoryPersistenceTest {
             ProductVariant variant = variantRepository.saveAndFlush(ProductVariant.builder()
                     .product(product)
                     .sku("CONCURRENT-INVENTORY-SKU")
+                    .basePrice(BigDecimal.TEN)
                     .status(ProductVariantStatus.ACTIVE)
                     .combinationKey("")
                     .build());
@@ -251,12 +253,14 @@ class InventoryPersistenceTest {
             ProductVariant availableVariant = variantRepository.saveAndFlush(ProductVariant.builder()
                     .product(availableProduct)
                     .sku("AVAILABLE-CART-SKU")
+                    .basePrice(BigDecimal.TEN)
                     .status(ProductVariantStatus.ACTIVE)
                     .combinationKey("")
                     .build());
             ProductVariant soldOutVariant = variantRepository.saveAndFlush(ProductVariant.builder()
                     .product(soldOutProduct)
                     .sku("SOLD-OUT-CART-SKU")
+                    .basePrice(BigDecimal.TEN)
                     .status(ProductVariantStatus.ACTIVE)
                     .combinationKey("")
                     .build());
