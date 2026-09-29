@@ -7,6 +7,9 @@ on:
     branches:
       - develop
       - "phase/**"
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
 
 permissions:
   contents: read
