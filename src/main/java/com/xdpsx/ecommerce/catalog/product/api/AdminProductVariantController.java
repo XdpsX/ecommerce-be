@@ -42,6 +42,14 @@ public class AdminProductVariantController implements AdminProductVariantApiDocs
         return productVariantService.updateBarcode(productId, variantId, request);
     }
 
+    @PatchMapping("/{variantId}/price")
+    public ProductVariantResponse updatePrice(
+            @PathVariable Long productId,
+            @PathVariable Long variantId,
+            @Valid @RequestBody UpdateProductVariantPriceRequest request) {
+        return productVariantService.updatePrice(productId, variantId, request);
+    }
+
     @PatchMapping("/{variantId}/status")
     public ProductVariantResponse updateStatus(
             @PathVariable Long productId,

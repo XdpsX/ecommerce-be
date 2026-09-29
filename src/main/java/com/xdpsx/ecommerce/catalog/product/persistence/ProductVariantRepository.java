@@ -1,5 +1,6 @@
 package com.xdpsx.ecommerce.catalog.product.persistence;
 
+import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -115,4 +116,9 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
     boolean existsBySkuIn(Collection<String> skus);
 
     boolean existsByBarcodeIn(Collection<String> barcodes);
+
+    @Query("SELECT MIN(v.basePrice) FROM ProductVariant v "
+            + "WHERE v.product.id = :productId "
+            + "AND v.status = com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus.ACTIVE")
+    Optional<BigDecimal> findMinimumActiveBasePrice(@Param("productId") Long productId);
 }

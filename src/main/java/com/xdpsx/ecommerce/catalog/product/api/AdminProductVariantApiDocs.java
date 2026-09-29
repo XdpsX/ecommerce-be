@@ -65,6 +65,23 @@ interface AdminProductVariantApiDocs {
     ProductVariantResponse updateBarcode(Long productId, Long variantId, UpdateProductVariantBarcodeRequest request);
 
     @Operation(
+            summary = "Update product variant base price",
+            description = "Change the base price of one SKU without changing its identity or status.",
+            security = @SecurityRequirement(name = "Bearer Authorization"),
+            responses = {
+                @ApiResponse(responseCode = "200", description = "OK"),
+                @ApiResponse(
+                        responseCode = "400",
+                        description = "Validation error",
+                        content = @Content(schema = @Schema(implementation = ValidationProblemSchema.class))),
+                @ApiResponse(
+                        responseCode = "404",
+                        description = "Variant not found",
+                        content = @Content(schema = @Schema(implementation = ApiProblemSchema.class)))
+            })
+    ProductVariantResponse updatePrice(Long productId, Long variantId, UpdateProductVariantPriceRequest request);
+
+    @Operation(
             summary = "Update product variant status",
             description = "Activate or deactivate a SKU. Deactivation never deletes the SKU.",
             security = @SecurityRequirement(name = "Bearer Authorization"),

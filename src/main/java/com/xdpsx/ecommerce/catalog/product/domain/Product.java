@@ -34,8 +34,10 @@ public class Product extends AuditEntity {
     @Column(nullable = false, unique = true)
     private String slug;
 
-    @Column(nullable = false)
-    private BigDecimal price;
+    /** Transitional compatibility projection; the minimum active Variant base price is authoritative. */
+    @Builder.Default
+    @Column(nullable = false, precision = 15, scale = 2)
+    private BigDecimal price = BigDecimal.ZERO.setScale(2);
 
     private double discountPercent;
 

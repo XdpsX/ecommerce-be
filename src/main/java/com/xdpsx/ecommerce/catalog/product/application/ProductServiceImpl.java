@@ -186,8 +186,6 @@ public class ProductServiceImpl implements ProductService {
             targetBrand = requireActiveBrand(request.getBrandId());
         }
         product.setName(request.getName());
-        product.setPrice(request.getPrice());
-        product.setDiscountPercent(request.getDiscountPercent());
         product.setDescription(request.getDescription());
         if (!Objects.equals(request.getSlug(), product.getSlug())) {
             if (productRepository.existsBySlug(request.getSlug())) {

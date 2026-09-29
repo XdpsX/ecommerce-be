@@ -16,3 +16,7 @@ logging:
   pattern:
     # Renders the MDC value published by CorrelationIdFilter; empty when no request context is bound.
     correlation: "[correlationId=%X{correlationId:-}] "
+
+app:
+  store:
+    currency: ${APP_STORE_CURRENCY:VND}
