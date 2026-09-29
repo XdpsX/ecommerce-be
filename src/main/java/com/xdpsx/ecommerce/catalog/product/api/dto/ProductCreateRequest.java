@@ -28,8 +28,6 @@ public class ProductCreateRequest {
     @Max(value = 100)
     private double discountPercent;
 
-    private boolean inStock;
-
     @Size(max = 4096)
     private String description;
 

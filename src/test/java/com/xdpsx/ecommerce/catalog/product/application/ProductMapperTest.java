@@ -44,8 +44,9 @@ class ProductMapperTest {
                 .brand(inactiveBrand)
                 .build();
 
-        AdminProductSummaryResponse response = productMapper.toAdminSummary(product);
+        AdminProductSummaryResponse response = productMapper.toAdminSummary(product, true);
 
+        assertThat(response.inStock()).isTrue();
         assertThat(response.published()).isTrue();
         assertThat(response.brand().status()).isEqualTo(BrandStatus.INACTIVE);
         assertThat(response.category().status()).isEqualTo(CategoryStatus.ACTIVE);

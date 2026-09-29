@@ -39,8 +39,6 @@ public class Product extends AuditEntity {
 
     private double discountPercent;
 
-    private boolean inStock;
-
     private boolean published;
 
     @Column(length = 4096)

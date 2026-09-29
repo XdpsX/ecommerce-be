@@ -19,6 +19,7 @@ import com.xdpsx.ecommerce.catalog.product.domain.Product;
 import com.xdpsx.ecommerce.catalog.product.domain.ProductVariant;
 import com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus;
 import com.xdpsx.ecommerce.catalog.shared.persistence.BasicSpecification;
+import com.xdpsx.ecommerce.inventory.domain.InventoryBalance;
 
 @Component
 public class ProductSpecification extends BasicSpecification<Product> {
@@ -210,7 +211,15 @@ public class ProductSpecification extends BasicSpecification<Product> {
     public Specification<Product> isInStock(Boolean inStock) {
         return (root, query, criteriaBuilder) -> {
             if (inStock == null) return criteriaBuilder.conjunction();
-            return criteriaBuilder.equal(root.get("inStock"), inStock);
+            var subquery = query.subquery(Long.class);
+            var balance = subquery.from(InventoryBalance.class);
+            subquery.select(balance.get("variantId"));
+            subquery.where(
+                    criteriaBuilder.equal(balance.get("variant").get("product").get("id"), root.get("id")),
+                    criteriaBuilder.equal(balance.get("variant").get("status"), ProductVariantStatus.ACTIVE),
+                    criteriaBuilder.greaterThan(balance.get("onHand"), balance.get("reserved")));
+            var available = criteriaBuilder.exists(subquery);
+            return inStock ? available : criteriaBuilder.not(available);
         };
     }
 

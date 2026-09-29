@@ -35,6 +35,10 @@ public abstract class ProductMapper {
     }
 
     public StorefrontProductSummaryResponse toStorefrontSummary(Product entity) {
+        return toStorefrontSummary(entity, false);
+    }
+
+    public StorefrontProductSummaryResponse toStorefrontSummary(Product entity, boolean inStock) {
         return new StorefrontProductSummaryResponse(
                 entity.getId(),
                 entity.getName(),
@@ -42,13 +46,17 @@ public abstract class ProductMapper {
                 entity.getPrice(),
                 entity.getDiscountedPrice(),
                 entity.getDiscountPercent(),
-                entity.isInStock(),
+                inStock,
                 mainImage(entity),
                 category(entity),
                 brand(entity));
     }
 
     public AdminProductSummaryResponse toAdminSummary(Product entity) {
+        return toAdminSummary(entity, false);
+    }
+
+    public AdminProductSummaryResponse toAdminSummary(Product entity, boolean inStock) {
         return new AdminProductSummaryResponse(
                 entity.getId(),
                 entity.getName(),
@@ -56,7 +64,7 @@ public abstract class ProductMapper {
                 entity.getPrice(),
                 entity.getDiscountedPrice(),
                 entity.getDiscountPercent(),
-                entity.isInStock(),
+                inStock,
                 entity.isPublished(),
                 mainImage(entity),
                 adminCategory(entity),
@@ -65,6 +73,14 @@ public abstract class ProductMapper {
 
     public StorefrontProductDetailResponse toStorefrontDetail(
             Product entity, List<ProductOptionResponse> options, List<ProductVariantSelectionResponse> variants) {
+        return toStorefrontDetail(entity, options, variants, false);
+    }
+
+    public StorefrontProductDetailResponse toStorefrontDetail(
+            Product entity,
+            List<ProductOptionResponse> options,
+            List<ProductVariantSelectionResponse> variants,
+            boolean inStock) {
         return new StorefrontProductDetailResponse(
                 entity.getId(),
                 entity.getName(),
@@ -72,7 +88,7 @@ public abstract class ProductMapper {
                 entity.getPrice(),
                 entity.getDiscountedPrice(),
                 entity.getDiscountPercent(),
-                entity.isInStock(),
+                inStock,
                 mainImage(entity),
                 category(entity),
                 brand(entity),
@@ -84,6 +100,14 @@ public abstract class ProductMapper {
 
     public AdminProductDetailResponse toAdminDetail(
             Product entity, List<ProductOptionResponse> options, List<ProductVariantSelectionResponse> variants) {
+        return toAdminDetail(entity, options, variants, false);
+    }
+
+    public AdminProductDetailResponse toAdminDetail(
+            Product entity,
+            List<ProductOptionResponse> options,
+            List<ProductVariantSelectionResponse> variants,
+            boolean inStock) {
         return new AdminProductDetailResponse(
                 entity.getId(),
                 entity.getName(),
@@ -91,7 +115,7 @@ public abstract class ProductMapper {
                 entity.getPrice(),
                 entity.getDiscountedPrice(),
                 entity.getDiscountPercent(),
-                entity.isInStock(),
+                inStock,
                 entity.isPublished(),
                 mainImage(entity),
                 adminCategory(entity),

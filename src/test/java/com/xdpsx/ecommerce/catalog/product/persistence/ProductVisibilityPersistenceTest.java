@@ -42,6 +42,8 @@ import com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus;
 import com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionValue;
 import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionRepository;
 import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionValueRepository;
+import com.xdpsx.ecommerce.inventory.domain.InventoryBalance;
+import com.xdpsx.ecommerce.inventory.persistence.InventoryBalanceRepository;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
 @SpringJUnitConfig(ProductVisibilityPersistenceTest.PersistenceConfig.class)
@@ -57,6 +59,7 @@ class ProductVisibilityPersistenceTest {
                 CategoryRepository.class,
                 VariantOptionRepository.class,
                 VariantOptionValueRepository.class,
+                InventoryBalanceRepository.class,
                 MediaRepository.class
             })
     static class PersistenceConfig {
@@ -79,6 +82,7 @@ class ProductVisibilityPersistenceTest {
                     "com.xdpsx.ecommerce.catalog.brand.domain",
                     "com.xdpsx.ecommerce.catalog.category.domain",
                     "com.xdpsx.ecommerce.catalog.variantoption.domain",
+                    "com.xdpsx.ecommerce.inventory.domain",
                     "com.xdpsx.ecommerce.media.domain");
             factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
             factory.getJpaPropertyMap().put("hibernate.hbm2ddl.auto", "create-drop");
@@ -121,6 +125,9 @@ class ProductVisibilityPersistenceTest {
     private VariantOptionValueRepository variantOptionValueRepository;
 
     @Autowired
+    private InventoryBalanceRepository inventoryBalanceRepository;
+
+    @Autowired
     private MediaRepository mediaRepository;
 
     @Autowired
@@ -132,6 +139,7 @@ class ProductVisibilityPersistenceTest {
     @BeforeEach
     void clean() {
         transactionTemplate.executeWithoutResult(status -> {
+            inventoryBalanceRepository.deleteAll();
             productVariantRepository.deleteAll();
             productRepository.deleteAll();
             variantOptionValueRepository.deleteAll();
@@ -177,6 +185,47 @@ class ProductVisibilityPersistenceTest {
         assertThat(secondPage.getTotalElements()).isEqualTo(2);
         assertThat(new HashSet<>(ids)).hasSize(2);
         assertThat(ids).contains(seed.visibleProductId(), seed.secondVisibleProductId());
+    }
+
+    @Test
+    void stockFilter_ShouldUseActiveVariantAvailabilityWithoutChangingVisibility() {
+        Seed seed = seedProducts();
+        transactionTemplate.executeWithoutResult(status -> {
+            ProductVariant visibleVariant = productVariantRepository
+                    .findByProductIdAndStatus(seed.visibleProductId(), ProductVariantStatus.ACTIVE)
+                    .get(0);
+            InventoryBalance visibleBalance = InventoryBalance.zero(visibleVariant);
+            visibleBalance.adjustOnHand(5);
+            inventoryBalanceRepository.saveAndFlush(visibleBalance);
+
+            ProductVariant soldOutVariant = productVariantRepository
+                    .findByProductIdAndStatus(seed.secondVisibleProductId(), ProductVariantStatus.ACTIVE)
+                    .get(0);
+            inventoryBalanceRepository.saveAndFlush(InventoryBalance.zero(soldOutVariant));
+
+            Product soldOutProduct =
+                    productRepository.findById(seed.secondVisibleProductId()).orElseThrow();
+            ProductVariant inactiveVariant = productVariantRepository.saveAndFlush(ProductVariant.builder()
+                    .product(soldOutProduct)
+                    .sku("SECOND-INACTIVE")
+                    .status(ProductVariantStatus.INACTIVE)
+                    .combinationKey("inactive")
+                    .build());
+            InventoryBalance inactiveBalance = InventoryBalance.zero(inactiveVariant);
+            inactiveBalance.adjustOnHand(10);
+            inventoryBalanceRepository.saveAndFlush(inactiveBalance);
+        });
+
+        Page<Product> available = transactionTemplate.execute(status -> productRepository.findAll(
+                productSpecification.storefrontVisibility().and(productSpecification.isInStock(true)),
+                PageRequest.of(0, 10, Sort.by("id"))));
+        Page<Product> unavailable = transactionTemplate.execute(status -> productRepository.findAll(
+                productSpecification.storefrontVisibility().and(productSpecification.isInStock(false)),
+                PageRequest.of(0, 10, Sort.by("id"))));
+
+        assertThat(available.getContent()).extracting(Product::getId).containsExactly(seed.visibleProductId());
+        assertThat(unavailable.getContent()).extracting(Product::getId).containsExactly(seed.secondVisibleProductId());
+        assertThat(unavailable.getTotalElements()).isEqualTo(1);
     }
 
     private Seed seedProducts() {

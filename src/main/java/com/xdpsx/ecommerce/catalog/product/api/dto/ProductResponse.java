@@ -17,7 +17,6 @@ public class ProductResponse {
     private BigDecimal price;
     private BigDecimal discountedPrice;
     private double discountPercent;
-    private boolean inStock;
     private boolean published;
     private String mainImage;
     private CategorySummaryResponse category;
