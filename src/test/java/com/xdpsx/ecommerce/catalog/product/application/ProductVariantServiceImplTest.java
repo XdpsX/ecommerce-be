@@ -27,6 +27,7 @@ import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionReposi
 import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionValueRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
+import com.xdpsx.ecommerce.inventory.application.InventoryProvisioningService;
 
 @ExtendWith(MockitoExtension.class)
 class ProductVariantServiceImplTest {
@@ -44,6 +45,9 @@ class ProductVariantServiceImplTest {
 
     @Mock
     private EntityManager entityManager;
+
+    @Mock
+    private InventoryProvisioningService inventoryProvisioningService;
 
     @InjectMocks
     private ProductVariantServiceImpl service;
@@ -76,6 +80,7 @@ class ProductVariantServiceImplTest {
         service.createVariants(1L, request);
 
         verify(variantRepository).saveAll(captor.capture());
+        verify(inventoryProvisioningService).provisionBalances(captor.getValue());
         assertThat(captor.getValue()).hasSize(4);
         assertThat(captor.getValue().get(0).getSku()).isEqualTo("SHIRT-BLACK-M");
         assertThat(captor.getValue().get(0).getCombinationKey()).isEqualTo("10=101|20=201");
