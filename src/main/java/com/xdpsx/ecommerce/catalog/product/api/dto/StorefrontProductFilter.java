@@ -10,26 +10,26 @@ import jakarta.validation.constraints.Size;
 import com.xdpsx.ecommerce.catalog.shared.api.validation.SortConstraint;
 import com.xdpsx.ecommerce.common.pagination.AbstractPageParams;
 
-import lombok.Builder;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
+import lombok.*;
+import lombok.experimental.SuperBuilder;
 
-@EqualsAndHashCode(callSuper = true)
-@Data
-@Builder
-public class ProductParams extends AbstractPageParams {
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@SuperBuilder
+public class StorefrontProductFilter extends AbstractPageParams {
     private String search;
 
     @SortConstraint(fields = {FIELD_NAME, FIELD_DATE, FIELD_PRICE})
     private String sort;
 
-    @Min(value = 0)
+    @Min(0)
     private Double minPrice;
 
-    @Min(value = 0)
+    @Min(0)
     private Double maxPrice;
 
-    private Boolean hasPublished;
     private Boolean hasDiscount;
     private Boolean inStock;
     private Integer categoryId;

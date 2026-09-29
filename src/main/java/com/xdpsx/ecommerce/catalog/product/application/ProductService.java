@@ -7,34 +7,27 @@ import com.xdpsx.ecommerce.catalog.product.api.dto.*;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 
 public interface ProductService {
-    PageResponse<ProductResponse> filterAllProducts(ProductParams params);
+    PageResponse<StorefrontProductSummaryResponse> getStorefrontProducts(StorefrontProductFilter filter);
 
-    List<ProductOptionResponse> getFilterOptions(Integer categoryId, Integer brandId);
+    StorefrontProductDetailResponse getStorefrontProductBySlug(String slug);
 
-    ProductDetailsDTO getProductById(Long id);
+    List<ProductOptionResponse> getStorefrontFilterOptions(Integer categoryId, Integer brandId);
 
-    ProductDetailsDTO getProductBySlug(String slug);
+    PageResponse<StorefrontProductSummaryResponse> getDiscountedStorefrontProducts(int pageNum, int pageSize);
 
-    ProductResponse createProduct(ProductCreateRequest request);
+    PageResponse<StorefrontProductSummaryResponse> getLatestStorefrontProducts(int pageNum, int pageSize);
 
-    ProductResponse updateProduct(Long id, ProductUpdateRequest request);
+    PageResponse<AdminProductSummaryResponse> getAdminProducts(AdminProductFilter filter);
+
+    AdminProductDetailResponse getAdminProduct(Long id);
+
+    AdminProductSummaryResponse createProduct(ProductCreateRequest request);
+
+    AdminProductSummaryResponse updateProduct(Long id, ProductUpdateRequest request);
 
     void deleteProduct(Long id);
 
-    void publishProduct(Long id, boolean status);
+    AdminProductDetailResponse updatePublication(Long id, UpdateProductPublicationRequest request);
 
-    Map<String, Boolean> checkExistsProduct(String slug);
-
-    PageResponse<ProductResponse> getDiscountProducts(int pageNum, int pageSize);
-
-    PageResponse<ProductResponse> getLatestProducts(int pageNum, int pageSize);
-
-    PageResponse<ProductResponse> getProductsByCategoryId(
-            Integer categoryId,
-            int pageNum,
-            int pageSize,
-            List<Integer> brandIds,
-            String sort,
-            Double minPrice,
-            Double maxPrice);
+    Map<String, Boolean> getSlugAvailability(String slug);
 }
