@@ -20,6 +20,7 @@ import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionReposi
 import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionValueRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
+import com.xdpsx.ecommerce.inventory.application.InventoryProvisioningService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -31,6 +32,7 @@ public class ProductVariantServiceImpl implements ProductVariantService {
     private final VariantOptionRepository optionRepository;
     private final VariantOptionValueRepository optionValueRepository;
     private final EntityManager entityManager;
+    private final InventoryProvisioningService inventoryProvisioningService;
 
     @Transactional(readOnly = true)
     @Override
@@ -134,6 +136,7 @@ public class ProductVariantServiceImpl implements ProductVariantService {
         } catch (DataIntegrityViolationException exception) {
             throw translateConstraint(exception);
         }
+        inventoryProvisioningService.provisionBalances(variants);
         return variants.stream().map(ProductVariantServiceImpl::toResponse).toList();
     }
 
