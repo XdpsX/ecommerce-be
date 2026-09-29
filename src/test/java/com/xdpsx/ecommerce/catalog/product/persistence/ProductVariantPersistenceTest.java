@@ -36,7 +36,11 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
+import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
 import com.xdpsx.ecommerce.catalog.brand.persistence.BrandRepository;
+import com.xdpsx.ecommerce.catalog.category.domain.Category;
+import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.product.api.dto.UpdateProductVariantStatusRequest;
 import com.xdpsx.ecommerce.catalog.product.application.ProductVariantServiceImpl;
@@ -104,6 +108,12 @@ class ProductVariantPersistenceTest {
     private ProductRepository productRepository;
 
     @Autowired
+    private CategoryRepository categoryRepository;
+
+    @Autowired
+    private BrandRepository brandRepository;
+
+    @Autowired
     private ProductVariantRepository variantRepository;
 
     private final ProductSpecification productSpecification = new ProductSpecification();
@@ -127,6 +137,8 @@ class ProductVariantPersistenceTest {
             productRepository.deleteAll();
             valueRepository.deleteAll();
             optionRepository.deleteAll();
+            brandRepository.deleteAll();
+            categoryRepository.deleteAll();
         });
     }
 
@@ -408,17 +420,33 @@ class ProductVariantPersistenceTest {
     @Test
     void filterFacet_ShouldReturnOnlyValuesFromPublishedProductsWithActiveVariants() {
         transactionTemplate.executeWithoutResult(status -> {
+            Category category = categoryRepository.save(Category.builder()
+                    .name("Facet category")
+                    .slug("facet-category")
+                    .status(CategoryStatus.ACTIVE)
+                    .displayOrder(0)
+                    .build());
+            Brand brand = brandRepository.save(Brand.builder()
+                    .name("Facet brand")
+                    .status(BrandStatus.ACTIVE)
+                    .version(0L)
+                    .build());
             VariantOption color = optionRepository.saveAndFlush(option("facet-color", 0));
             VariantOptionValue black = valueRepository.save(value(color, "facet-black", 0));
             VariantOptionValue white = valueRepository.saveAndFlush(value(color, "facet-white", 1));
 
             Product published = productRepository.saveAndFlush(product("published-facet"));
+            published.setCategory(category);
+            published.setBrand(brand);
+            productRepository.saveAndFlush(published);
             ProductVariant active = variant(published, "FACET-ACTIVE", "facet-active");
             active.getSelections().add(selection(active, color, black));
             variantRepository.saveAndFlush(active);
 
             Product unpublished = product("unpublished-facet");
             unpublished.setPublished(false);
+            unpublished.setCategory(category);
+            unpublished.setBrand(brand);
             ProductVariant unpublishedVariant = variant(unpublished, "FACET-HIDDEN", "facet-hidden");
             unpublishedVariant.getSelections().add(selection(unpublishedVariant, color, white));
             productRepository.save(unpublished);
