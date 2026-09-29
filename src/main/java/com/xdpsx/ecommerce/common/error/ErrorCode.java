@@ -22,6 +22,8 @@ public enum ErrorCode {
     CONCURRENT_MODIFICATION("Concurrent modification", "The resource was modified after it was retrieved"),
     CONCURRENT_WRITE_CONFLICT(
             "Concurrent write conflict", "A concurrent write could not be completed, the request can be retried"),
+    INVENTORY_ADJUSTMENT_REJECTED(
+            "Inventory adjustment rejected", "The adjustment would violate the current inventory balance"),
     CART_EMPTY("Cart is empty", "The cart does not contain any item eligible for checkout"),
     INVALID_CATEGORY_DEPTH("Invalid category depth", "The category hierarchy exceeds the maximum allowed depth"),
     INVALID_CATEGORY_HIERARCHY(

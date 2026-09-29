@@ -49,7 +49,8 @@ public final class ApiProblemFactory {
                     RESOURCE_IN_USE,
                     VARIANT_OPTION_DEACTIVATION_UNAVAILABLE,
                     CONCURRENT_MODIFICATION,
-                    CONCURRENT_WRITE_CONFLICT -> HttpStatus.CONFLICT;
+                    CONCURRENT_WRITE_CONFLICT,
+                    INVENTORY_ADJUSTMENT_REJECTED -> HttpStatus.CONFLICT;
             case INVALID_MEDIA_RESOURCE_TYPE -> HttpStatus.UNPROCESSABLE_CONTENT;
             case MEDIA_UPLOAD_FAILED -> HttpStatus.BAD_GATEWAY;
             case INTERNAL_ERROR -> HttpStatus.INTERNAL_SERVER_ERROR;

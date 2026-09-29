@@ -263,7 +263,7 @@ class ProductVariantPersistenceTest {
             return new Long[] {product.getId(), variant.getId(), color.getId(), black.getId()};
         });
         ProductVariantServiceImpl variantService = new ProductVariantServiceImpl(
-                productRepository, variantRepository, optionRepository, valueRepository, entityManager);
+                productRepository, variantRepository, optionRepository, valueRepository, entityManager, variants -> {});
         VariantOptionServiceImpl optionService =
                 new VariantOptionServiceImpl(optionRepository, valueRepository, variantRepository);
         ExecutorService executor = Executors.newFixedThreadPool(2);
