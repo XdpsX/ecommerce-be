@@ -24,7 +24,8 @@ import com.xdpsx.ecommerce.catalog.brand.application.BrandService;
 import com.xdpsx.ecommerce.catalog.category.api.AdminCategoryController;
 import com.xdpsx.ecommerce.catalog.category.api.StorefrontCategoryController;
 import com.xdpsx.ecommerce.catalog.category.application.CategoryService;
-import com.xdpsx.ecommerce.catalog.product.api.ProductController;
+import com.xdpsx.ecommerce.catalog.product.api.AdminProductController;
+import com.xdpsx.ecommerce.catalog.product.api.StorefrontProductController;
 import com.xdpsx.ecommerce.catalog.product.application.ProductService;
 import com.xdpsx.ecommerce.catalog.variantoption.api.AdminVariantOptionController;
 import com.xdpsx.ecommerce.catalog.variantoption.application.VariantOptionService;
@@ -53,7 +54,8 @@ import tools.jackson.databind.ObjectMapper;
             StorefrontCategoryController.class,
             AdminBrandController.class,
             StorefrontBrandController.class,
-            ProductController.class,
+            AdminProductController.class,
+            StorefrontProductController.class,
             AdminVariantOptionController.class,
             MediaController.class
         })
@@ -260,8 +262,8 @@ class OpenApiDocumentationTest {
 
     @Test
     void productWriteRoutes_shouldUseJsonAndImageIds() {
-        JsonNode create = openApi.at("/paths/~1products~1create/post");
-        JsonNode update = openApi.at("/paths/~1products~1{id}~1update/put");
+        JsonNode create = openApi.at("/paths/~1admin~1products/post");
+        JsonNode update = openApi.at("/paths/~1admin~1products~1{id}/put");
         assertThat(create.path("requestBody").path("content").has("application/json"))
                 .isTrue();
         assertThat(create.path("requestBody").path("content").has("multipart/form-data"))
@@ -277,6 +279,37 @@ class OpenApiDocumentationTest {
         assertThat(openApi.at("/components/schemas/ProductUpdateRequest/properties/removedImageIds")
                         .isMissingNode())
                 .isTrue();
+        assertThat(openApi.at("/components/schemas/ProductCreateRequest/properties/published")
+                        .isMissingNode())
+                .isTrue();
+        assertThat(openApi.at("/components/schemas/ProductUpdateRequest/properties/published")
+                        .isMissingNode())
+                .isTrue();
+        assertThat(openApi.at("/paths/~1products~1create").isMissingNode()).isTrue();
+        assertThat(openApi.at("/paths/~1products~1{id}~1update").isMissingNode())
+                .isTrue();
+        assertThat(openApi.at("/paths/~1products~1{id}/get").isMissingNode()).isTrue();
+        assertThat(openApi.at("/paths/~1products~1{id}~1delete/delete").isMissingNode())
+                .isTrue();
+        assertThat(openApi.at("/paths/~1products~1{id}~1public~1{status}/patch").isMissingNode())
+                .isTrue();
+        assertThat(openApi.at("/paths/~1products~1exists/get").isMissingNode()).isTrue();
+        assertThat(openApi.at("/paths/~1admin~1products~1{id}~1publication/patch")
+                        .isMissingNode())
+                .isFalse();
+        JsonNode adminSummaryProperties = openApi.at("/components/schemas/AdminProductSummaryResponse/properties");
+        assertThat(adminSummaryProperties.has("brand")).isTrue();
+        assertThat(adminSummaryProperties.has("category")).isTrue();
+        JsonNode adminBrandProperties = openApi.at("/components/schemas/AdminProductBrandResponse/properties");
+        assertThat(adminBrandProperties.has("id")).isTrue();
+        assertThat(adminBrandProperties.has("name")).isTrue();
+        assertThat(adminBrandProperties.has("status")).isTrue();
+        JsonNode adminCategoryProperties = openApi.at("/components/schemas/AdminProductCategoryResponse/properties");
+        assertThat(adminCategoryProperties.has("id")).isTrue();
+        assertThat(adminCategoryProperties.has("name")).isTrue();
+        assertThat(adminCategoryProperties.has("slug")).isTrue();
+        assertThat(adminCategoryProperties.has("status")).isTrue();
+        assertThat(adminCategoryProperties.has("effectivelyActive")).isTrue();
         JsonNode imageProperties = openApi.at("/components/schemas/ProductImageDTO/properties");
         assertThat(imageProperties.has("id")).isTrue();
         assertThat(imageProperties.has("url")).isTrue();
@@ -440,9 +473,13 @@ class OpenApiDocumentationTest {
                         .toList())
                 .contains("optionValueIds");
 
-        JsonNode details = openApi.at("/components/schemas/ProductDetailsDTO/properties");
+        JsonNode details = openApi.at("/components/schemas/StorefrontProductDetailResponse/properties");
         assertThat(details.has("options")).isTrue();
         assertThat(details.has("variants")).isTrue();
+        assertThat(details.has("published")).isFalse();
+        assertThat(openApi.at("/components/schemas/StorefrontProductFilter/properties/hasPublished")
+                        .isMissingNode())
+                .isTrue();
 
         JsonNode optionProperties = openApi.at("/components/schemas/ProductOptionResponse/properties");
         assertThat(optionProperties.has("status")).isFalse();

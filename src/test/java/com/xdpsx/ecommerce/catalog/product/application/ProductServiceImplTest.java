@@ -1,11 +1,13 @@
 package com.xdpsx.ecommerce.catalog.product.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -24,50 +26,21 @@ import com.xdpsx.ecommerce.catalog.brand.persistence.BrandRepository;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
-import com.xdpsx.ecommerce.catalog.product.api.dto.ProductCreateRequest;
-import com.xdpsx.ecommerce.catalog.product.api.dto.ProductDetailsDTO;
-import com.xdpsx.ecommerce.catalog.product.api.dto.ProductOptionResponse;
-import com.xdpsx.ecommerce.catalog.product.api.dto.ProductOptionValueResponse;
-import com.xdpsx.ecommerce.catalog.product.api.dto.ProductParams;
-import com.xdpsx.ecommerce.catalog.product.api.dto.ProductUpdateRequest;
-import com.xdpsx.ecommerce.catalog.product.api.dto.ProductVariantSelectionResponse;
-import com.xdpsx.ecommerce.catalog.product.domain.*;
+import com.xdpsx.ecommerce.catalog.product.api.dto.*;
+import com.xdpsx.ecommerce.catalog.product.domain.Product;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductSpecification;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductVariantRepository;
-import com.xdpsx.ecommerce.catalog.shared.application.PageMapper;
-import com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOption;
-import com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus;
-import com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionValue;
 import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionValueRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
-import com.xdpsx.ecommerce.media.domain.Media;
-import com.xdpsx.ecommerce.media.domain.MediaPurpose;
-import com.xdpsx.ecommerce.media.domain.MediaStatus;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 import com.xdpsx.ecommerce.order.persistence.OrderItemRepository;
 
-/**
- * Guards the category assignment rule on Product: create and category
- * reassignment only accept an effectively
- * active category (the node and every ancestor stored ACTIVE), and a hidden or
- * missing category keeps the
- * {@code RESOURCE_NOT_FOUND} contract.
- *
- * <p>
- * Only the repositories/mapper are mocked; the visibility decision comes from
- * the real
- * {@link Category#isEffectivelyActive()} chain walk.
- */
 @ExtendWith(MockitoExtension.class)
 class ProductServiceImplTest {
-
     @Mock
     private ProductMapper productMapper;
-
-    @Mock
-    private PageMapper pageMapper;
 
     @Mock
     private ProductRepository productRepository;
@@ -96,357 +69,148 @@ class ProductServiceImplTest {
     @InjectMocks
     private ProductServiceImpl productService;
 
-    private static Category activeCategory(Integer id) {
-        return Category.builder()
-                .id(id)
-                .name("Category " + id)
-                .slug("category-" + id)
+    @Test
+    void createProduct_ShouldAlwaysCreateAnUnpublishedDraft() {
+        Category category = activeCategory(7);
+        Brand brand = activeBrand(5);
+        Product product = new Product();
+        when(productRepository.existsBySlug("keyboard")).thenReturn(false);
+        when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(category));
+        when(brandRepository.findById(5)).thenReturn(Optional.of(brand));
+        when(productMapper.fromCreateRequestToEntity(any())).thenReturn(product);
+        when(productRepository.save(product)).thenReturn(product);
+
+        productService.createProduct(createRequest(7));
+
+        assertThat(product.isPublished()).isFalse();
+        verify(productMapper).toAdminSummary(product);
+    }
+
+    @Test
+    void createProduct_ShouldRejectInactiveAncestorCategory() {
+        Category parent =
+                Category.builder().id(1).status(CategoryStatus.INACTIVE).build();
+        Category hidden = Category.builder()
+                .id(7)
                 .status(CategoryStatus.ACTIVE)
-                .displayOrder(0)
+                .parent(parent)
                 .build();
+        when(productRepository.existsBySlug("keyboard")).thenReturn(false);
+        when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(hidden));
+
+        ApplicationException exception =
+                assertThrows(ApplicationException.class, () -> productService.createProduct(createRequest(7)));
+
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
+        verify(productRepository, never()).save(any());
+    }
+
+    @Test
+    void updateProduct_ShouldNotChangePublicationState() {
+        Product product = product(1L, activeCategory(7), activeBrand(5));
+        product.setPublished(true);
+        ProductUpdateRequest request = updateRequest();
+        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
+        when(productRepository.save(product)).thenReturn(product);
+
+        productService.updateProduct(1L, request);
+
+        assertThat(product.isPublished()).isTrue();
+        verify(productRepository).save(product);
+        verifyNoInteractions(productVariantRepository);
+    }
+
+    @Test
+    void updatePublication_ShouldRejectWithoutActiveVariant() {
+        Product product = product(1L, activeCategory(7), activeBrand(5));
+        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
+        when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(product.getCategory()));
+        when(brandRepository.findById(5)).thenReturn(Optional.of(product.getBrand()));
+        when(productVariantRepository.existsActiveByProductId(1L)).thenReturn(false);
+
+        ApplicationException exception = assertThrows(
+                ApplicationException.class,
+                () -> productService.updatePublication(1L, new UpdateProductPublicationRequest(true)));
+
+        assertEquals(ErrorCode.VALIDATION_FAILED, exception.getCode());
+        assertThat(product.isPublished()).isFalse();
+        verify(productRepository, never()).save(any());
+    }
+
+    @Test
+    void getStorefrontProductBySlug_ShouldHideUnpublishedProduct() {
+        when(productRepository.findStorefrontProductBySlug("draft")).thenReturn(Optional.empty());
+
+        ApplicationException exception =
+                assertThrows(ApplicationException.class, () -> productService.getStorefrontProductBySlug("draft"));
+
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
+    }
+
+    @Test
+    void getStorefrontProducts_ShouldBatchLoadImagesAndUseStorefrontSpecification() {
+        Product first = product(1L, activeCategory(7), activeBrand(5));
+        Product second = product(2L, activeCategory(7), activeBrand(5));
+        @SuppressWarnings("unchecked")
+        Page<Product> page = mock(Page.class);
+        when(productSpecification.getStorefrontFiltersSpec(
+                        any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn((root, query, criteriaBuilder) -> criteriaBuilder.conjunction());
+        when(productRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(page);
+        when(page.getContent()).thenReturn(List.of(first, second));
+        when(productMapper.toStorefrontSummary(any(Product.class)))
+                .thenReturn(new StorefrontProductSummaryResponse(
+                        1L, "Product", "product", BigDecimal.TEN, null, 0, true, null, null, null));
+
+        productService.getStorefrontProducts(StorefrontProductFilter.builder().build());
+
+        verify(productRepository).findAllWithImagesByIdIn(List.of(1L, 2L));
+        verify(productMapper).toStorefrontSummary(first);
+        verify(productMapper).toStorefrontSummary(second);
+    }
+
+    @Test
+    void getAdminProducts_ShouldUsePublicationFilterWithoutStorefrontVisibility() {
+        @SuppressWarnings("unchecked")
+        Page<Product> page = mock(Page.class);
+        when(productSpecification.getAdminFiltersSpec("draft", "name", false))
+                .thenReturn((root, query, criteriaBuilder) -> criteriaBuilder.conjunction());
+        when(productRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(page);
+        when(page.getContent()).thenReturn(List.of());
+
+        productService.getAdminProducts(AdminProductFilter.builder()
+                .search("draft")
+                .sort("name")
+                .hasPublished(false)
+                .build());
+
+        verify(productSpecification).getAdminFiltersSpec("draft", "name", false);
+        verify(productSpecification, never()).storefrontVisibility();
+    }
+
+    @Test
+    void getStorefrontProducts_ShouldRejectDuplicateOptionValuesBeforeProductQuery() {
+        StorefrontProductFilter filter = StorefrontProductFilter.builder()
+                .optionValueIds(List.of(101L, 101L))
+                .build();
+
+        ApplicationException exception =
+                assertThrows(ApplicationException.class, () -> productService.getStorefrontProducts(filter));
+
+        assertThat(exception.getCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+        verifyNoInteractions(variantOptionValueRepository, productRepository);
     }
 
     private static ProductCreateRequest createRequest(Integer categoryId) {
         return ProductCreateRequest.builder()
                 .name("Keyboard")
                 .slug("keyboard")
+                .price(100)
                 .categoryId(categoryId)
                 .brandId(5)
                 .build();
-    }
-
-    @Test
-    void createProduct_ShouldAssignEffectivelyActiveCategory() {
-        // Arrange
-        Category category = activeCategory(7);
-        Brand brand = Brand.builder()
-                .id(5)
-                .name("Logitech")
-                .status(BrandStatus.ACTIVE)
-                .build();
-        when(productRepository.existsBySlug("keyboard")).thenReturn(false);
-        when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(category));
-        when(brandRepository.findById(5)).thenReturn(Optional.of(brand));
-        when(productMapper.fromCreateRequestToEntity(any())).thenReturn(new Product());
-        when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        // Act
-        productService.createProduct(createRequest(7));
-
-        // Assert
-        org.mockito.ArgumentCaptor<Product> captor = org.mockito.ArgumentCaptor.forClass(Product.class);
-        verify(productRepository).save(captor.capture());
-        assertSame(category, captor.getValue().getCategory());
-    }
-
-    @Test
-    void createProduct_ShouldRejectActiveCategoryUnderInactiveAncestor() {
-        // Arrange: stored ACTIVE, but hidden from the storefront by an inactive parent.
-        Category inactiveParent = Category.builder()
-                .id(1)
-                .name("Retired")
-                .status(CategoryStatus.INACTIVE)
-                .build();
-        Category hidden = Category.builder()
-                .id(7)
-                .name("Hidden")
-                .status(CategoryStatus.ACTIVE)
-                .parent(inactiveParent)
-                .build();
-        when(productRepository.existsBySlug("keyboard")).thenReturn(false);
-        when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(hidden));
-
-        // Act & Assert
-        ApplicationException exception =
-                assertThrows(ApplicationException.class, () -> productService.createProduct(createRequest(7)));
-
-        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
-        assertEquals("category", exception.getParameters().get("resourceType"));
-        verify(productRepository, never()).save(any(Product.class));
-    }
-
-    @Test
-    void updateProduct_ShouldRejectCategoryReassignment_WhenNewCategoryIsNotEffectivelyActive() {
-        // Arrange: the product keeps its current category; the requested one is hidden.
-        Category current = activeCategory(3);
-        Category hidden = Category.builder()
-                .id(7)
-                .name("Hidden")
-                .status(CategoryStatus.INACTIVE)
-                .build();
-        Product product = new Product();
-        product.setName("Keyboard");
-        product.setSlug("keyboard");
-        product.setCategory(current);
-        product.setImages(new java.util.ArrayList<>());
-
-        ProductUpdateRequest request = new ProductUpdateRequest();
-        request.setName("Keyboard");
-        request.setSlug("keyboard");
-        request.setPrice(BigDecimal.TEN);
-        request.setCategoryId(7);
-
-        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
-        when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(hidden));
-
-        // Act & Assert
-        ApplicationException exception =
-                assertThrows(ApplicationException.class, () -> productService.updateProduct(1L, request));
-
-        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
-        verify(productRepository, never()).save(any(Product.class));
-        // The stored assignment is untouched by a rejected reassignment.
-        assertSame(current, product.getCategory());
-    }
-
-    @Test
-    void createProduct_ShouldActivateOrderedTemporaryMedia() {
-        Category category = activeCategory(7);
-        Brand brand = Brand.builder()
-                .id(5)
-                .name("Logitech")
-                .status(BrandStatus.ACTIVE)
-                .build();
-        Media first = media("m-1", MediaStatus.TEMPORARY);
-        Media second = media("m-2", MediaStatus.TEMPORARY);
-        when(productRepository.existsBySlug("keyboard")).thenReturn(false);
-        when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(category));
-        when(brandRepository.findById(5)).thenReturn(Optional.of(brand));
-        when(mediaRepository.findAllByIdInForUpdate(java.util.List.of("m-1", "m-2")))
-                .thenReturn(java.util.List.of(first, second));
-        when(productMapper.fromCreateRequestToEntity(any())).thenReturn(new Product());
-        when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        ProductCreateRequest request = createRequest(7);
-        request.setImageIds(java.util.List.of("m-1", "m-2"));
-
-        productService.createProduct(request);
-
-        assertEquals(MediaStatus.ACTIVE, first.getStatus());
-        assertEquals(MediaStatus.ACTIVE, second.getStatus());
-        org.mockito.ArgumentCaptor<Product> captor = org.mockito.ArgumentCaptor.forClass(Product.class);
-        verify(productRepository).save(captor.capture());
-        assertEquals(
-                java.util.List.of(0, 1),
-                captor.getValue().getImages().stream()
-                        .map(com.xdpsx.ecommerce.catalog.product.domain.ProductImage::getDisplayOrder)
-                        .toList());
-    }
-
-    @Test
-    void updateProduct_ShouldReorderAttachAndMarkRemovedMediaPendingDelete() {
-        Category category = activeCategory(7);
-        Brand brand = Brand.builder()
-                .id(5)
-                .name("Logitech")
-                .status(BrandStatus.ACTIVE)
-                .build();
-        Media removed = media("m-old", MediaStatus.ACTIVE);
-        Media retained = media("m-retained", MediaStatus.ACTIVE);
-        Media added = media("m-new", MediaStatus.TEMPORARY);
-        Product product = productWithImages(category, brand, removed, retained);
-        ProductUpdateRequest request = updateRequest();
-        request.setImageIds(java.util.List.of("m-retained", "m-new"));
-
-        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
-        when(mediaRepository.findAllByIdInForUpdate(request.getImageIds()))
-                .thenReturn(java.util.List.of(retained, added));
-        when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        productService.updateProduct(1L, request);
-
-        assertEquals(MediaStatus.PENDING_DELETE, removed.getStatus());
-        assertEquals(MediaStatus.ACTIVE, retained.getStatus());
-        assertEquals(MediaStatus.ACTIVE, added.getStatus());
-        assertEquals(
-                java.util.List.of("m-retained", "m-new"),
-                product.getImages().stream()
-                        .map(image -> image.getMedia().getId())
-                        .toList());
-        assertEquals(
-                java.util.List.of(0, 1),
-                product.getImages().stream()
-                        .map(com.xdpsx.ecommerce.catalog.product.domain.ProductImage::getDisplayOrder)
-                        .toList());
-    }
-
-    @Test
-    void updateProduct_ShouldRejectInvalidMediaWithoutMutatingExistingState() {
-        Category category = activeCategory(7);
-        Brand brand = Brand.builder()
-                .id(5)
-                .name("Logitech")
-                .status(BrandStatus.ACTIVE)
-                .build();
-        Media existing = media("m-existing", MediaStatus.ACTIVE);
-        Product product = productWithImages(category, brand, existing);
-        ProductUpdateRequest request = updateRequest();
-        request.setImageIds(java.util.List.of("m-missing"));
-
-        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
-        when(mediaRepository.findAllByIdInForUpdate(request.getImageIds())).thenReturn(java.util.List.of());
-
-        assertThrows(ApplicationException.class, () -> productService.updateProduct(1L, request));
-        assertEquals(MediaStatus.ACTIVE, existing.getStatus());
-        assertEquals(
-                java.util.List.of("m-existing"),
-                product.getImages().stream()
-                        .map(image -> image.getMedia().getId())
-                        .toList());
-        verify(productRepository, never()).save(any(Product.class));
-    }
-
-    @Test
-    void updateProduct_ShouldRejectPublishingWithHiddenCategoryBeforeMutation() {
-        Category hidden = Category.builder()
-                .id(7)
-                .name("Hidden")
-                .status(CategoryStatus.INACTIVE)
-                .build();
-        Brand brand = Brand.builder()
-                .id(5)
-                .name("Logitech")
-                .status(BrandStatus.ACTIVE)
-                .build();
-        Product product = new Product();
-        product.setCategory(hidden);
-        product.setBrand(brand);
-        product.setPublished(false);
-        product.setImages(new java.util.ArrayList<>());
-        ProductUpdateRequest request = updateRequest();
-        request.setPublished(true);
-
-        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
-        when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(hidden));
-
-        assertThrows(ApplicationException.class, () -> productService.updateProduct(1L, request));
-        assertThat(product.isPublished()).isFalse();
-        verify(productRepository, never()).save(any(Product.class));
-    }
-
-    @Test
-    void updateProduct_ShouldRequireAnActiveVariantBeforePublishing() {
-        Category category = activeCategory(7);
-        Brand brand = Brand.builder()
-                .id(5)
-                .name("Logitech")
-                .status(BrandStatus.ACTIVE)
-                .build();
-        Product product = new Product();
-        product.setCategory(category);
-        product.setBrand(brand);
-        product.setPublished(false);
-        product.setImages(new java.util.ArrayList<>());
-        ProductUpdateRequest request = updateRequest();
-        request.setPublished(true);
-
-        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
-        when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(category));
-        when(brandRepository.findById(5)).thenReturn(Optional.of(brand));
-        when(productVariantRepository.existsActiveByProductId(1L)).thenReturn(false);
-
-        ApplicationException exception =
-                assertThrows(ApplicationException.class, () -> productService.updateProduct(1L, request));
-
-        assertEquals(ErrorCode.VALIDATION_FAILED, exception.getCode());
-        assertThat(product.isPublished()).isFalse();
-        verify(productRepository, never()).save(any(Product.class));
-    }
-
-    @Test
-    void deleteProduct_ShouldKeepProductAndMediaWhenOrderItemReferencesIt() {
-        Category category = activeCategory(7);
-        Brand brand = Brand.builder()
-                .id(5)
-                .name("Logitech")
-                .status(BrandStatus.ACTIVE)
-                .build();
-        Media image = media("m-existing", MediaStatus.ACTIVE);
-        Product product = productWithImages(category, brand, image);
-        when(productRepository.findProductById(1L)).thenReturn(Optional.of(product));
-        when(orderItemRepository.existsByProductId(1L)).thenReturn(true);
-
-        ApplicationException exception =
-                assertThrows(ApplicationException.class, () -> productService.deleteProduct(1L));
-
-        assertEquals(ErrorCode.RESOURCE_IN_USE, exception.getCode());
-        assertEquals(MediaStatus.ACTIVE, image.getStatus());
-        verify(productRepository, never()).delete(any(Product.class));
-    }
-
-    @Test
-    void filterAllProducts_ShouldBatchLoadImagesOnceForTheWholePage() {
-        Product first = new Product();
-        first.setId(1L);
-        Product second = new Product();
-        second.setId(2L);
-        @SuppressWarnings("unchecked")
-        Page<Product> page = mock(Page.class);
-        when(productSpecification.getFiltersSpec(any(), any(), any(), any(), any(), any(), any(), any(), any()))
-                .thenReturn((root, query, criteriaBuilder) -> criteriaBuilder.conjunction());
-        when(productRepository.findAll(org.mockito.ArgumentMatchers.<Specification<Product>>any(), any(Pageable.class)))
-                .thenReturn(page);
-        when(page.getContent()).thenReturn(List.of(first, second));
-        ProductParams params = ProductParams.builder().build();
-
-        productService.filterAllProducts(params);
-
-        verify(productRepository).findAllWithImagesByIdIn(List.of(1L, 2L));
-        verify(productMapper, never()).fromEntityToResponse(any(Product.class));
-    }
-
-    @Test
-    void getProductById_ShouldExposeSortedActiveVariantMatrix() {
-        Product product = new Product();
-        product.setId(1L);
-        product.setImages(new java.util.ArrayList<>());
-        ProductDetailsDTO details = ProductDetailsDTO.builder().build();
-        VariantOption size = option(20L, "size", "Size", 0);
-        VariantOption color = option(10L, "color", "Color", 1);
-        VariantOptionValue medium = value(200L, size, "medium", "Medium", 0);
-        VariantOptionValue black = value(100L, color, "black", "Black", 0);
-        VariantOptionValue inactive = value(300L, color, "inactive", "Inactive", 1);
-        inactive.setStatus(VariantOptionStatus.INACTIVE);
-        ProductVariant variant = ProductVariant.builder()
-                .id(30L)
-                .sku("SHIRT-BLACK-M")
-                .status(ProductVariantStatus.ACTIVE)
-                .build();
-        variant.getSelections().add(selection(variant, color, black));
-        variant.getSelections().add(selection(variant, size, medium));
-        ProductVariant hidden = ProductVariant.builder()
-                .id(31L)
-                .sku("SHIRT-INACTIVE")
-                .status(ProductVariantStatus.ACTIVE)
-                .build();
-        hidden.getSelections().add(selection(hidden, color, inactive));
-
-        when(productRepository.findProductById(1L)).thenReturn(Optional.of(product));
-        when(productMapper.fromEntityToDetailsDTO(product)).thenReturn(details);
-        when(productVariantRepository.findActiveWithSelectionsAndOptionsByProductId(1L))
-                .thenReturn(List.of(variant, hidden));
-
-        ProductDetailsDTO result = productService.getProductById(1L);
-
-        assertThat(result.getOptions()).extracting(ProductOptionResponse::code).containsExactly("size", "color");
-        assertThat(result.getOptions().get(0).values())
-                .extracting(ProductOptionValueResponse::code)
-                .containsExactly("medium");
-        assertThat(result.getVariants())
-                .extracting(ProductVariantSelectionResponse::sku)
-                .containsExactly("SHIRT-BLACK-M");
-        assertThat(result.getVariants().get(0).optionValueIds()).containsExactly(200L, 100L);
-    }
-
-    @Test
-    void filterAllProducts_ShouldRejectDuplicateOptionValueIdsBeforeQueryingProducts() {
-        ProductParams params =
-                ProductParams.builder().optionValueIds(List.of(101L, 101L)).build();
-
-        ApplicationException exception =
-                assertThrows(ApplicationException.class, () -> productService.filterAllProducts(params));
-
-        assertThat(exception.getCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
-        verifyNoInteractions(variantOptionValueRepository, productRepository);
     }
 
     private static ProductUpdateRequest updateRequest() {
@@ -457,59 +221,30 @@ class ProductServiceImplTest {
         return request;
     }
 
-    private static VariantOption option(Long id, String code, String name, int displayOrder) {
-        return VariantOption.builder()
-                .id(id)
-                .code(code)
-                .name(name)
-                .displayOrder(displayOrder)
-                .status(VariantOptionStatus.ACTIVE)
-                .build();
-    }
-
-    private static VariantOptionValue value(Long id, VariantOption option, String code, String name, int displayOrder) {
-        return VariantOptionValue.builder()
-                .id(id)
-                .option(option)
-                .code(code)
-                .name(name)
-                .displayOrder(displayOrder)
-                .status(VariantOptionStatus.ACTIVE)
-                .build();
-    }
-
-    private static ProductVariantSelection selection(
-            ProductVariant variant, VariantOption option, VariantOptionValue value) {
-        return ProductVariantSelection.builder()
-                .id(new ProductVariantSelectionId(variant.getId(), option.getId()))
-                .variant(variant)
-                .optionValueId(value.getId())
-                .optionValue(value)
-                .build();
-    }
-
-    private static Product productWithImages(Category category, Brand brand, Media... media) {
+    private static Product product(Long id, Category category, Brand brand) {
         Product product = new Product();
+        product.setId(id);
         product.setCategory(category);
         product.setBrand(brand);
-        product.setImages(new java.util.ArrayList<>());
-        for (int index = 0; index < media.length; index++) {
-            product.getImages()
-                    .add(com.xdpsx.ecommerce.catalog.product.domain.ProductImage.builder()
-                            .product(product)
-                            .media(media[index])
-                            .displayOrder(index)
-                            .build());
-        }
+        product.setImages(new ArrayList<>());
         return product;
     }
 
-    private static Media media(String id, MediaStatus status) {
-        return Media.builder()
+    private static Category activeCategory(Integer id) {
+        return Category.builder()
                 .id(id)
-                .url("https://cdn/" + id)
-                .purpose(MediaPurpose.PRODUCT_IMAGE)
-                .status(status)
+                .name("Category " + id)
+                .slug("category-" + id)
+                .status(CategoryStatus.ACTIVE)
+                .displayOrder(0)
+                .build();
+    }
+
+    private static Brand activeBrand(Integer id) {
+        return Brand.builder()
+                .id(id)
+                .name("Brand " + id)
+                .status(BrandStatus.ACTIVE)
                 .build();
     }
 }

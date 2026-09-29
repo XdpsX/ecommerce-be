@@ -29,7 +29,9 @@ import com.xdpsx.ecommerce.auth.infrastructure.security.oauth2.CustomOAuth2Failu
 import com.xdpsx.ecommerce.auth.infrastructure.security.oauth2.CustomOAuth2UserService;
 import com.xdpsx.ecommerce.cart.api.CartController;
 import com.xdpsx.ecommerce.cart.application.CartService;
-import com.xdpsx.ecommerce.catalog.product.api.ProductController;
+import com.xdpsx.ecommerce.catalog.product.api.AdminProductController;
+import com.xdpsx.ecommerce.catalog.product.api.StorefrontProductController;
+import com.xdpsx.ecommerce.catalog.product.api.dto.AdminProductSummaryResponse;
 import com.xdpsx.ecommerce.catalog.product.api.dto.ProductCreateRequest;
 import com.xdpsx.ecommerce.catalog.product.application.ProductService;
 import com.xdpsx.ecommerce.config.security.SecurityConfig;
@@ -43,7 +45,8 @@ import com.xdpsx.ecommerce.payment.infrastructure.vnpay.IpnHandler;
 
 @WebMvcTest(
         controllers = {
-            ProductController.class,
+            AdminProductController.class,
+            StorefrontProductController.class,
             CartController.class,
             MediaController.class,
             OrderController.class,
@@ -60,7 +63,6 @@ class SecurityBoundaryTest {
               "price": 100,
               "discountPercent": 0,
               "inStock": true,
-              "published": false,
               "categoryId": 1,
               "brandId": 1,
               "imageIds": []
@@ -118,12 +120,15 @@ class SecurityBoundaryTest {
 
     @Test
     void productWrite_ShouldRequireAdmin() throws Exception {
-        mockMvc.perform(post("/products/create")
+        when(productService.createProduct(any(ProductCreateRequest.class)))
+                .thenReturn(new AdminProductSummaryResponse(
+                        1L, "Keyboard", "keyboard", null, null, 0, true, false, null, null, null));
+        mockMvc.perform(post("/admin/products")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(CREATE_PRODUCT))
                 .andExpect(status().isUnauthorized());
 
-        mockMvc.perform(post("/products/create")
+        mockMvc.perform(post("/admin/products")
                         .with(user("customer@example.test").roles("USER"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(CREATE_PRODUCT))
@@ -131,7 +136,7 @@ class SecurityBoundaryTest {
 
         verifyNoInteractions(productService);
 
-        mockMvc.perform(post("/products/create")
+        mockMvc.perform(post("/admin/products")
                         .with(user("admin@example.test").roles("ADMIN"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(CREATE_PRODUCT))

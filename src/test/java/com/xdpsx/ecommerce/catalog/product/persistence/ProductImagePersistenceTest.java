@@ -15,6 +15,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceContext;
 
+import org.hibernate.Hibernate;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.AfterEach;
@@ -154,6 +155,12 @@ class ProductImagePersistenceTest {
                 status -> productRepository.findAllWithImagesByIdIn(List.of(seed.firstId(), seed.secondId())));
 
         assertThat(products).hasSize(2);
+        assertThat(Hibernate.isInitialized(products.get(0).getCategory())).isTrue();
+        assertThat(Hibernate.isInitialized(products.get(0).getCategory().getParent()))
+                .isTrue();
+        assertThat(Hibernate.isInitialized(
+                        products.get(0).getCategory().getParent().getParent()))
+                .isTrue();
         assertThat(products.get(0).getImages())
                 .extracting(image -> image.getMedia().getId())
                 .containsExactly("media-1", "media-2");
@@ -229,7 +236,9 @@ class ProductImagePersistenceTest {
 
     private Seed seedProducts() {
         return transactionTemplate.execute(status -> {
-            Category category = categoryRepository.save(category());
+            Category root = categoryRepository.save(category("Electronics", "electronics", null));
+            Category parent = categoryRepository.save(category("Computers", "computers", root));
+            Category category = categoryRepository.save(category("Laptops", "laptops", parent));
             Brand brand = brandRepository.save(brand());
             Media first = mediaRepository.save(media("media-1"));
             Media second = mediaRepository.save(media("media-2"));
@@ -263,12 +272,13 @@ class ProductImagePersistenceTest {
                 .build();
     }
 
-    private static Category category() {
+    private static Category category(String name, String slug, Category parent) {
         return Category.builder()
-                .name("Electronics")
-                .slug("electronics")
+                .name(name)
+                .slug(slug)
                 .status(CategoryStatus.ACTIVE)
                 .displayOrder(0)
+                .parent(parent)
                 .build();
     }
 

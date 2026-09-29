@@ -23,7 +23,6 @@ public class ProductUpdateRequest {
 
     private double discountPercent;
     private boolean inStock;
-    private boolean isPublished;
 
     @Size(max = 4096)
     private String description;

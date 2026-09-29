@@ -30,8 +30,6 @@ public class ProductCreateRequest {
 
     private boolean inStock;
 
-    private boolean published;
-
     @Size(max = 4096)
     private String description;
 

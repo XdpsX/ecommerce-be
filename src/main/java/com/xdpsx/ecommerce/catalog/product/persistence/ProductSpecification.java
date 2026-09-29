@@ -6,10 +6,15 @@ import java.util.List;
 import java.util.Map;
 
 import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.JoinType;
 
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Component;
 
+import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
+import com.xdpsx.ecommerce.catalog.category.domain.Category;
+import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.product.domain.Product;
 import com.xdpsx.ecommerce.catalog.product.domain.ProductVariant;
 import com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus;
@@ -17,6 +22,70 @@ import com.xdpsx.ecommerce.catalog.shared.persistence.BasicSpecification;
 
 @Component
 public class ProductSpecification extends BasicSpecification<Product> {
+
+    public Specification<Product> getAdminFiltersSpec(String search, String sort, Boolean hasPublished) {
+        return hasName(search).and(getSortSpec(sort)).and(hasPublished(hasPublished));
+    }
+
+    public Specification<Product> getStorefrontFiltersSpec(
+            String search,
+            String sort,
+            Double minPrice,
+            Double maxPrice,
+            Boolean hasDiscount,
+            Boolean inStock,
+            Integer categoryId,
+            Integer brandId,
+            Map<Long, List<Long>> optionValueIdsByOption) {
+        return storefrontVisibility()
+                .and(hasName(search))
+                .and(getSortSpec(sort))
+                .and(hasMinPrice(minPrice))
+                .and(hasMaxPrice(maxPrice))
+                .and(hasDiscount(hasDiscount))
+                .and(isInStock(inStock))
+                .and(belongsToCategory(categoryId))
+                .and(belongsToBrand(brandId))
+                .and(hasMatchingActiveVariant(optionValueIdsByOption));
+    }
+
+    public Specification<Product> storefrontVisibility() {
+        return hasPublished(true)
+                .and(hasActiveBrand())
+                .and(hasEffectivelyActiveCategory())
+                .and(hasActiveVariant());
+    }
+
+    public Specification<Product> hasActiveBrand() {
+        return (root, query, criteriaBuilder) ->
+                criteriaBuilder.equal(root.get("brand").get("status"), BrandStatus.ACTIVE);
+    }
+
+    public Specification<Product> hasEffectivelyActiveCategory() {
+        return (root, query, criteriaBuilder) -> {
+            Join<Product, Category> category = root.join("category");
+            Join<Category, Category> parent = category.join("parent", JoinType.LEFT);
+            Join<Category, Category> grandparent = parent.join("parent", JoinType.LEFT);
+            Join<Category, Category> greatGrandparent = grandparent.join("parent", JoinType.LEFT);
+            return criteriaBuilder.and(
+                    criteriaBuilder.equal(category.get("status"), CategoryStatus.ACTIVE),
+                    activeOrMissing(criteriaBuilder, parent),
+                    activeOrMissing(criteriaBuilder, grandparent),
+                    criteriaBuilder.isNull(greatGrandparent.get("id")));
+        };
+    }
+
+    public Specification<Product> hasActiveVariant() {
+        return (root, query, criteriaBuilder) -> {
+            var subquery = query.subquery(Long.class);
+            var variant = subquery.from(ProductVariant.class);
+            subquery.select(variant.get("id"));
+            subquery.where(
+                    criteriaBuilder.equal(variant.get("product").get("id"), root.get("id")),
+                    criteriaBuilder.equal(variant.get("status"), ProductVariantStatus.ACTIVE));
+            return criteriaBuilder.exists(subquery);
+        };
+    }
 
     public Specification<Product> getFiltersSpec(
             String name,
@@ -37,6 +106,13 @@ public class ProductSpecification extends BasicSpecification<Product> {
                 .and(isInStock(inStock))
                 .and(belongsToCategory(categoryId))
                 .and(belongsToBrand(brandId));
+    }
+
+    private static jakarta.persistence.criteria.Predicate activeOrMissing(
+            CriteriaBuilder criteriaBuilder, Join<Category, Category> category) {
+        return criteriaBuilder.or(
+                criteriaBuilder.isNull(category.get("id")),
+                criteriaBuilder.equal(category.get("status"), CategoryStatus.ACTIVE));
     }
 
     public Specification<Product> getFiltersSpec(

@@ -50,7 +50,6 @@ public class ProductServiceImpl implements ProductService {
     private static final int MAX_IMAGES = 5;
 
     private final ProductMapper productMapper;
-    private final PageMapper pageMapper;
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final BrandRepository brandRepository;
@@ -62,64 +61,78 @@ public class ProductServiceImpl implements ProductService {
 
     @Transactional(readOnly = true)
     @Override
-    public PageResponse<ProductResponse> filterAllProducts(ProductParams params) {
-        Map<Long, List<Long>> optionValueIdsByOption = validateOptionValueIds(params.getOptionValueIds());
-        Specification<Product> productSpec = optionValueIdsByOption.isEmpty()
-                ? spec.getFiltersSpec(
-                        params.getSearch(),
-                        params.getSort(),
-                        params.getHasPublished(),
-                        params.getMinPrice(),
-                        params.getMaxPrice(),
-                        params.getHasDiscount(),
-                        params.getInStock(),
-                        params.getCategoryId(),
-                        params.getBrandId())
-                : spec.getFiltersSpec(
-                        params.getSearch(),
-                        params.getSort(),
-                        params.getHasPublished(),
-                        params.getMinPrice(),
-                        params.getMaxPrice(),
-                        params.getHasDiscount(),
-                        params.getInStock(),
-                        params.getCategoryId(),
-                        params.getBrandId(),
-                        optionValueIdsByOption);
+    public PageResponse<StorefrontProductSummaryResponse> getStorefrontProducts(StorefrontProductFilter filter) {
+        Map<Long, List<Long>> optionValueIdsByOption = validateOptionValueIds(filter.getOptionValueIds());
+        Specification<Product> productSpec = spec.getStorefrontFiltersSpec(
+                filter.getSearch(),
+                filter.getSort(),
+                filter.getMinPrice(),
+                filter.getMaxPrice(),
+                filter.getHasDiscount(),
+                filter.getInStock(),
+                filter.getCategoryId(),
+                filter.getBrandId(),
+                optionValueIdsByOption);
         Page<Product> page =
-                productRepository.findAll(productSpec, PageRequest.of(params.getPageNum() - 1, params.getPageSize()));
+                productRepository.findAll(productSpec, PageRequest.of(filter.getPageNum() - 1, filter.getPageSize()));
         loadImages(page.getContent());
-        return pageMapper.toProductPageResponse(page);
+        return PageMapper.toPageResponse(page, productMapper::toStorefrontSummary);
     }
 
     @Transactional(readOnly = true)
     @Override
-    public ProductDetailsDTO getProductById(Long id) {
-        Product product = productRepository.findProductById(id).orElseThrow(() -> notFound("product", id));
-        return withVariantSelection(productMapper.fromEntityToDetailsDTO(product), id);
+    public StorefrontProductDetailResponse getStorefrontProductBySlug(String slug) {
+        Product product =
+                productRepository.findStorefrontProductBySlug(slug).orElseThrow(() -> notFound("product", slug));
+        VariantMatrix matrix = loadVariantMatrix(product.getId());
+        return productMapper.toStorefrontDetail(product, matrix.options(), matrix.variants());
     }
 
     @Transactional(readOnly = true)
     @Override
-    public ProductDetailsDTO getProductBySlug(String slug) {
-        Product product = productRepository.findProductBySlug(slug).orElseThrow(() -> notFound("product", slug));
-        return withVariantSelection(productMapper.fromEntityToDetailsDTO(product), product.getId());
-    }
-
-    @Transactional(readOnly = true)
-    @Override
-    public List<ProductOptionResponse> getFilterOptions(Integer categoryId, Integer brandId) {
+    public List<ProductOptionResponse> getStorefrontFilterOptions(Integer categoryId, Integer brandId) {
         return toOptions(productVariantRepository.findActiveFilterOptionValues(categoryId, brandId));
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public PageResponse<StorefrontProductSummaryResponse> getDiscountedStorefrontProducts(int pageNum, int pageSize) {
+        Page<Product> page = productRepository.findAll(
+                spec.storefrontVisibility().and(spec.hasDiscount(true)), PageRequest.of(pageNum - 1, pageSize));
+        loadImages(page.getContent());
+        return PageMapper.toPageResponse(page, productMapper::toStorefrontSummary);
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public PageResponse<StorefrontProductSummaryResponse> getLatestStorefrontProducts(int pageNum, int pageSize) {
+        Page<Product> page = productRepository.findAll(
+                spec.storefrontVisibility().and(spec.getSortSpec("-date")), PageRequest.of(pageNum - 1, pageSize));
+        loadImages(page.getContent());
+        return PageMapper.toPageResponse(page, productMapper::toStorefrontSummary);
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public PageResponse<AdminProductSummaryResponse> getAdminProducts(AdminProductFilter filter) {
+        Page<Product> page = productRepository.findAll(
+                spec.getAdminFiltersSpec(filter.getSearch(), filter.getSort(), filter.getHasPublished()),
+                PageRequest.of(filter.getPageNum() - 1, filter.getPageSize()));
+        loadImages(page.getContent());
+        return PageMapper.toPageResponse(page, productMapper::toAdminSummary);
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public AdminProductDetailResponse getAdminProduct(Long id) {
+        Product product = productRepository.findAdminProductById(id).orElseThrow(() -> notFound("product", id));
+        VariantMatrix matrix = loadVariantMatrix(product.getId());
+        return productMapper.toAdminDetail(product, matrix.options(), matrix.variants());
     }
 
     @Transactional
     @Override
-    public ProductResponse createProduct(ProductCreateRequest request) {
-        if (request.isPublished()) {
-            throw new ApplicationException(
-                    ErrorCode.VALIDATION_FAILED,
-                    Map.of("field", "published", "reason", "create variants before publishing the product"));
-        }
+    public AdminProductSummaryResponse createProduct(ProductCreateRequest request) {
         if (productRepository.existsBySlug(request.getSlug())) {
             throw new ApplicationException(
                     ErrorCode.RESOURCE_ALREADY_EXISTS,
@@ -133,12 +146,12 @@ public class ProductServiceImpl implements ProductService {
         product.setBrand(brand);
         replaceImages(product, media);
         media.forEach(Media::activate);
-        return productMapper.fromEntityToResponse(productRepository.save(product));
+        return productMapper.toAdminSummary(productRepository.save(product));
     }
 
     @Transactional
     @Override
-    public ProductResponse updateProduct(Long id, ProductUpdateRequest request) {
+    public AdminProductSummaryResponse updateProduct(Long id, ProductUpdateRequest request) {
         Product product = productRepository.findByIdForUpdate(id).orElseThrow(() -> notFound("product", id));
         List<Media> replacementMedia =
                 request.getImageIds() == null ? null : resolveReplacementMedia(product, request.getImageIds());
@@ -150,15 +163,10 @@ public class ProductServiceImpl implements ProductService {
         if (request.getBrandId() != null && !Objects.equals(targetBrand.getId(), request.getBrandId())) {
             targetBrand = requireActiveBrand(request.getBrandId());
         }
-        if (request.isPublished()) {
-            validatePublishEligibility(targetCategory, targetBrand);
-            requireActiveVariant(id);
-        }
         product.setName(request.getName());
         product.setPrice(request.getPrice());
         product.setDiscountPercent(request.getDiscountPercent());
         product.setInStock(request.isInStock());
-        product.setPublished(request.isPublished());
         product.setDescription(request.getDescription());
         if (!Objects.equals(request.getSlug(), product.getSlug())) {
             if (productRepository.existsBySlug(request.getSlug())) {
@@ -183,13 +191,13 @@ public class ProductServiceImpl implements ProductService {
                     .filter(item -> item.getStatus() == MediaStatus.TEMPORARY)
                     .forEach(Media::activate);
         }
-        return productMapper.fromEntityToResponse(productRepository.save(product));
+        return productMapper.toAdminSummary(productRepository.save(product));
     }
 
     @Transactional
     @Override
     public void deleteProduct(Long id) {
-        Product product = productRepository.findProductById(id).orElseThrow(() -> notFound("product", id));
+        Product product = productRepository.findAdminProductById(id).orElseThrow(() -> notFound("product", id));
         if (orderItemRepository.existsByProductId(id)) {
             throw new ApplicationException(
                     ErrorCode.RESOURCE_IN_USE, Map.of("resourceType", "product", "resourceId", id));
@@ -206,59 +214,20 @@ public class ProductServiceImpl implements ProductService {
 
     @Transactional
     @Override
-    public void publishProduct(Long id, boolean status) {
+    public AdminProductDetailResponse updatePublication(Long id, UpdateProductPublicationRequest request) {
         Product product = productRepository.findByIdForUpdate(id).orElseThrow(() -> notFound("product", id));
-        if (status) {
+        if (request.published()) {
             validatePublishEligibility(product.getCategory(), product.getBrand());
             requireActiveVariant(id);
         }
-        product.setPublished(status);
+        product.setPublished(request.published());
         productRepository.save(product);
+        return getAdminProduct(id);
     }
 
     @Override
-    public Map<String, Boolean> checkExistsProduct(String slug) {
+    public Map<String, Boolean> getSlugAvailability(String slug) {
         return Map.of("slugExists", productRepository.existsBySlug(slug));
-    }
-
-    @Transactional(readOnly = true)
-    @Override
-    public PageResponse<ProductResponse> getDiscountProducts(int pageNum, int pageSize) {
-        Page<Product> page = productRepository.findAll(
-                spec.hasDiscount(true).and(spec.hasPublished(true)), PageRequest.of(pageNum - 1, pageSize));
-        loadImages(page.getContent());
-        return pageMapper.toProductPageResponse(page);
-    }
-
-    @Transactional(readOnly = true)
-    @Override
-    public PageResponse<ProductResponse> getLatestProducts(int pageNum, int pageSize) {
-        Page<Product> page = productRepository.findAll(
-                spec.getSortSpec("-date").and(spec.hasPublished(true)), PageRequest.of(pageNum - 1, pageSize));
-        loadImages(page.getContent());
-        return pageMapper.toProductPageResponse(page);
-    }
-
-    @Transactional(readOnly = true)
-    @Override
-    public PageResponse<ProductResponse> getProductsByCategoryId(
-            Integer categoryId,
-            int pageNum,
-            int pageSize,
-            List<Integer> brandIds,
-            String sort,
-            Double minPrice,
-            Double maxPrice) {
-        categoryRepository.findById(categoryId).orElseThrow(() -> notFound("category", categoryId));
-        Specification<Product> productSpec = spec.belongsToCategory(categoryId)
-                .and(spec.belongsToBrands(brandIds))
-                .and(spec.hasPublished(true))
-                .and(spec.getSortSpec(sort))
-                .and(spec.hasMinPrice(minPrice))
-                .and(spec.hasMaxPrice(maxPrice));
-        Page<Product> page = productRepository.findAll(productSpec, PageRequest.of(pageNum - 1, pageSize));
-        loadImages(page.getContent());
-        return pageMapper.toProductPageResponse(page);
     }
 
     private List<Media> resolveNewMedia(List<String> imageIds) {
@@ -283,12 +252,10 @@ public class ProductServiceImpl implements ProductService {
         var current = product.getImages().stream()
                 .map(ProductImage::getMedia)
                 .collect(Collectors.toMap(Media::getId, Function.identity()));
-        if (ids.isEmpty()) {
-            return List.of();
-        }
+        if (ids.isEmpty()) return List.of();
         List<Media> media = resolveByIds(ids);
         Map<String, Media> byId = media.stream().collect(Collectors.toMap(Media::getId, Function.identity()));
-        List<Media> ordered = ids.stream()
+        return ids.stream()
                 .map(id -> {
                     Media item = byId.get(id);
                     if (item == null
@@ -300,14 +267,13 @@ public class ProductServiceImpl implements ProductService {
                     return item;
                 })
                 .toList();
-        return ordered;
     }
 
     private List<Media> resolveByIds(List<String> ids) {
         List<Media> loaded = mediaRepository.findAllByIdInForUpdate(ids);
         if (loaded == null) loaded = List.of();
         Map<String, Media> byId = loaded.stream().collect(Collectors.toMap(Media::getId, Function.identity()));
-        return ids.stream().map(id -> byId.get(id)).filter(Objects::nonNull).toList();
+        return ids.stream().map(byId::get).filter(Objects::nonNull).toList();
     }
 
     private List<String> validateImageIds(List<String> imageIds) {
@@ -363,12 +329,13 @@ public class ProductServiceImpl implements ProductService {
     }
 
     private void loadImages(List<Product> products) {
-        if (!products.isEmpty())
+        if (!products.isEmpty()) {
             productRepository.findAllWithImagesByIdIn(
                     products.stream().map(Product::getId).toList());
+        }
     }
 
-    private ProductDetailsDTO withVariantSelection(ProductDetailsDTO details, Long productId) {
+    private VariantMatrix loadVariantMatrix(Long productId) {
         List<ProductVariant> variants =
                 productVariantRepository.findActiveWithSelectionsAndOptionsByProductId(productId);
         Map<Long, ProductOptionAccumulator> options = new LinkedHashMap<>();
@@ -390,10 +357,7 @@ public class ProductServiceImpl implements ProductService {
                             .toList();
                     selections.forEach(selection -> {
                         VariantOptionValue value = selection.getOptionValue();
-                        if (value == null
-                                || value.getOption() == null
-                                || value.getStatus() != VariantOptionStatus.ACTIVE
-                                || value.getOption().getStatus() != VariantOptionStatus.ACTIVE) return;
+                        if (!isActiveSelection(selection)) return;
                         options.computeIfAbsent(
                                         value.getOption().getId(),
                                         ignored -> new ProductOptionAccumulator(
@@ -414,13 +378,13 @@ public class ProductServiceImpl implements ProductService {
                 })
                 .filter(Objects::nonNull)
                 .toList();
-        details.setOptions(options.values().stream()
-                .sorted(Comparator.comparingInt((ProductOptionAccumulator option) -> option.displayOrder)
-                        .thenComparing(option -> option.id))
-                .map(ProductOptionAccumulator::toResponse)
-                .toList());
-        details.setVariants(variantResponses);
-        return details;
+        return new VariantMatrix(
+                options.values().stream()
+                        .sorted(Comparator.comparingInt((ProductOptionAccumulator option) -> option.displayOrder)
+                                .thenComparing(option -> option.id))
+                        .map(ProductOptionAccumulator::toResponse)
+                        .toList(),
+                variantResponses);
     }
 
     private List<ProductOptionResponse> toOptions(List<ProductVariantRepository.FilterOptionValueView> views) {
@@ -509,6 +473,8 @@ public class ProductServiceImpl implements ProductService {
                             .toList());
         }
     }
+
+    private record VariantMatrix(List<ProductOptionResponse> options, List<ProductVariantSelectionResponse> variants) {}
 
     private static ApplicationException notFound(String type, Object id) {
         return new ApplicationException(ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", type, "resourceId", id));
