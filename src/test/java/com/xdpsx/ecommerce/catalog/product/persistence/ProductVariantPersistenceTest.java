@@ -3,6 +3,7 @@ package com.xdpsx.ecommerce.catalog.product.persistence;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -50,6 +51,7 @@ import com.xdpsx.ecommerce.catalog.variantoption.application.VariantOptionServic
 import com.xdpsx.ecommerce.catalog.variantoption.domain.*;
 import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionRepository;
 import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionValueRepository;
+import com.xdpsx.ecommerce.config.StorePricingProperties;
 
 /** Verifies that SKU selections persist as one value per option and retain their value identity. */
 @SpringJUnitConfig(ProductVariantPersistenceTest.PersistenceConfig.class)
@@ -157,6 +159,7 @@ class ProductVariantPersistenceTest {
             ProductVariant variant = ProductVariant.builder()
                     .product(product)
                     .sku("SHIRT-BLACK-M")
+                    .basePrice(java.math.BigDecimal.TEN)
                     .status(ProductVariantStatus.ACTIVE)
                     .combinationKey(color.getId() + "=" + black.getId() + "|" + size.getId() + "=" + medium.getId())
                     .build();
@@ -180,6 +183,44 @@ class ProductVariantPersistenceTest {
                 .containsExactly(
                         variants.get(0).getSelections().get(0).getOptionValueId(),
                         variants.get(0).getSelections().get(1).getOptionValueId());
+    }
+
+    @Test
+    void minimumActiveBasePrice_ShouldIgnoreInactiveSiblingAndKeepEachSkuPrice() {
+        Long productId = transactionTemplate.execute(status -> {
+            Product product = productRepository.saveAndFlush(product("pricing-projection"));
+            ProductVariant expensive = variant(product, "PRICING-EXPENSIVE", "pricing-expensive");
+            expensive.changeBasePrice(new BigDecimal("25.00"));
+            ProductVariant cheapest = variant(product, "PRICING-CHEAPEST", "pricing-cheapest");
+            cheapest.changeBasePrice(new BigDecimal("12.50"));
+            ProductVariant inactive = variant(product, "PRICING-INACTIVE", "pricing-inactive");
+            inactive.changeBasePrice(new BigDecimal("1.00"));
+            inactive.setStatus(ProductVariantStatus.INACTIVE);
+            variantRepository.saveAllAndFlush(List.of(expensive, cheapest, inactive));
+            return product.getId();
+        });
+
+        java.math.BigDecimal minimum = transactionTemplate.execute(status ->
+                variantRepository.findMinimumActiveBasePrice(productId).orElseThrow());
+        List<ProductVariant> variants = transactionTemplate.execute(status -> {
+            List<ProductVariant> active =
+                    variantRepository.findAllByProductIdAndStatus(productId, ProductVariantStatus.ACTIVE);
+            List<ProductVariant> inactive =
+                    variantRepository.findAllByProductIdAndStatus(productId, ProductVariantStatus.INACTIVE);
+            active.addAll(inactive);
+            return active;
+        });
+
+        assertThat(minimum).isEqualByComparingTo("12.50");
+        assertThat(variants)
+                .extracting(ProductVariant::getBasePrice)
+                .containsExactlyInAnyOrder(new BigDecimal("25.00"), new BigDecimal("12.50"), new BigDecimal("1.00"));
+        assertThat(variants.stream()
+                        .filter(item -> item.getStatus() == ProductVariantStatus.INACTIVE)
+                        .findFirst()
+                        .orElseThrow()
+                        .getBasePrice())
+                .isEqualByComparingTo("1.00");
     }
 
     @Test
@@ -255,6 +296,7 @@ class ProductVariantPersistenceTest {
             ProductVariant variant = ProductVariant.builder()
                     .product(product)
                     .sku("ACTIVATION-SKU")
+                    .basePrice(java.math.BigDecimal.TEN)
                     .status(ProductVariantStatus.INACTIVE)
                     .combinationKey(color.getId() + "=" + black.getId())
                     .build();
@@ -263,7 +305,13 @@ class ProductVariantPersistenceTest {
             return new Long[] {product.getId(), variant.getId(), color.getId(), black.getId()};
         });
         ProductVariantServiceImpl variantService = new ProductVariantServiceImpl(
-                productRepository, variantRepository, optionRepository, valueRepository, entityManager, variants -> {});
+                productRepository,
+                variantRepository,
+                optionRepository,
+                valueRepository,
+                entityManager,
+                variants -> {},
+                new StorePricingProperties());
         VariantOptionServiceImpl optionService =
                 new VariantOptionServiceImpl(optionRepository, valueRepository, variantRepository);
         ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -523,6 +571,7 @@ class ProductVariantPersistenceTest {
         return ProductVariant.builder()
                 .product(product)
                 .sku(sku)
+                .basePrice(java.math.BigDecimal.TEN)
                 .status(ProductVariantStatus.ACTIVE)
                 .combinationKey(combinationKey)
                 .build();

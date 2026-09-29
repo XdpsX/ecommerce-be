@@ -240,7 +240,6 @@ class ProductServiceImplTest {
         return ProductCreateRequest.builder()
                 .name("Keyboard")
                 .slug("keyboard")
-                .price(100)
                 .categoryId(categoryId)
                 .brandId(5)
                 .build();
@@ -250,7 +249,6 @@ class ProductServiceImplTest {
         ProductUpdateRequest request = new ProductUpdateRequest();
         request.setName("Keyboard");
         request.setSlug("keyboard");
-        request.setPrice(BigDecimal.TEN);
         return request;
     }
 

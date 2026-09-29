@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 
@@ -27,6 +28,7 @@ import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionReposi
 import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionValueRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
+import com.xdpsx.ecommerce.config.StorePricingProperties;
 import com.xdpsx.ecommerce.inventory.application.InventoryProvisioningService;
 
 @ExtendWith(MockitoExtension.class)
@@ -48,6 +50,9 @@ class ProductVariantServiceImplTest {
 
     @Mock
     private InventoryProvisioningService inventoryProvisioningService;
+
+    @Mock
+    private StorePricingProperties pricingProperties;
 
     @InjectMocks
     private ProductVariantServiceImpl service;
@@ -72,10 +77,10 @@ class ProductVariantServiceImplTest {
         when(variantRepository.existsByProductIdAndCombinationKey(any(), any())).thenReturn(false);
 
         ProductVariantBatchCreateRequest request = new ProductVariantBatchCreateRequest(List.of(
-                new ProductVariantCreateRequest(" shirt-black-m ", null, List.of(101L, 201L)),
-                new ProductVariantCreateRequest("shirt-black-l", null, List.of(101L, 202L)),
-                new ProductVariantCreateRequest("shirt-white-m", null, List.of(102L, 201L)),
-                new ProductVariantCreateRequest("shirt-white-l", null, List.of(102L, 202L))));
+                new ProductVariantCreateRequest(" shirt-black-m ", null, BigDecimal.TEN, List.of(101L, 201L)),
+                new ProductVariantCreateRequest("shirt-black-l", null, BigDecimal.TEN, List.of(101L, 202L)),
+                new ProductVariantCreateRequest("shirt-white-m", null, BigDecimal.TEN, List.of(102L, 201L)),
+                new ProductVariantCreateRequest("shirt-white-l", null, BigDecimal.TEN, List.of(102L, 202L))));
 
         service.createVariants(1L, request);
 
@@ -100,8 +105,8 @@ class ProductVariantServiceImplTest {
         when(variantRepository.existsBySku(any())).thenReturn(false);
 
         ProductVariantBatchCreateRequest request = new ProductVariantBatchCreateRequest(List.of(
-                new ProductVariantCreateRequest("one", null, List.of(101L)),
-                new ProductVariantCreateRequest("two", null, List.of(101L))));
+                new ProductVariantCreateRequest("one", null, BigDecimal.TEN, List.of(101L)),
+                new ProductVariantCreateRequest("two", null, BigDecimal.TEN, List.of(101L))));
 
         ApplicationException exception =
                 assertThrows(ApplicationException.class, () -> service.createVariants(1L, request));
@@ -124,8 +129,8 @@ class ProductVariantServiceImplTest {
                 ApplicationException.class,
                 () -> service.createVariants(
                         1L,
-                        new ProductVariantBatchCreateRequest(
-                                List.of(new ProductVariantCreateRequest("invalid", null, List.of(101L, 102L))))));
+                        new ProductVariantBatchCreateRequest(List.of(new ProductVariantCreateRequest(
+                                "invalid", null, BigDecimal.TEN, List.of(101L, 102L))))));
 
         assertThat(exception.getCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
         verify(variantRepository, never()).saveAll(any());
@@ -192,6 +197,57 @@ class ProductVariantServiceImplTest {
         ApplicationException exception = assertThrows(
                 ApplicationException.class,
                 () -> service.updateStatus(1L, 8L, new UpdateProductVariantStatusRequest(ProductVariantStatus.ACTIVE)));
+
+        assertThat(exception.getCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+        verify(variantRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void updatePrice_ShouldChangeOnlyTargetVariantAndRecomputeProductProjection() {
+        Product product = Product.builder()
+                .id(1L)
+                .name("Shirt")
+                .slug("shirt")
+                .price(BigDecimal.TEN)
+                .build();
+        ProductVariant target = ProductVariant.builder()
+                .id(8L)
+                .product(product)
+                .sku("SHIRT-BLACK")
+                .basePrice(new BigDecimal("10.00"))
+                .status(ProductVariantStatus.ACTIVE)
+                .combinationKey("10=101")
+                .build();
+        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
+        when(variantRepository.findByIdAndProductIdWithSelections(8L, 1L)).thenReturn(Optional.of(target));
+        when(variantRepository.findMinimumActiveBasePrice(1L)).thenReturn(Optional.of(new BigDecimal("12.50")));
+
+        ProductVariantResponse response =
+                service.updatePrice(1L, 8L, new UpdateProductVariantPriceRequest(new BigDecimal("12.50")));
+
+        assertThat(target.getBasePrice()).isEqualByComparingTo("12.50");
+        assertThat(product.getPrice()).isEqualByComparingTo("12.50");
+        assertThat(response.basePrice()).isEqualByComparingTo("12.50");
+        verify(variantRepository).saveAndFlush(target);
+        verify(productRepository).saveAndFlush(product);
+    }
+
+    @Test
+    void updatePrice_ShouldRejectUnsupportedFractionalPrecisionBeforeMutation() {
+        Product product = Product.builder().id(1L).name("Shirt").slug("shirt").build();
+        ProductVariant target = ProductVariant.builder()
+                .id(8L)
+                .product(product)
+                .sku("SHIRT-BLACK")
+                .status(ProductVariantStatus.ACTIVE)
+                .combinationKey("10=101")
+                .build();
+        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
+        when(variantRepository.findByIdAndProductIdWithSelections(8L, 1L)).thenReturn(Optional.of(target));
+
+        ApplicationException exception = assertThrows(
+                ApplicationException.class,
+                () -> service.updatePrice(1L, 8L, new UpdateProductVariantPriceRequest(new BigDecimal("1.001"))));
 
         assertThat(exception.getCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
         verify(variantRepository, never()).saveAndFlush(any());

@@ -208,6 +208,7 @@ class ProductVisibilityPersistenceTest {
             ProductVariant inactiveVariant = productVariantRepository.saveAndFlush(ProductVariant.builder()
                     .product(soldOutProduct)
                     .sku("SECOND-INACTIVE")
+                    .basePrice(java.math.BigDecimal.TEN)
                     .status(ProductVariantStatus.INACTIVE)
                     .combinationKey("inactive")
                     .build());
@@ -264,6 +265,7 @@ class ProductVisibilityPersistenceTest {
         ProductVariant variant = ProductVariant.builder()
                 .product(product)
                 .sku(sku)
+                .basePrice(java.math.BigDecimal.TEN)
                 .status(ProductVariantStatus.ACTIVE)
                 .combinationKey(sku)
                 .build();

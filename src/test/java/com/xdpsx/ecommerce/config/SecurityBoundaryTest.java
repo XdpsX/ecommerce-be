@@ -60,8 +60,6 @@ class SecurityBoundaryTest {
             {
               "name": "Keyboard",
               "slug": "keyboard",
-              "price": 100,
-              "discountPercent": 0,
               "categoryId": 1,
               "brandId": 1,
               "imageIds": []
