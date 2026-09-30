@@ -36,6 +36,7 @@ import com.xdpsx.ecommerce.payment.domain.Payment;
 import com.xdpsx.ecommerce.payment.domain.PaymentMethod;
 import com.xdpsx.ecommerce.payment.domain.PaymentStatus;
 import com.xdpsx.ecommerce.payment.persistence.PaymentRepository;
+import com.xdpsx.ecommerce.user.domain.EmailIdentity;
 import com.xdpsx.ecommerce.user.domain.User;
 import com.xdpsx.ecommerce.user.persistence.UserRepository;
 
@@ -246,7 +247,7 @@ public class OrderServiceImpl implements OrderService {
 
     private User getUser(String userEmail) {
         return userRepository
-                .findByEmail(userEmail)
+                .findByEmail(EmailIdentity.canonicalize(userEmail))
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "user", "email", userEmail)));
     }

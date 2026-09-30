@@ -5,6 +5,8 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
+import com.xdpsx.ecommerce.user.domain.AuthProvider;
+import com.xdpsx.ecommerce.user.domain.EmailIdentity;
 import com.xdpsx.ecommerce.user.domain.User;
 import com.xdpsx.ecommerce.user.persistence.UserRepository;
 
@@ -17,10 +19,11 @@ public class UserDetailsServiceImpl implements UserDetailsService {
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        String canonicalEmail = EmailIdentity.canonicalize(username);
         User user = userRepository
-                .findByEmail(username)
-                .orElseThrow(
-                        () -> new UsernameNotFoundException(String.format("User with email=%s not found", username)));
+                .findByEmailAndAuthProvider(canonicalEmail, AuthProvider.LOCAL)
+                .orElseThrow(() ->
+                        new UsernameNotFoundException(String.format("User with email=%s not found", canonicalEmail)));
         return CustomUserDetails.buildFromUser(user);
     }
 }

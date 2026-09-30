@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.user.api.dto.UserProfile;
+import com.xdpsx.ecommerce.user.domain.EmailIdentity;
 import com.xdpsx.ecommerce.user.domain.User;
 import com.xdpsx.ecommerce.user.persistence.UserRepository;
 
@@ -21,7 +22,7 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserProfile getUserByEmail(String email) {
         User user = userRepository
-                .findByEmail(email)
+                .findByEmail(EmailIdentity.canonicalize(email))
                 .orElseThrow(
                         () -> new ApplicationException(ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "user")));
         return userMapper.fromEntityToProfile(user);

@@ -18,6 +18,7 @@ import com.xdpsx.ecommerce.catalog.product.domain.ProductVariant;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductVariantRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
+import com.xdpsx.ecommerce.user.domain.EmailIdentity;
 import com.xdpsx.ecommerce.user.domain.User;
 import com.xdpsx.ecommerce.user.persistence.UserRepository;
 
@@ -126,7 +127,7 @@ public class CartServiceImpl implements CartService {
 
     private User getUser(String userEmail) {
         return userRepository
-                .findByEmail(userEmail)
+                .findByEmail(EmailIdentity.canonicalize(userEmail))
                 .orElseThrow(
                         () -> new ApplicationException(ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "user")));
     }
