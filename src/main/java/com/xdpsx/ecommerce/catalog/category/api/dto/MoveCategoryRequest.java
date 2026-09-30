@@ -10,4 +10,5 @@ import jakarta.validation.constraints.Positive;
  * <p>{@code parentId} is nullable on purpose: {@code null} moves the category to the root group. {@code position} is
  * the zero-based index the category must occupy in the target sibling group after the move.
  */
-public record MoveCategoryRequest(@Positive Integer parentId, @NotNull @Min(0) Integer position) {}
+public record MoveCategoryRequest(
+        @Positive Integer parentId, @NotNull @Min(0) Integer position) {}

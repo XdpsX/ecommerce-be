@@ -19,6 +19,9 @@ import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 public record UpdateCategoryRequest(
         @NotBlank @Size(max = 128) String name,
         CategoryStatus status,
-        @Size(max = 160) @Pattern(regexp = "^[a-z0-9]+(-[a-z0-9]+)*$") String slug,
+
+        @Size(max = 160) @Pattern(regexp = "^[a-z0-9]+(-[a-z0-9]+)*$")
+        String slug,
+
         String imageId,
         @NotNull LocalDateTime lastRetrievedAt) {}

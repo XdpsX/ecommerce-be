@@ -8,4 +8,5 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * <p>{@code field} is absent for object-level errors. Rejected values are intentionally not included because they can
  * contain passwords, tokens, or other sensitive input.
  */
-public record FieldViolation(@JsonInclude(JsonInclude.Include.NON_NULL) String field, String code, String message) {}
+public record FieldViolation(
+        @JsonInclude(JsonInclude.Include.NON_NULL) String field, String code, String message) {}

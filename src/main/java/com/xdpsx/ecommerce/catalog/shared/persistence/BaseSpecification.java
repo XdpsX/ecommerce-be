@@ -120,7 +120,8 @@ public abstract class BaseSpecification<T> {
             spec = switch (sortField) {
                 case FIELD_NAME -> spec.and(sortByField(FIELD_NAME, asc));
                 case FIELD_DATE -> spec.and(sortByAuditDate(asc));
-                default -> throw new IllegalStateException("Unexpected value: " + sortField);};
+                default -> throw new IllegalStateException("Unexpected value: " + sortField);
+            };
         }
         return spec;
     }

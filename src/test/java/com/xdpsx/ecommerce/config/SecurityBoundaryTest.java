@@ -56,8 +56,7 @@ import com.xdpsx.ecommerce.payment.infrastructure.vnpay.IpnHandler;
 @Import({SecurityConfig.class, CustomAuthEntryPoint.class})
 class SecurityBoundaryTest {
 
-    private static final String CREATE_PRODUCT =
-            """
+    private static final String CREATE_PRODUCT = """
 			{
 			"name": "Keyboard",
 			"slug": "keyboard",

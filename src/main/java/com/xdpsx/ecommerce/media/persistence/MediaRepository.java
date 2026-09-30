@@ -26,8 +26,7 @@ public interface MediaRepository extends CrudRepository<Media, String> {
     @Query("SELECT m FROM Media m WHERE m.status = :status")
     List<Media> findAllByStatus(@Param("status") MediaStatus status);
 
-    @Query(
-            """
+    @Query("""
 		SELECT m FROM Media m
 		WHERE m.status = com.xdpsx.ecommerce.media.domain.MediaStatus.TEMPORARY
 			AND m.createdAt < :expiryTime
@@ -54,8 +53,7 @@ public interface MediaRepository extends CrudRepository<Media, String> {
     int claimExpiredTemporaryForDeletion(@Param("id") String id, @Param("expiryTime") LocalDateTime expiryTime);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query(
-            """
+    @Query("""
 		SELECT m FROM Media m
 		WHERE m.id = :id
 			AND m.status = com.xdpsx.ecommerce.media.domain.MediaStatus.TEMPORARY

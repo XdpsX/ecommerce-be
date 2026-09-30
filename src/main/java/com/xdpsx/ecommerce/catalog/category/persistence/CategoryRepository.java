@@ -132,8 +132,7 @@ public interface CategoryRepository extends JpaRepository<Category, Integer>, Jp
      * always enough to reach a root and no lazy load can be triggered while
      * filtering or mapping.
      */
-    @Query(
-            """
+    @Query("""
 				SELECT c FROM Category c
 				LEFT JOIN FETCH c.image
 				LEFT JOIN FETCH c.parent p
@@ -146,8 +145,7 @@ public interface CategoryRepository extends JpaRepository<Category, Integer>, Jp
      * Storefront/admin lookup of one node with the full ancestor chain, for
      * effective-status derivation.
      */
-    @Query(
-            """
+    @Query("""
 				SELECT c FROM Category c
 				LEFT JOIN FETCH c.image
 				LEFT JOIN FETCH c.parent p
@@ -157,8 +155,7 @@ public interface CategoryRepository extends JpaRepository<Category, Integer>, Jp
     Optional<Category> findByIdWithAncestry(@Param("id") Integer id);
 
     /** Storefront detail lookup by slug with the full ancestor chain and image. */
-    @Query(
-            """
+    @Query("""
 				SELECT c FROM Category c
 				LEFT JOIN FETCH c.image
 				LEFT JOIN FETCH c.parent p
@@ -172,8 +169,7 @@ public interface CategoryRepository extends JpaRepository<Category, Integer>, Jp
      * category set in one query
      * instead of one lookup per ID.
      */
-    @Query(
-            """
+    @Query("""
 				SELECT c FROM Category c
 				LEFT JOIN FETCH c.parent p
 				LEFT JOIN FETCH p.parent
@@ -192,15 +188,12 @@ public interface CategoryRepository extends JpaRepository<Category, Integer>, Jp
     @Query("SELECT c FROM Category c WHERE c.id = :id AND c.status = :status")
     Optional<Category> findByIdAndStatus(@Param("id") Integer id, @Param("status") CategoryStatus status);
 
-    @Query(
-            value =
-                    """
+    @Query(value = """
 				SELECT COUNT(*) FROM (
 					SELECT category_id FROM category_brands WHERE category_id = ?1
 					UNION ALL
 					SELECT category_id FROM products WHERE category_id = ?1
 				) AS combined
-			""",
-            nativeQuery = true)
+			""", nativeQuery = true)
     long countCategoriesInOtherTables(Integer categoryId);
 }
