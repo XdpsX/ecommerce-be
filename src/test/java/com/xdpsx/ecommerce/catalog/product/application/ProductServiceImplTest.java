@@ -4,9 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -190,12 +192,14 @@ class ProductServiceImplTest {
         Product second = product(2L, activeCategory(7), activeBrand(5));
         @SuppressWarnings("unchecked")
         Page<Product> page = mock(Page.class);
-        when(productSpecification.getStorefrontFiltersSpec(any(), any(), any(), any(), any(), any(), any(), any()))
+        when(productSpecification.getStorefrontFiltersSpec(
+                        any(), any(), any(), any(), any(), any(), any(), any(), any(Instant.class)))
                 .thenReturn((root, query, criteriaBuilder) -> criteriaBuilder.conjunction());
         when(productRepository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(page);
         when(page.getContent()).thenReturn(List.of(first, second));
-        when(productVariantRepository.findEligiblePriceRanges(List.of(1L, 2L))).thenReturn(List.of());
+        when(productVariantRepository.findEligiblePriceRanges(eq(List.of(1L, 2L)), any(Instant.class)))
+                .thenReturn(List.of());
         when(inventoryBalanceRepository.findAvailableStorefrontProductIdsByProductIds(List.of(1L, 2L)))
                 .thenReturn(List.of());
         when(productMapper.toStorefrontSummary(
@@ -206,7 +210,7 @@ class ProductServiceImplTest {
         productService.getStorefrontProducts(StorefrontProductFilter.builder().build());
 
         verify(productRepository).findAllWithImagesByIdIn(List.of(1L, 2L));
-        verify(productVariantRepository, times(1)).findEligiblePriceRanges(List.of(1L, 2L));
+        verify(productVariantRepository, times(1)).findEligiblePriceRanges(eq(List.of(1L, 2L)), any(Instant.class));
         verify(inventoryBalanceRepository, times(1)).findAvailableStorefrontProductIdsByProductIds(List.of(1L, 2L));
         verify(productMapper)
                 .toStorefrontSummary(first, false, BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2));

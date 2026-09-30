@@ -3,6 +3,7 @@ package com.xdpsx.ecommerce.catalog.product.persistence;
 import static com.xdpsx.ecommerce.catalog.shared.persistence.FieldConstants.*;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -40,10 +41,24 @@ public class ProductSpecification extends BasicSpecification<Product> {
             Integer categoryId,
             Integer brandId,
             Map<Long, List<Long>> optionValueIdsByOption) {
+        return getStorefrontFiltersSpec(
+                search, sort, minPrice, maxPrice, inStock, categoryId, brandId, optionValueIdsByOption, Instant.now());
+    }
+
+    public Specification<Product> getStorefrontFiltersSpec(
+            String search,
+            String sort,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            Boolean inStock,
+            Integer categoryId,
+            Integer brandId,
+            Map<Long, List<Long>> optionValueIdsByOption,
+            Instant now) {
         return storefrontVisibility()
                 .and(hasName(search))
-                .and(getSortSpec(sort))
-                .and(hasPriceInRange(minPrice, maxPrice))
+                .and(getSortSpec(sort, now))
+                .and(hasPriceInRange(minPrice, maxPrice, now))
                 .and(isInStock(inStock))
                 .and(belongsToCategory(categoryId))
                 .and(belongsToBrand(brandId))
@@ -89,7 +104,7 @@ public class ProductSpecification extends BasicSpecification<Product> {
     }
 
     public Specification<Product> hasEligibleVariant() {
-        return (root, query, cb) -> eligibleVariantExists(root, query, cb, null, null);
+        return (root, query, cb) -> eligibleVariantExists(root, query, cb, null, null, Instant.now());
     }
 
     private static jakarta.persistence.criteria.Predicate activeOrMissing(
@@ -125,13 +140,17 @@ public class ProductSpecification extends BasicSpecification<Product> {
 
     @Override
     public Specification<Product> getSortSpec(String sort) {
+        return getSortSpec(sort, Instant.now());
+    }
+
+    public Specification<Product> getSortSpec(String sort, Instant now) {
         if (sort == null) return sortByDate(false);
 
         boolean asc = !sort.startsWith("-");
         String sortField = asc ? sort : sort.substring(1);
         return switch (sortField) {
             case FIELD_PRICE:
-                yield sortByPrice(asc);
+                yield sortByPrice(asc, now);
             case FIELD_NAME:
                 yield sortByName(asc);
             case FIELD_DATE:
@@ -142,7 +161,11 @@ public class ProductSpecification extends BasicSpecification<Product> {
     }
 
     public Specification<Product> hasPriceInRange(BigDecimal minPrice, BigDecimal maxPrice) {
-        return (root, query, cb) -> eligibleVariantExists(root, query, cb, minPrice, maxPrice);
+        return hasPriceInRange(minPrice, maxPrice, Instant.now());
+    }
+
+    public Specification<Product> hasPriceInRange(BigDecimal minPrice, BigDecimal maxPrice, Instant now) {
+        return (root, query, cb) -> eligibleVariantExists(root, query, cb, minPrice, maxPrice, now);
     }
 
     private jakarta.persistence.criteria.Predicate eligibleVariantExists(
@@ -150,15 +173,17 @@ public class ProductSpecification extends BasicSpecification<Product> {
             jakarta.persistence.criteria.CriteriaQuery<?> query,
             CriteriaBuilder cb,
             BigDecimal minPrice,
-            BigDecimal maxPrice) {
+            BigDecimal maxPrice,
+            Instant now) {
         var subquery = query.subquery(Long.class);
         var variant = subquery.from(ProductVariant.class);
         List<jakarta.persistence.criteria.Predicate> predicates = new java.util.ArrayList<>();
         predicates.add(cb.equal(variant.get("product").get("id"), root.get("id")));
         predicates.add(cb.equal(variant.get("status"), ProductVariantStatus.ACTIVE));
         predicates.add(eligibleVariantSelections(cb, query, variant));
-        if (minPrice != null) predicates.add(cb.greaterThanOrEqualTo(variant.get("basePrice"), minPrice));
-        if (maxPrice != null) predicates.add(cb.lessThanOrEqualTo(variant.get("basePrice"), maxPrice));
+        jakarta.persistence.criteria.Expression<BigDecimal> effectivePrice = effectivePrice(cb, variant, now);
+        if (minPrice != null) predicates.add(cb.greaterThanOrEqualTo(effectivePrice, minPrice));
+        if (maxPrice != null) predicates.add(cb.lessThanOrEqualTo(effectivePrice, maxPrice));
         subquery.select(variant.get("id")).where(predicates.toArray(jakarta.persistence.criteria.Predicate[]::new));
         return cb.exists(subquery);
     }
@@ -250,10 +275,14 @@ public class ProductSpecification extends BasicSpecification<Product> {
     }
 
     public Specification<Product> sortByPrice(boolean asc) {
+        return sortByPrice(asc, Instant.now());
+    }
+
+    public Specification<Product> sortByPrice(boolean asc, Instant now) {
         return (root, query, criteriaBuilder) -> {
             var subquery = query.subquery(BigDecimal.class);
             var variant = subquery.from(ProductVariant.class);
-            subquery.select(criteriaBuilder.min(variant.get("basePrice")));
+            subquery.select(criteriaBuilder.min(effectivePrice(criteriaBuilder, variant, now)));
             subquery.where(
                     criteriaBuilder.equal(variant.get("product").get("id"), root.get("id")),
                     criteriaBuilder.equal(variant.get("status"), ProductVariantStatus.ACTIVE),
@@ -265,5 +294,18 @@ public class ProductSpecification extends BasicSpecification<Product> {
             }
             return criteriaBuilder.conjunction();
         };
+    }
+
+    private static jakarta.persistence.criteria.Expression<BigDecimal> effectivePrice(
+            CriteriaBuilder cb, jakarta.persistence.criteria.From<?, ProductVariant> variant, Instant now) {
+        Instant captured = now == null ? Instant.now() : now;
+        return cb.<BigDecimal>selectCase()
+                .when(
+                        cb.and(
+                                cb.isNotNull(variant.get("salePrice")),
+                                cb.lessThanOrEqualTo(variant.<Instant>get("saleStartsAt"), captured),
+                                cb.greaterThan(variant.<Instant>get("saleEndsAt"), captured)),
+                        variant.get("salePrice"))
+                .otherwise(variant.get("basePrice"));
     }
 }

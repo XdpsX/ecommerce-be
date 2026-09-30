@@ -1,5 +1,7 @@
 package com.xdpsx.ecommerce.cart.application;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -28,11 +30,13 @@ public class CartServiceImpl implements CartService {
     private final UserRepository userRepository;
     private final CartItemRepository cartItemRepository;
     private final ProductVariantRepository productVariantRepository;
+    private final Clock pricingClock;
 
     @Override
     @Transactional
     public CartItemResponse addToCart(String userEmail, CartItemRequest request) {
         User user = getUser(userEmail);
+        Instant now = now();
         ProductVariant variant = getVariant(request.getVariantId());
         CartItemId cartItemId = new CartItemId(user.getId(), variant.getId());
         CartItem cartItem = cartItemRepository.findById(cartItemId).orElse(null);
@@ -47,14 +51,14 @@ public class CartServiceImpl implements CartService {
             saved.setAvailable(cartItemRepository
                     .findAvailableEligibleVariantIdsByUserId(user.getId())
                     .contains(variant.getId()));
-            return cartItemMapper.fromEntityToResponse(saved);
+            return cartItemMapper.fromEntityToResponse(saved, now);
         } else {
             cartItem.setQuantity(cartItem.getQuantity() + request.getQuantity());
             CartItem saved = cartItemRepository.save(cartItem);
             saved.setAvailable(cartItemRepository
                     .findAvailableEligibleVariantIdsByUserId(user.getId())
                     .contains(variant.getId()));
-            return cartItemMapper.fromEntityToResponse(saved);
+            return cartItemMapper.fromEntityToResponse(saved, now);
         }
     }
 
@@ -80,18 +84,22 @@ public class CartServiceImpl implements CartService {
     @Transactional(readOnly = true)
     public List<CartItemResponse> getCart(String userEmail) {
         User user = getUser(userEmail);
+        Instant now = now();
         List<CartItem> cartItems = cartItemRepository.findNewestByUserId(user.getId());
         Set<Long> availableVariantIds =
                 Set.copyOf(cartItemRepository.findAvailableEligibleVariantIdsByUserId(user.getId()));
         cartItems.forEach(item ->
                 item.setAvailable(availableVariantIds.contains(item.getVariant().getId())));
-        return cartItems.stream().map(cartItemMapper::fromEntityToResponse).toList();
+        return cartItems.stream()
+                .map(item -> cartItemMapper.fromEntityToResponse(item, now))
+                .toList();
     }
 
     @Override
     @Transactional
     public CartItemResponse updateCartItem(String userEmail, CartItemRequest request) {
         User user = getUser(userEmail);
+        Instant now = now();
         CartItemId cartItemId = new CartItemId(user.getId(), request.getVariantId());
         CartItem cartItem = getCartItem(cartItemId);
         cartItem.setQuantity(request.getQuantity());
@@ -99,7 +107,7 @@ public class CartServiceImpl implements CartService {
         saved.setAvailable(cartItemRepository
                 .findAvailableEligibleVariantIdsByUserId(user.getId())
                 .contains(request.getVariantId()));
-        return cartItemMapper.fromEntityToResponse(saved);
+        return cartItemMapper.fromEntityToResponse(saved, now);
     }
 
     @Override
@@ -121,5 +129,9 @@ public class CartServiceImpl implements CartService {
                 .findByEmail(userEmail)
                 .orElseThrow(
                         () -> new ApplicationException(ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "user")));
+    }
+
+    private Instant now() {
+        return (pricingClock == null ? Clock.systemUTC() : pricingClock).instant();
     }
 }

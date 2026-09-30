@@ -1,6 +1,8 @@
 package com.xdpsx.ecommerce.catalog.product.application;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -64,10 +66,12 @@ public class ProductServiceImpl implements ProductService {
     private final InventoryBalanceRepository inventoryBalanceRepository;
     private final OrderItemRepository orderItemRepository;
     private final StorePricingProperties storePricingProperties;
+    private final Clock pricingClock;
 
     @Transactional(readOnly = true)
     @Override
     public PageResponse<StorefrontProductSummaryResponse> getStorefrontProducts(StorefrontProductFilter filter) {
+        Instant now = now();
         Map<Long, List<Long>> optionValueIdsByOption = validateOptionValueIds(filter.getOptionValueIds());
         Specification<Product> productSpec = spec.getStorefrontFiltersSpec(
                 filter.getSearch(),
@@ -77,11 +81,12 @@ public class ProductServiceImpl implements ProductService {
                 filter.getInStock(),
                 filter.getCategoryId(),
                 filter.getBrandId(),
-                optionValueIdsByOption);
+                optionValueIdsByOption,
+                now);
         Page<Product> page =
                 productRepository.findAll(productSpec, PageRequest.of(filter.getPageNum() - 1, filter.getPageSize()));
         loadImages(page.getContent());
-        Map<Long, ProductPriceRange> ranges = loadPriceRanges(page.getContent());
+        Map<Long, ProductPriceRange> ranges = loadPriceRanges(page.getContent(), now);
         Set<Long> availableProductIds = storefrontAvailableProductIds(page.getContent());
         return PageMapper.toPageResponse(page, product -> {
             ProductPriceRange range = ranges.get(product.getId());
@@ -96,10 +101,11 @@ public class ProductServiceImpl implements ProductService {
     @Transactional(readOnly = true)
     @Override
     public StorefrontProductDetailResponse getStorefrontProductBySlug(String slug) {
+        Instant now = now();
         Product product =
                 productRepository.findStorefrontProductBySlug(slug).orElseThrow(() -> notFound("product", slug));
-        VariantMatrix matrix = loadVariantMatrix(product.getId(), true);
-        ProductPriceRange range = loadPriceRanges(List.of(product))
+        VariantMatrix matrix = loadVariantMatrix(product.getId(), true, now);
+        ProductPriceRange range = loadPriceRanges(List.of(product), now)
                 .getOrDefault(
                         product.getId(),
                         new ProductPriceRange(BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2)));
@@ -121,10 +127,11 @@ public class ProductServiceImpl implements ProductService {
     @Transactional(readOnly = true)
     @Override
     public PageResponse<StorefrontProductSummaryResponse> getLatestStorefrontProducts(int pageNum, int pageSize) {
+        Instant now = now();
         Page<Product> page = productRepository.findAll(
                 spec.storefrontVisibility().and(spec.getSortSpec("-date")), PageRequest.of(pageNum - 1, pageSize));
         loadImages(page.getContent());
-        Map<Long, ProductPriceRange> ranges = loadPriceRanges(page.getContent());
+        Map<Long, ProductPriceRange> ranges = loadPriceRanges(page.getContent(), now);
         Set<Long> availableProductIds = storefrontAvailableProductIds(page.getContent());
         return PageMapper.toPageResponse(page, product -> {
             ProductPriceRange range = ranges.get(product.getId());
@@ -151,8 +158,9 @@ public class ProductServiceImpl implements ProductService {
     @Transactional(readOnly = true)
     @Override
     public AdminProductDetailResponse getAdminProduct(Long id) {
+        Instant now = now();
         Product product = productRepository.findAdminProductById(id).orElseThrow(() -> notFound("product", id));
-        VariantMatrix matrix = loadVariantMatrix(product.getId(), false);
+        VariantMatrix matrix = loadVariantMatrix(product.getId(), false, now);
         return productMapper.toAdminDetail(
                 product,
                 matrix.options(),
@@ -376,7 +384,7 @@ public class ProductServiceImpl implements ProductService {
                 products.stream().map(Product::getId).toList()));
     }
 
-    private VariantMatrix loadVariantMatrix(Long productId, boolean storefront) {
+    private VariantMatrix loadVariantMatrix(Long productId, boolean storefront, Instant now) {
         List<ProductVariant> variants =
                 productVariantRepository.findActiveWithSelectionsAndOptionsByProductId(productId);
         Set<Long> availableVariantIds = new HashSet<>(
@@ -419,11 +427,14 @@ public class ProductServiceImpl implements ProductService {
                                                 value.getName(),
                                                 value.getDisplayOrder()));
                     });
+                    var resolved = variant.resolvePriceAt(now);
                     return new ProductVariantSelectionResponse(
                             variant.getId(),
                             variant.getSku(),
                             valueIds,
-                            variant.getBasePrice(),
+                            resolved.basePrice(),
+                            resolved.discountAmount(),
+                            resolved.finalUnitPrice(),
                             storeCurrency(),
                             availableVariantIds.contains(variant.getId()));
                 })
@@ -439,11 +450,12 @@ public class ProductServiceImpl implements ProductService {
                 availableVariantIds);
     }
 
-    private Map<Long, ProductPriceRange> loadPriceRanges(List<Product> products) {
+    private Map<Long, ProductPriceRange> loadPriceRanges(List<Product> products, Instant now) {
         if (products.isEmpty()) return Map.of();
-        return productVariantRepository
-                .findEligiblePriceRanges(products.stream().map(Product::getId).toList())
-                .stream()
+        List<ProductVariantRepository.PriceRangeView> views = productVariantRepository.findEligiblePriceRanges(
+                products.stream().map(Product::getId).toList(), now);
+        if (views == null) views = List.of();
+        return views.stream()
                 .collect(Collectors.toMap(
                         ProductVariantRepository.PriceRangeView::getProductId,
                         view -> new ProductPriceRange(view.getMinimumPrice(), view.getMaximumPrice())));
@@ -451,6 +463,10 @@ public class ProductServiceImpl implements ProductService {
 
     private String storeCurrency() {
         return storePricingProperties == null ? "VND" : storePricingProperties.getCurrency();
+    }
+
+    private Instant now() {
+        return (pricingClock == null ? Clock.systemUTC() : pricingClock).instant();
     }
 
     private List<ProductOptionResponse> toOptions(List<ProductVariantRepository.FilterOptionValueView> views) {

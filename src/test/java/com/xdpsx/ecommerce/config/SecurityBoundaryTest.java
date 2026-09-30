@@ -1,6 +1,7 @@
 package com.xdpsx.ecommerce.config;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -8,6 +9,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -30,10 +32,14 @@ import com.xdpsx.ecommerce.auth.infrastructure.security.oauth2.CustomOAuth2UserS
 import com.xdpsx.ecommerce.cart.api.CartController;
 import com.xdpsx.ecommerce.cart.application.CartService;
 import com.xdpsx.ecommerce.catalog.product.api.AdminProductController;
+import com.xdpsx.ecommerce.catalog.product.api.AdminProductVariantController;
 import com.xdpsx.ecommerce.catalog.product.api.StorefrontProductController;
 import com.xdpsx.ecommerce.catalog.product.api.dto.AdminProductSummaryResponse;
 import com.xdpsx.ecommerce.catalog.product.api.dto.ProductCreateRequest;
+import com.xdpsx.ecommerce.catalog.product.api.dto.ProductVariantResponse;
 import com.xdpsx.ecommerce.catalog.product.application.ProductService;
+import com.xdpsx.ecommerce.catalog.product.application.ProductVariantService;
+import com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus;
 import com.xdpsx.ecommerce.config.security.SecurityConfig;
 import com.xdpsx.ecommerce.media.api.MediaController;
 import com.xdpsx.ecommerce.media.application.MediaService;
@@ -46,6 +52,7 @@ import com.xdpsx.ecommerce.payment.infrastructure.vnpay.IpnHandler;
 @WebMvcTest(
         controllers = {
             AdminProductController.class,
+            AdminProductVariantController.class,
             StorefrontProductController.class,
             CartController.class,
             MediaController.class,
@@ -71,6 +78,9 @@ class SecurityBoundaryTest {
 
     @MockitoBean
     private ProductService productService;
+
+    @MockitoBean
+    private ProductVariantService productVariantService;
 
     @MockitoBean
     private CartService cartService;
@@ -175,5 +185,53 @@ class SecurityBoundaryTest {
                 .andExpect(jsonPath("$.Message").value("Confirm Success"));
 
         verify(ipnHandler).process(any());
+    }
+
+    @Test
+    void variantSaleWrites_ShouldRequireAdmin() throws Exception {
+        String schedule = """
+                {
+                  "salePrice": 80000.00,
+                  "currency": "VND",
+                  "startsAt": "2026-10-01T00:00:00Z",
+                  "endsAt": "2026-10-08T00:00:00Z"
+                }
+                """;
+        ProductVariantResponse response = new ProductVariantResponse(
+                2L,
+                "SKU-2",
+                null,
+                new java.math.BigDecimal("100000.00"),
+                new java.math.BigDecimal("80000.00"),
+                java.time.Instant.parse("2026-10-01T00:00:00Z"),
+                java.time.Instant.parse("2026-10-08T00:00:00Z"),
+                new java.math.BigDecimal("20000.00"),
+                new java.math.BigDecimal("80000.00"),
+                "VND",
+                ProductVariantStatus.ACTIVE,
+                List.of());
+        when(productVariantService.scheduleSale(eq(1L), eq(2L), any())).thenReturn(response);
+
+        mockMvc.perform(put("/admin/products/1/variants/2/sale")
+                        .with(user("customer@example.test").roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(schedule))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(delete("/admin/products/1/variants/2/sale")
+                        .with(user("customer@example.test").roles("USER")))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(productVariantService);
+
+        mockMvc.perform(put("/admin/products/1/variants/2/sale")
+                        .with(user("admin@example.test").roles("ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(schedule))
+                .andExpect(status().isOk());
+        mockMvc.perform(delete("/admin/products/1/variants/2/sale")
+                        .with(user("admin@example.test").roles("ADMIN")))
+                .andExpect(status().isNoContent());
+
+        verify(productVariantService).scheduleSale(eq(1L), eq(2L), any());
+        verify(productVariantService).removeSale(1L, 2L);
     }
 }

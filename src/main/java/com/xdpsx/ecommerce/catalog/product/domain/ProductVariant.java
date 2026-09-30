@@ -2,6 +2,7 @@ package com.xdpsx.ecommerce.catalog.product.domain;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -51,6 +52,15 @@ public class ProductVariant extends AuditEntity {
     @Column(name = "base_price", precision = 15, scale = 2, nullable = false)
     private BigDecimal basePrice = BigDecimal.ZERO.setScale(2);
 
+    @Column(name = "sale_price", precision = 15, scale = 2)
+    private BigDecimal salePrice;
+
+    @Column(name = "sale_starts_at")
+    private Instant saleStartsAt;
+
+    @Column(name = "sale_ends_at")
+    private Instant saleEndsAt;
+
     @Enumerated(EnumType.STRING)
     @Column(length = 16, nullable = false)
     private ProductVariantStatus status;
@@ -69,15 +79,77 @@ public class ProductVariant extends AuditEntity {
             throw new IllegalArgumentException("basePrice must be between 0.00 and 1000000000.00");
         }
         try {
-            this.basePrice = value.setScale(2, RoundingMode.UNNECESSARY);
+            BigDecimal normalized = value.setScale(2, RoundingMode.UNNECESSARY);
+            if (salePrice != null && normalized.compareTo(salePrice) <= 0) {
+                throw new IllegalArgumentException("basePrice must be greater than salePrice");
+            }
+            this.basePrice = normalized;
         } catch (ArithmeticException exception) {
             throw new IllegalArgumentException("basePrice must have at most 2 fractional digits", exception);
         }
+    }
+
+    public void replaceSaleSchedule(BigDecimal value, Instant startsAt, Instant endsAt, Instant now) {
+        if (value == null || startsAt == null || endsAt == null) {
+            throw new IllegalArgumentException("sale schedule must be complete");
+        }
+        BigDecimal normalized;
+        try {
+            normalized = value.setScale(2, RoundingMode.UNNECESSARY);
+        } catch (ArithmeticException exception) {
+            throw new IllegalArgumentException("salePrice must have at most 2 fractional digits", exception);
+        }
+        if (normalized.signum() < 0 || normalized.compareTo(basePrice) >= 0) {
+            throw new IllegalArgumentException("salePrice must be between 0.00 inclusive and basePrice exclusive");
+        }
+        if (!startsAt.isBefore(endsAt)) {
+            throw new IllegalArgumentException("saleStartsAt must be before saleEndsAt");
+        }
+        if (now == null || !endsAt.isAfter(now)) {
+            throw new IllegalArgumentException("saleEndsAt must be after the current instant");
+        }
+        this.salePrice = normalized;
+        this.saleStartsAt = startsAt;
+        this.saleEndsAt = endsAt;
+    }
+
+    public void clearSaleSchedule() {
+        this.salePrice = null;
+        this.saleStartsAt = null;
+        this.saleEndsAt = null;
+    }
+
+    public ResolvedVariantPrice resolvePriceAt(Instant now) {
+        BigDecimal normalizedBase = basePrice == null ? BigDecimal.ZERO.setScale(2) : basePrice.setScale(2);
+        boolean active = salePrice != null
+                && saleStartsAt != null
+                && saleEndsAt != null
+                && now != null
+                && !now.isBefore(saleStartsAt)
+                && now.isBefore(saleEndsAt);
+        BigDecimal finalPrice = active ? salePrice : normalizedBase;
+        return new ResolvedVariantPrice(
+                normalizedBase, normalizedBase.subtract(finalPrice).setScale(2), finalPrice.setScale(2));
     }
 
     @PrePersist
     @PreUpdate
     private void validateBasePrice() {
         changeBasePrice(basePrice);
+        if (salePrice == null && saleStartsAt == null && saleEndsAt == null) return;
+        if (salePrice == null || saleStartsAt == null || saleEndsAt == null) {
+            throw new IllegalArgumentException("sale schedule must be complete");
+        }
+        try {
+            salePrice = salePrice.setScale(2, RoundingMode.UNNECESSARY);
+        } catch (ArithmeticException exception) {
+            throw new IllegalArgumentException("salePrice must have at most 2 fractional digits", exception);
+        }
+        if (salePrice.signum() < 0 || salePrice.compareTo(basePrice) >= 0) {
+            throw new IllegalArgumentException("salePrice must be between 0.00 inclusive and basePrice exclusive");
+        }
+        if (!saleStartsAt.isBefore(saleEndsAt)) {
+            throw new IllegalArgumentException("saleStartsAt must be before saleEndsAt");
+        }
     }
 }

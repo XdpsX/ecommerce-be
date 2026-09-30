@@ -14,4 +14,8 @@ public interface ProductVariantService {
     ProductVariantResponse updatePrice(Long productId, Long variantId, UpdateProductVariantPriceRequest request);
 
     ProductVariantResponse updateStatus(Long productId, Long variantId, UpdateProductVariantStatusRequest request);
+
+    ProductVariantResponse scheduleSale(Long productId, Long variantId, ScheduleProductVariantSaleRequest request);
+
+    void removeSale(Long productId, Long variantId);
 }

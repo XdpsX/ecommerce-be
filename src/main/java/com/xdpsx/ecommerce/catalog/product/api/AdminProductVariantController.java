@@ -57,4 +57,18 @@ public class AdminProductVariantController implements AdminProductVariantApiDocs
             @Valid @RequestBody UpdateProductVariantStatusRequest request) {
         return productVariantService.updateStatus(productId, variantId, request);
     }
+
+    @PutMapping("/{variantId}/sale")
+    public ProductVariantResponse scheduleSale(
+            @PathVariable Long productId,
+            @PathVariable Long variantId,
+            @Valid @RequestBody ScheduleProductVariantSaleRequest request) {
+        return productVariantService.scheduleSale(productId, variantId, request);
+    }
+
+    @DeleteMapping("/{variantId}/sale")
+    public ResponseEntity<Void> removeSale(@PathVariable Long productId, @PathVariable Long variantId) {
+        productVariantService.removeSale(productId, variantId);
+        return ResponseEntity.noContent().build();
+    }
 }

@@ -14,6 +14,8 @@ public class CartItemResponse {
     private List<Long> optionValueIds;
     private Integer quantity;
     private BigDecimal basePrice;
+    private BigDecimal discountAmount;
+    private BigDecimal finalUnitPrice;
     private String currency;
     private boolean available;
 }

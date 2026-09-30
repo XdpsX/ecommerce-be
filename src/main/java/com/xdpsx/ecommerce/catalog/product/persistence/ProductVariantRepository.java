@@ -1,6 +1,7 @@
 package com.xdpsx.ecommerce.catalog.product.persistence;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -21,7 +22,11 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
         BigDecimal getMaximumPrice();
     }
 
-    @Query("SELECT v.product.id AS productId, MIN(v.basePrice) AS minimumPrice, MAX(v.basePrice) AS maximumPrice "
+    @Query("SELECT v.product.id AS productId, "
+            + "MIN(CASE WHEN v.salePrice IS NOT NULL AND v.saleStartsAt <= :now AND :now < v.saleEndsAt "
+            + "THEN v.salePrice ELSE v.basePrice END) AS minimumPrice, "
+            + "MAX(CASE WHEN v.salePrice IS NOT NULL AND v.saleStartsAt <= :now AND :now < v.saleEndsAt "
+            + "THEN v.salePrice ELSE v.basePrice END) AS maximumPrice "
             + "FROM ProductVariant v JOIN v.product p JOIN p.category c LEFT JOIN c.parent cp LEFT JOIN cp.parent cgp "
             + "LEFT JOIN cgp.parent cggp JOIN p.brand b WHERE v.product.id IN :productIds "
             + "AND v.status = com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus.ACTIVE "
@@ -35,7 +40,12 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
             + "WHERE s.variant = v AND (s.optionValue.status <> com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus.ACTIVE "
             + "OR s.optionValue.option.status <> com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus.ACTIVE)) "
             + "GROUP BY v.product.id")
-    List<PriceRangeView> findEligiblePriceRanges(@Param("productIds") Collection<Long> productIds);
+    List<PriceRangeView> findEligiblePriceRanges(
+            @Param("productIds") Collection<Long> productIds, @Param("now") Instant now);
+
+    default List<PriceRangeView> findEligiblePriceRanges(Collection<Long> productIds) {
+        return findEligiblePriceRanges(productIds, Instant.now());
+    }
 
     @Query(
             "SELECT DISTINCT v FROM ProductVariant v JOIN FETCH v.product p "
