@@ -2,8 +2,6 @@ package com.xdpsx.ecommerce.catalog.product.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.math.BigDecimal;
-
 import org.junit.jupiter.api.Test;
 import org.mapstruct.factory.Mappers;
 
@@ -38,7 +36,6 @@ class ProductMapperTest {
                 .id(4L)
                 .name("Product")
                 .slug("product")
-                .price(BigDecimal.TEN)
                 .published(true)
                 .category(activeCategory)
                 .brand(inactiveBrand)

@@ -1,24 +1,37 @@
 package com.xdpsx.ecommerce.cart.application;
 
+import java.util.List;
+
 import org.mapstruct.Mapper;
-import org.mapstruct.Mapping;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import com.xdpsx.ecommerce.cart.api.dto.CartItemResponse;
 import com.xdpsx.ecommerce.cart.domain.CartItem;
-import com.xdpsx.ecommerce.catalog.product.application.ProductMapper;
+import com.xdpsx.ecommerce.config.StorePricingProperties;
 
 @Mapper(componentModel = "spring")
 public abstract class CartItemMapper {
     @Autowired
-    private ProductMapper productMapper;
-
-    @Mapping(target = "product", ignore = true)
-    abstract CartItemResponse toResponse(CartItem entity);
+    private StorePricingProperties pricingProperties;
 
     public CartItemResponse fromEntityToResponse(CartItem entity) {
-        CartItemResponse response = toResponse(entity);
-        response.setProduct(productMapper.fromEntityToResponse(entity.getProduct()));
+        var variant = entity.getVariant();
+        var product = variant == null ? null : variant.getProduct();
+        CartItemResponse response = new CartItemResponse();
+        response.setProductId(product == null ? null : product.getId());
+        response.setProductName(product == null ? null : product.getName());
+        response.setVariantId(variant == null ? entity.getId().getVariantId() : variant.getId());
+        response.setSku(variant == null ? null : variant.getSku());
+        response.setOptionValueIds(
+                variant == null
+                        ? List.of()
+                        : variant.getSelections().stream()
+                                .map(s -> s.getOptionValueId())
+                                .toList());
+        response.setQuantity(entity.getQuantity());
+        response.setBasePrice(variant == null ? null : variant.getBasePrice());
+        response.setCurrency(pricingProperties == null ? "VND" : pricingProperties.getCurrency());
+        response.setAvailable(entity.isAvailable());
         return response;
     }
 }

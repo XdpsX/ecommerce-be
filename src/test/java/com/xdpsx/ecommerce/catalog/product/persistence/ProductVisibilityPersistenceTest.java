@@ -203,16 +203,33 @@ class ProductVisibilityPersistenceTest {
                     .get(0);
             inventoryBalanceRepository.saveAndFlush(InventoryBalance.zero(soldOutVariant));
 
+            VariantOptionValue inactiveValue = variantOptionValueRepository.findAll().stream()
+                    .filter(value -> value.getCode().equals("white"))
+                    .findFirst()
+                    .orElseThrow();
+            inactiveValue.setStatus(VariantOptionStatus.INACTIVE);
+            variantOptionValueRepository.saveAndFlush(inactiveValue);
             Product soldOutProduct =
                     productRepository.findById(seed.secondVisibleProductId()).orElseThrow();
-            ProductVariant inactiveVariant = productVariantRepository.saveAndFlush(ProductVariant.builder()
+            ProductVariant inactiveSelectionVariant = productVariantRepository.saveAndFlush(ProductVariant.builder()
                     .product(soldOutProduct)
-                    .sku("SECOND-INACTIVE")
+                    .sku("SECOND-INACTIVE-VALUE")
                     .basePrice(java.math.BigDecimal.TEN)
-                    .status(ProductVariantStatus.INACTIVE)
-                    .combinationKey("inactive")
+                    .status(ProductVariantStatus.ACTIVE)
+                    .combinationKey("inactive-value")
                     .build());
-            InventoryBalance inactiveBalance = InventoryBalance.zero(inactiveVariant);
+            inactiveSelectionVariant
+                    .getSelections()
+                    .add(ProductVariantSelection.builder()
+                            .id(new ProductVariantSelectionId(
+                                    inactiveSelectionVariant.getId(),
+                                    inactiveValue.getOption().getId()))
+                            .variant(inactiveSelectionVariant)
+                            .optionValueId(inactiveValue.getId())
+                            .optionValue(inactiveValue)
+                            .build());
+            productVariantRepository.saveAndFlush(inactiveSelectionVariant);
+            InventoryBalance inactiveBalance = InventoryBalance.zero(inactiveSelectionVariant);
             inactiveBalance.adjustOnHand(10);
             inventoryBalanceRepository.saveAndFlush(inactiveBalance);
         });
@@ -227,6 +244,124 @@ class ProductVisibilityPersistenceTest {
         assertThat(available.getContent()).extracting(Product::getId).containsExactly(seed.visibleProductId());
         assertThat(unavailable.getContent()).extracting(Product::getId).containsExactly(seed.secondVisibleProductId());
         assertThat(unavailable.getTotalElements()).isEqualTo(1);
+    }
+
+    @Test
+    void priceRangeAndFilter_ShouldUseTheSameEligibleSkuForBothBounds() {
+        Seed seed = seedProducts();
+        transactionTemplate.executeWithoutResult(status -> {
+            List<ProductVariant> variants = productVariantRepository.findByProductIdAndStatus(
+                    seed.visibleProductId(), ProductVariantStatus.ACTIVE);
+            variants.get(0).setBasePrice(new java.math.BigDecimal("10.00"));
+            variants.get(1).setBasePrice(new java.math.BigDecimal("30.00"));
+            productVariantRepository.saveAllAndFlush(variants);
+
+            VariantOption retiredOption = variantOptionRepository.saveAndFlush(VariantOption.builder()
+                    .code("retired")
+                    .name("Retired")
+                    .displayOrder(1)
+                    .status(VariantOptionStatus.ACTIVE)
+                    .build());
+            VariantOptionValue retiredValue =
+                    variantOptionValueRepository.saveAndFlush(value(retiredOption, "retired"));
+            Product visible =
+                    productRepository.findById(seed.visibleProductId()).orElseThrow();
+            ProductVariant invalid = ProductVariant.builder()
+                    .product(visible)
+                    .sku("VISIBLE-RETIRED")
+                    .basePrice(new java.math.BigDecimal("1.00"))
+                    .status(ProductVariantStatus.ACTIVE)
+                    .combinationKey("retired")
+                    .build();
+            invalid.getSelections()
+                    .add(ProductVariantSelection.builder()
+                            .id(new ProductVariantSelectionId(invalid.getId(), retiredOption.getId()))
+                            .variant(invalid)
+                            .optionValueId(retiredValue.getId())
+                            .optionValue(retiredValue)
+                            .build());
+            productVariantRepository.saveAndFlush(invalid);
+            retiredValue.setStatus(VariantOptionStatus.INACTIVE);
+            variantOptionValueRepository.saveAndFlush(retiredValue);
+        });
+
+        ProductVariantRepository.PriceRangeView range = transactionTemplate.execute(status -> productVariantRepository
+                .findEligiblePriceRanges(List.of(seed.visibleProductId()))
+                .get(0));
+        Page<Product> matching = transactionTemplate.execute(status -> productRepository.findAll(
+                productSpecification
+                        .storefrontVisibility()
+                        .and(productSpecification.hasPriceInRange(
+                                new java.math.BigDecimal("25.00"), new java.math.BigDecimal("35.00"))),
+                PageRequest.of(0, 10, Sort.by("id"))));
+        Page<Product> notMatching = transactionTemplate.execute(status -> productRepository.findAll(
+                productSpecification
+                        .storefrontVisibility()
+                        .and(productSpecification.hasPriceInRange(
+                                new java.math.BigDecimal("15.00"), new java.math.BigDecimal("25.00"))),
+                PageRequest.of(0, 10, Sort.by("id"))));
+
+        assertThat(range.getMinimumPrice()).isEqualByComparingTo("10.00");
+        assertThat(range.getMaximumPrice()).isEqualByComparingTo("30.00");
+        assertThat(matching.getContent()).extracting(Product::getId).containsExactly(seed.visibleProductId());
+        assertThat(notMatching).isEmpty();
+    }
+
+    @Test
+    void priceSort_ShouldUseEligibleMinimumAndStableProductIdTieBreakAcrossPages() {
+        Seed seed = seedProducts();
+        Long thirdProductId = transactionTemplate.execute(status -> {
+            List<ProductVariant> visibleVariants = productVariantRepository.findByProductIdAndStatus(
+                    seed.visibleProductId(), ProductVariantStatus.ACTIVE);
+            visibleVariants.forEach(variant -> variant.setBasePrice(new java.math.BigDecimal("20.00")));
+            productVariantRepository.saveAllAndFlush(visibleVariants);
+            ProductVariant secondVariant = productVariantRepository
+                    .findByProductIdAndStatus(seed.secondVisibleProductId(), ProductVariantStatus.ACTIVE)
+                    .get(0);
+            secondVariant.setBasePrice(new java.math.BigDecimal("20.00"));
+            productVariantRepository.saveAndFlush(secondVariant);
+
+            Product source = productRepository.findById(seed.visibleProductId()).orElseThrow();
+            Product third = productRepository.saveAndFlush(
+                    product("third-price", source.getCategory(), source.getBrand(), true));
+            VariantOption color = variantOptionRepository.findAll().stream()
+                    .filter(option -> option.getCode().equals("color"))
+                    .findFirst()
+                    .orElseThrow();
+            VariantOptionValue black = variantOptionValueRepository.findAll().stream()
+                    .filter(value -> value.getCode().equals("black"))
+                    .findFirst()
+                    .orElseThrow();
+            saveVariant(third, "THIRD-PRICE", black, color).setBasePrice(new java.math.BigDecimal("10.00"));
+            productVariantRepository.flush();
+            return third.getId();
+        });
+
+        Page<Product> ascending = transactionTemplate.execute(status -> productRepository.findAll(
+                productSpecification.storefrontVisibility().and(productSpecification.getSortSpec("price")),
+                PageRequest.of(0, 3)));
+        Page<Product> descending = transactionTemplate.execute(status -> productRepository.findAll(
+                productSpecification.storefrontVisibility().and(productSpecification.getSortSpec("-price")),
+                PageRequest.of(0, 3)));
+        Page<Product> firstPage = transactionTemplate.execute(status -> productRepository.findAll(
+                productSpecification.storefrontVisibility().and(productSpecification.getSortSpec("price")),
+                PageRequest.of(0, 2)));
+        Page<Product> secondPage = transactionTemplate.execute(status -> productRepository.findAll(
+                productSpecification.storefrontVisibility().and(productSpecification.getSortSpec("price")),
+                PageRequest.of(1, 2)));
+
+        assertThat(ascending.getContent())
+                .extracting(Product::getId)
+                .containsExactly(thirdProductId, seed.visibleProductId(), seed.secondVisibleProductId());
+        assertThat(descending.getContent())
+                .extracting(Product::getId)
+                .containsExactly(seed.visibleProductId(), seed.secondVisibleProductId(), thirdProductId);
+        assertThat(firstPage.getTotalElements()).isEqualTo(3);
+        assertThat(secondPage.getTotalElements()).isEqualTo(3);
+        assertThat(firstPage.getContent())
+                .extracting(Product::getId)
+                .containsExactly(thirdProductId, seed.visibleProductId());
+        assertThat(secondPage.getContent()).extracting(Product::getId).containsExactly(seed.secondVisibleProductId());
     }
 
     private Seed seedProducts() {
@@ -261,7 +396,7 @@ class ProductVisibilityPersistenceTest {
         });
     }
 
-    private void saveVariant(Product product, String sku, VariantOptionValue value, VariantOption option) {
+    private ProductVariant saveVariant(Product product, String sku, VariantOptionValue value, VariantOption option) {
         ProductVariant variant = ProductVariant.builder()
                 .product(product)
                 .sku(sku)
@@ -278,13 +413,13 @@ class ProductVisibilityPersistenceTest {
                         .optionValue(value)
                         .build());
         productVariantRepository.saveAndFlush(variant);
+        return variant;
     }
 
     private static Product product(String slug, Category category, Brand brand, boolean published) {
         return Product.builder()
                 .name(slug)
                 .slug(slug)
-                .price(java.math.BigDecimal.TEN)
                 .category(category)
                 .brand(brand)
                 .published(published)

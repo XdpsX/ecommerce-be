@@ -13,6 +13,46 @@ import com.xdpsx.ecommerce.catalog.product.domain.ProductVariant;
 import com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus;
 
 public interface ProductVariantRepository extends JpaRepository<ProductVariant, Long> {
+    interface PriceRangeView {
+        Long getProductId();
+
+        BigDecimal getMinimumPrice();
+
+        BigDecimal getMaximumPrice();
+    }
+
+    @Query("SELECT v.product.id AS productId, MIN(v.basePrice) AS minimumPrice, MAX(v.basePrice) AS maximumPrice "
+            + "FROM ProductVariant v JOIN v.product p JOIN p.category c LEFT JOIN c.parent cp LEFT JOIN cp.parent cgp "
+            + "LEFT JOIN cgp.parent cggp JOIN p.brand b WHERE v.product.id IN :productIds "
+            + "AND v.status = com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus.ACTIVE "
+            + "AND p.published = true "
+            + "AND b.status = com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus.ACTIVE "
+            + "AND c.status = com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus.ACTIVE "
+            + "AND (cp.id IS NULL OR cp.status = com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus.ACTIVE) "
+            + "AND (cgp.id IS NULL OR cgp.status = com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus.ACTIVE) "
+            + "AND cggp.id IS NULL "
+            + "AND NOT EXISTS (SELECT s.id FROM ProductVariantSelection s "
+            + "WHERE s.variant = v AND (s.optionValue.status <> com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus.ACTIVE "
+            + "OR s.optionValue.option.status <> com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus.ACTIVE)) "
+            + "GROUP BY v.product.id")
+    List<PriceRangeView> findEligiblePriceRanges(@Param("productIds") Collection<Long> productIds);
+
+    @Query(
+            "SELECT DISTINCT v FROM ProductVariant v JOIN FETCH v.product p "
+                    + "JOIN FETCH p.category c LEFT JOIN FETCH c.parent cp LEFT JOIN FETCH cp.parent cgp "
+                    + "LEFT JOIN FETCH cgp.parent cggp JOIN FETCH p.brand b "
+                    + "LEFT JOIN FETCH v.selections s LEFT JOIN FETCH s.optionValue value LEFT JOIN FETCH value.option option "
+                    + "WHERE v.id = :variantId AND v.status = com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus.ACTIVE "
+                    + "AND p.published = true AND b.status = com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus.ACTIVE "
+                    + "AND c.status = com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus.ACTIVE "
+                    + "AND (cp.id IS NULL OR cp.status = com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus.ACTIVE) "
+                    + "AND (cgp.id IS NULL OR cgp.status = com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus.ACTIVE) "
+                    + "AND cggp.id IS NULL "
+                    + "AND NOT EXISTS (SELECT invalid.id FROM ProductVariantSelection invalid WHERE invalid.variant = v "
+                    + "AND (invalid.optionValue.status <> com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus.ACTIVE "
+                    + "OR invalid.optionValue.option.status <> com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus.ACTIVE))")
+    Optional<ProductVariant> findEligibleStorefrontVariant(@Param("variantId") Long variantId);
+
     boolean existsBySku(String sku);
 
     boolean existsByBarcode(String barcode);
@@ -80,6 +120,11 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
             + "AND categoryGreatGrandparent.id IS NULL "
             + "AND option.status = com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus.ACTIVE "
             + "AND value.status = com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus.ACTIVE "
+            + "AND NOT EXISTS (SELECT invalid.id FROM ProductVariantSelection invalid "
+            + "WHERE invalid.variant = variant AND (invalid.optionValue.status <> "
+            + "com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus.ACTIVE "
+            + "OR invalid.optionValue.option.status <> "
+            + "com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus.ACTIVE)) "
             + "AND (:categoryId IS NULL OR product.category.id = :categoryId) "
             + "AND (:brandId IS NULL OR product.brand.id = :brandId) "
             + "ORDER BY option.displayOrder ASC, option.id ASC, value.displayOrder ASC, value.id ASC")
@@ -116,9 +161,4 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
     boolean existsBySkuIn(Collection<String> skus);
 
     boolean existsByBarcodeIn(Collection<String> barcodes);
-
-    @Query("SELECT MIN(v.basePrice) FROM ProductVariant v "
-            + "WHERE v.product.id = :productId "
-            + "AND v.status = com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus.ACTIVE")
-    Optional<BigDecimal> findMinimumActiveBasePrice(@Param("productId") Long productId);
 }

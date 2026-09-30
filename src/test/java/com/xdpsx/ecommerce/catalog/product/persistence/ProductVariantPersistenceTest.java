@@ -151,11 +151,8 @@ class ProductVariantPersistenceTest {
             VariantOption size = optionRepository.saveAndFlush(option("size", 1));
             VariantOptionValue black = valueRepository.save(value(color, "black", 0));
             VariantOptionValue medium = valueRepository.saveAndFlush(value(size, "medium", 0));
-            Product product = productRepository.saveAndFlush(Product.builder()
-                    .name("Shirt")
-                    .slug("shirt")
-                    .price(java.math.BigDecimal.TEN)
-                    .build());
+            Product product = productRepository.saveAndFlush(
+                    Product.builder().name("Shirt").slug("shirt").build());
             ProductVariant variant = ProductVariant.builder()
                     .product(product)
                     .sku("SHIRT-BLACK-M")
@@ -186,7 +183,7 @@ class ProductVariantPersistenceTest {
     }
 
     @Test
-    void minimumActiveBasePrice_ShouldIgnoreInactiveSiblingAndKeepEachSkuPrice() {
+    void variantPrices_ShouldRemainOnEachSkuIndependentOfSiblingState() {
         Long productId = transactionTemplate.execute(status -> {
             Product product = productRepository.saveAndFlush(product("pricing-projection"));
             ProductVariant expensive = variant(product, "PRICING-EXPENSIVE", "pricing-expensive");
@@ -200,8 +197,6 @@ class ProductVariantPersistenceTest {
             return product.getId();
         });
 
-        java.math.BigDecimal minimum = transactionTemplate.execute(status ->
-                variantRepository.findMinimumActiveBasePrice(productId).orElseThrow());
         List<ProductVariant> variants = transactionTemplate.execute(status -> {
             List<ProductVariant> active =
                     variantRepository.findAllByProductIdAndStatus(productId, ProductVariantStatus.ACTIVE);
@@ -211,7 +206,6 @@ class ProductVariantPersistenceTest {
             return active;
         });
 
-        assertThat(minimum).isEqualByComparingTo("12.50");
         assertThat(variants)
                 .extracting(ProductVariant::getBasePrice)
                 .containsExactlyInAnyOrder(new BigDecimal("25.00"), new BigDecimal("12.50"), new BigDecimal("1.00"));
@@ -225,11 +219,8 @@ class ProductVariantPersistenceTest {
 
     @Test
     void duplicateCombination_ShouldRollBackTheWholeVariantBatch() {
-        Product product = transactionTemplate.execute(status -> productRepository.saveAndFlush(Product.builder()
-                .name("Simple product")
-                .slug("simple-product")
-                .price(java.math.BigDecimal.TEN)
-                .build()));
+        Product product = transactionTemplate.execute(status -> productRepository.saveAndFlush(
+                Product.builder().name("Simple product").slug("simple-product").build()));
 
         assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
                     variantRepository.save(variant(product, "SIMPLE-1"));
@@ -246,7 +237,6 @@ class ProductVariantPersistenceTest {
                 .saveAndFlush(Product.builder()
                         .name("Concurrent product")
                         .slug("concurrent-product")
-                        .price(java.math.BigDecimal.TEN)
                         .build())
                 .getId());
         CyclicBarrier barrier = new CyclicBarrier(2);
@@ -291,7 +281,6 @@ class ProductVariantPersistenceTest {
             Product product = productRepository.saveAndFlush(Product.builder()
                     .name("Activation product")
                     .slug("activation-product")
-                    .price(java.math.BigDecimal.TEN)
                     .build());
             ProductVariant variant = ProductVariant.builder()
                     .product(product)
@@ -366,7 +355,6 @@ class ProductVariantPersistenceTest {
             Product product = productRepository.saveAndFlush(Product.builder()
                     .name("Read product")
                     .slug("read-product")
-                    .price(java.math.BigDecimal.TEN)
                     .published(true)
                     .build());
             ProductVariant active = variant(product, "READ-ACTIVE", "read-active");
@@ -481,15 +469,24 @@ class ProductVariantPersistenceTest {
                     .build());
             VariantOption color = optionRepository.saveAndFlush(option("facet-color", 0));
             VariantOptionValue black = valueRepository.save(value(color, "facet-black", 0));
-            VariantOptionValue white = valueRepository.saveAndFlush(value(color, "facet-white", 1));
+            VariantOptionValue green = valueRepository.save(value(color, "facet-green", 1));
+            VariantOptionValue white = valueRepository.saveAndFlush(value(color, "facet-white", 2));
+            VariantOption size = optionRepository.saveAndFlush(option("facet-size", 1));
+            VariantOptionValue large = valueRepository.saveAndFlush(value(size, "facet-large", 1));
 
             Product published = productRepository.saveAndFlush(product("published-facet"));
             published.setCategory(category);
             published.setBrand(brand);
             productRepository.saveAndFlush(published);
             ProductVariant active = variant(published, "FACET-ACTIVE", "facet-active");
-            active.getSelections().add(selection(active, color, black));
+            active.getSelections().add(selection(active, color, green));
             variantRepository.saveAndFlush(active);
+            ProductVariant partiallyInactive = variant(published, "FACET-PARTIAL", "facet-partial");
+            partiallyInactive.getSelections().add(selection(partiallyInactive, color, black));
+            partiallyInactive.getSelections().add(selection(partiallyInactive, size, large));
+            variantRepository.saveAndFlush(partiallyInactive);
+            large.setStatus(VariantOptionStatus.INACTIVE);
+            valueRepository.saveAndFlush(large);
 
             Product unpublished = product("unpublished-facet");
             unpublished.setPublished(false);
@@ -506,7 +503,8 @@ class ProductVariantPersistenceTest {
 
         assertThat(views)
                 .extracting(ProductVariantRepository.FilterOptionValueView::getValueCode)
-                .containsExactly("facet-black");
+                .containsExactly("facet-green")
+                .doesNotContain("facet-black");
     }
 
     private static void await(CyclicBarrier barrier) {
@@ -578,11 +576,6 @@ class ProductVariantPersistenceTest {
     }
 
     private static Product product(String slug) {
-        return Product.builder()
-                .name(slug)
-                .slug(slug)
-                .price(java.math.BigDecimal.TEN)
-                .published(true)
-                .build();
+        return Product.builder().name(slug).slug(slug).published(true).build();
     }
 }

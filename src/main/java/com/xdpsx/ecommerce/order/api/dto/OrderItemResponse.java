@@ -1,6 +1,6 @@
 package com.xdpsx.ecommerce.order.api.dto;
 
-import com.xdpsx.ecommerce.catalog.product.api.dto.ProductResponse;
+import java.math.BigDecimal;
 
 import lombok.Builder;
 import lombok.Data;
@@ -9,6 +9,15 @@ import lombok.Data;
 @Builder
 public class OrderItemResponse {
     private Long id;
-    private ProductResponse product;
+    private Long productId;
+    private String productName;
+    private Long variantId;
+    private String sku;
+    private String variantDescription;
+    private BigDecimal unitBasePrice;
+    private BigDecimal discountAmount;
+    private BigDecimal finalUnitPrice;
     private Integer quantity;
+    private BigDecimal subtotal;
+    private String currency;
 }

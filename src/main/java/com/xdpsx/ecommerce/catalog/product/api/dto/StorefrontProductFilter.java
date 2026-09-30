@@ -2,6 +2,7 @@ package com.xdpsx.ecommerce.catalog.product.api.dto;
 
 import static com.xdpsx.ecommerce.catalog.shared.persistence.FieldConstants.*;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 import jakarta.validation.constraints.Min;
@@ -25,12 +26,11 @@ public class StorefrontProductFilter extends AbstractPageParams {
     private String sort;
 
     @Min(0)
-    private Double minPrice;
+    private BigDecimal minPrice;
 
     @Min(0)
-    private Double maxPrice;
+    private BigDecimal maxPrice;
 
-    private Boolean hasDiscount;
     private Boolean inStock;
     private Integer categoryId;
     private Integer brandId;

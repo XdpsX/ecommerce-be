@@ -1,11 +1,19 @@
 package com.xdpsx.ecommerce.cart.api.dto;
 
-import com.xdpsx.ecommerce.catalog.product.api.dto.ProductResponse;
+import java.math.BigDecimal;
+import java.util.List;
 
 import lombok.Data;
 
 @Data
 public class CartItemResponse {
+    private Long productId;
+    private String productName;
+    private Long variantId;
+    private String sku;
+    private List<Long> optionValueIds;
     private Integer quantity;
-    private ProductResponse product;
+    private BigDecimal basePrice;
+    private String currency;
+    private boolean available;
 }

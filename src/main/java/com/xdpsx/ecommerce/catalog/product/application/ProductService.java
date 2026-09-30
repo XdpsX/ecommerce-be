@@ -13,8 +13,6 @@ public interface ProductService {
 
     List<ProductOptionResponse> getStorefrontFilterOptions(Integer categoryId, Integer brandId);
 
-    PageResponse<StorefrontProductSummaryResponse> getDiscountedStorefrontProducts(int pageNum, int pageSize);
-
     PageResponse<StorefrontProductSummaryResponse> getLatestStorefrontProducts(int pageNum, int pageSize);
 
     PageResponse<AdminProductSummaryResponse> getAdminProducts(AdminProductFilter filter);

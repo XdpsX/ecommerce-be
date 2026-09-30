@@ -203,13 +203,8 @@ class ProductVariantServiceImplTest {
     }
 
     @Test
-    void updatePrice_ShouldChangeOnlyTargetVariantAndRecomputeProductProjection() {
-        Product product = Product.builder()
-                .id(1L)
-                .name("Shirt")
-                .slug("shirt")
-                .price(BigDecimal.TEN)
-                .build();
+    void updatePrice_ShouldChangeOnlyTargetVariant() {
+        Product product = Product.builder().id(1L).name("Shirt").slug("shirt").build();
         ProductVariant target = ProductVariant.builder()
                 .id(8L)
                 .product(product)
@@ -220,16 +215,13 @@ class ProductVariantServiceImplTest {
                 .build();
         when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
         when(variantRepository.findByIdAndProductIdWithSelections(8L, 1L)).thenReturn(Optional.of(target));
-        when(variantRepository.findMinimumActiveBasePrice(1L)).thenReturn(Optional.of(new BigDecimal("12.50")));
 
         ProductVariantResponse response =
                 service.updatePrice(1L, 8L, new UpdateProductVariantPriceRequest(new BigDecimal("12.50")));
 
         assertThat(target.getBasePrice()).isEqualByComparingTo("12.50");
-        assertThat(product.getPrice()).isEqualByComparingTo("12.50");
         assertThat(response.basePrice()).isEqualByComparingTo("12.50");
         verify(variantRepository).saveAndFlush(target);
-        verify(productRepository).saveAndFlush(product);
     }
 
     @Test

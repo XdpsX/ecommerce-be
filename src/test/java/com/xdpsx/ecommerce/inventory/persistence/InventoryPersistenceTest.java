@@ -29,7 +29,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.xdpsx.ecommerce.cart.domain.CartItem;
 import com.xdpsx.ecommerce.cart.domain.CartItemId;
 import com.xdpsx.ecommerce.cart.persistence.CartItemRepository;
+import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
+import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
 import com.xdpsx.ecommerce.catalog.brand.persistence.BrandRepository;
+import com.xdpsx.ecommerce.catalog.category.domain.Category;
+import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.product.domain.Product;
 import com.xdpsx.ecommerce.catalog.product.domain.ProductVariant;
@@ -123,6 +127,12 @@ class InventoryPersistenceTest {
     private ProductRepository productRepository;
 
     @Autowired
+    private BrandRepository brandRepository;
+
+    @Autowired
+    private CategoryRepository categoryRepository;
+
+    @Autowired
     private ProductVariantRepository variantRepository;
 
     @Autowired
@@ -154,6 +164,8 @@ class InventoryPersistenceTest {
             cartItemRepository.deleteAll();
             variantRepository.deleteAll();
             productRepository.deleteAll();
+            brandRepository.deleteAll();
+            categoryRepository.deleteAll();
             userRepository.deleteAll();
         });
     }
@@ -164,7 +176,6 @@ class InventoryPersistenceTest {
             Product product = productRepository.saveAndFlush(Product.builder()
                     .name("Inventory product")
                     .slug("inventory-product")
-                    .price(BigDecimal.TEN)
                     .build());
             ProductVariant variant = variantRepository.saveAndFlush(ProductVariant.builder()
                     .product(product)
@@ -198,7 +209,6 @@ class InventoryPersistenceTest {
             Product product = productRepository.saveAndFlush(Product.builder()
                     .name("Concurrent inventory product")
                     .slug("concurrent-inventory-product")
-                    .price(BigDecimal.TEN)
                     .build());
             ProductVariant variant = variantRepository.saveAndFlush(ProductVariant.builder()
                     .product(product)
@@ -239,16 +249,30 @@ class InventoryPersistenceTest {
                         .authProvider(AuthProvider.LOCAL)
                         .build())
                 .getId());
-        Long[] productIds = transactionTemplate.execute(status -> {
+        Long[] variantIds = transactionTemplate.execute(status -> {
+            Category category = categoryRepository.saveAndFlush(Category.builder()
+                    .name("Inventory category")
+                    .slug("inventory-category")
+                    .status(CategoryStatus.ACTIVE)
+                    .displayOrder(0)
+                    .build());
+            Brand brand = brandRepository.saveAndFlush(Brand.builder()
+                    .name("Inventory brand")
+                    .status(BrandStatus.ACTIVE)
+                    .build());
             Product availableProduct = productRepository.saveAndFlush(Product.builder()
                     .name("Available product")
                     .slug("available-product")
-                    .price(BigDecimal.TEN)
+                    .category(category)
+                    .brand(brand)
+                    .published(true)
                     .build());
             Product soldOutProduct = productRepository.saveAndFlush(Product.builder()
                     .name("Sold out product")
                     .slug("sold-out-product")
-                    .price(BigDecimal.TEN)
+                    .category(category)
+                    .brand(brand)
+                    .published(true)
                     .build());
             ProductVariant availableVariant = variantRepository.saveAndFlush(ProductVariant.builder()
                     .product(availableProduct)
@@ -268,21 +292,23 @@ class InventoryPersistenceTest {
             availableBalance.adjustOnHand(2);
             balanceRepository.saveAndFlush(availableBalance);
             balanceRepository.saveAndFlush(InventoryBalance.zero(soldOutVariant));
-            cartItemRepository.save(new CartItem(
-                    new CartItemId(userId, availableProduct.getId()),
-                    userRepository.getReferenceById(userId),
-                    availableProduct,
-                    1));
-            cartItemRepository.save(new CartItem(
-                    new CartItemId(userId, soldOutProduct.getId()),
-                    userRepository.getReferenceById(userId),
-                    soldOutProduct,
-                    1));
-            return new Long[] {availableProduct.getId(), soldOutProduct.getId()};
+            cartItemRepository.save(CartItem.builder()
+                    .id(new CartItemId(userId, availableVariant.getId()))
+                    .user(userRepository.getReferenceById(userId))
+                    .variant(availableVariant)
+                    .quantity(1)
+                    .build());
+            cartItemRepository.save(CartItem.builder()
+                    .id(new CartItemId(userId, soldOutVariant.getId()))
+                    .user(userRepository.getReferenceById(userId))
+                    .variant(soldOutVariant)
+                    .quantity(1)
+                    .build());
+            return new Long[] {availableVariant.getId(), soldOutVariant.getId()};
         });
 
         assertThat(cartItemRepository.findInStockCartByUserId(userId))
-                .extracting(item -> item.getProduct().getId())
-                .containsExactly(productIds[0]);
+                .extracting(item -> item.getVariant().getId())
+                .containsExactly(variantIds[0]);
     }
 }

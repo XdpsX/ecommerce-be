@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
@@ -19,6 +20,7 @@ import com.xdpsx.ecommerce.cart.persistence.CartItemRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
+import com.xdpsx.ecommerce.config.StorePricingProperties;
 import com.xdpsx.ecommerce.order.api.dto.*;
 import com.xdpsx.ecommerce.order.domain.Order;
 import com.xdpsx.ecommerce.order.domain.OrderItem;
@@ -46,31 +48,58 @@ public class OrderServiceImpl implements OrderService {
     private final CartItemRepository cartItemRepository;
     private final PaymentService paymentService;
     private final PaymentRepository paymentRepository;
+    private final StorePricingProperties storePricingProperties;
 
     @Transactional
     @Override
     public OrderResponse placeOrder(String userEmail, OrderRequest orderRequest) {
         User user = getUser(userEmail);
-        List<CartItem> cartItems = cartItemRepository.findInStockCartByUserId(user.getId());
+        List<CartItem> cartItems = cartItemRepository.findNewestByUserId(user.getId());
         if (cartItems.isEmpty()) {
             throw new ApplicationException(ErrorCode.CART_EMPTY);
+        }
+        Set<Long> availableVariantIds =
+                Set.copyOf(cartItemRepository.findAvailableEligibleVariantIdsByUserId(user.getId()));
+        if (cartItems.stream()
+                .map(item -> item.getVariant().getId())
+                .anyMatch(id -> !availableVariantIds.contains(id))) {
+            throw new ApplicationException(ErrorCode.MALFORMED_REQUEST);
         }
         Order order = orderMapper.fromRequestToEntity(orderRequest);
         BigDecimal totalAmount = BigDecimal.ZERO;
         for (CartItem item : cartItems) {
+            var variant = item.getVariant();
+            BigDecimal unitPrice = variant.getBasePrice().setScale(2);
+            BigDecimal subtotal =
+                    unitPrice.multiply(BigDecimal.valueOf(item.getQuantity())).setScale(2);
             OrderItem orderItem = OrderItem.builder()
                     .quantity(item.getQuantity())
-                    .product(item.getProduct())
+                    .productId(variant.getProduct().getId())
+                    .productName(variant.getProduct().getName())
+                    .variantId(variant.getId())
+                    .sku(variant.getSku())
+                    .variantDescription(variant.getSelections().stream()
+                            .sorted(java.util.Comparator.comparing(
+                                            (com.xdpsx.ecommerce.catalog.product.domain.ProductVariantSelection s) ->
+                                                    s.getOptionValue()
+                                                            .getOption()
+                                                            .getDisplayOrder())
+                                    .thenComparing(
+                                            s -> s.getOptionValue().getOption().getId())
+                                    .thenComparing(s -> s.getOptionValue().getDisplayOrder())
+                                    .thenComparing(s -> s.getOptionValue().getId()))
+                            .map(s -> s.getOptionValue().getOption().getName() + ": "
+                                    + s.getOptionValue().getName())
+                            .collect(java.util.stream.Collectors.joining(", ")))
+                    .unitBasePrice(unitPrice)
+                    .discountAmount(BigDecimal.ZERO.setScale(2))
+                    .finalUnitPrice(unitPrice)
+                    .subtotal(subtotal)
+                    .currency(storePricingProperties == null ? "VND" : storePricingProperties.getCurrency())
                     .order(order)
                     .build();
             order.getItems().add(orderItem);
-            BigDecimal total;
-            if (item.getProduct().getDiscountPercent() > 0) {
-                total = item.getProduct().getDiscountedPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
-            } else {
-                total = item.getProduct().getPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
-            }
-            totalAmount = totalAmount.add(total);
+            totalAmount = totalAmount.add(subtotal);
         }
         order.setTrackingNumber(UUID.randomUUID().toString());
         order.setUser(user);
@@ -242,7 +271,6 @@ public class OrderServiceImpl implements OrderService {
     //                        .product(ProductResponse.builder()
     //                                .id(orderItem.getProduct().getId())
     //                                .name(orderItem.getProduct().getName())
-    //                                .price(orderItem.getProduct().getPrice())
     //                                .build())
     //                        .quantity(orderItem.getQuantity())
     //                        .build())

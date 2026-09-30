@@ -33,17 +33,21 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
             + "LEFT JOIN FETCH p.images i LEFT JOIN FETCH i.media WHERE p.slug = :slug")
     Optional<Product> findProductBySlug(String slug);
 
-    @Query("SELECT DISTINCT p FROM Product p JOIN FETCH p.category c "
-            + "LEFT JOIN FETCH c.parent cp LEFT JOIN FETCH cp.parent cgp LEFT JOIN FETCH cgp.parent cggp "
-            + "JOIN FETCH p.brand b LEFT JOIN FETCH p.images i LEFT JOIN FETCH i.media "
-            + "WHERE p.slug = :slug AND p.published = true "
-            + "AND b.status = com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus.ACTIVE "
-            + "AND c.status = com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus.ACTIVE "
-            + "AND (cp.id IS NULL OR cp.status = com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus.ACTIVE) "
-            + "AND (cgp.id IS NULL OR cgp.status = com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus.ACTIVE) "
-            + "AND cggp.id IS NULL "
-            + "AND EXISTS (SELECT v.id FROM ProductVariant v WHERE v.product.id = p.id "
-            + "AND v.status = com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus.ACTIVE)")
+    @Query(
+            "SELECT DISTINCT p FROM Product p JOIN FETCH p.category c "
+                    + "LEFT JOIN FETCH c.parent cp LEFT JOIN FETCH cp.parent cgp LEFT JOIN FETCH cgp.parent cggp "
+                    + "JOIN FETCH p.brand b LEFT JOIN FETCH p.images i LEFT JOIN FETCH i.media "
+                    + "WHERE p.slug = :slug AND p.published = true "
+                    + "AND b.status = com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus.ACTIVE "
+                    + "AND c.status = com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus.ACTIVE "
+                    + "AND (cp.id IS NULL OR cp.status = com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus.ACTIVE) "
+                    + "AND (cgp.id IS NULL OR cgp.status = com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus.ACTIVE) "
+                    + "AND cggp.id IS NULL "
+                    + "AND EXISTS (SELECT v.id FROM ProductVariant v WHERE v.product.id = p.id "
+                    + "AND v.status = com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus.ACTIVE "
+                    + "AND NOT EXISTS (SELECT s.id FROM ProductVariantSelection s WHERE s.variant = v "
+                    + "AND (s.optionValue.status <> com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus.ACTIVE "
+                    + "OR s.optionValue.option.status <> com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus.ACTIVE)))")
     Optional<Product> findStorefrontProductBySlug(@Param("slug") String slug);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

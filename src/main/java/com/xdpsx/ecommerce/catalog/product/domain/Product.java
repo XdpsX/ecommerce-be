@@ -1,7 +1,5 @@
 package com.xdpsx.ecommerce.catalog.product.domain;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -34,13 +32,6 @@ public class Product extends AuditEntity {
     @Column(nullable = false, unique = true)
     private String slug;
 
-    /** Transitional compatibility projection; the minimum active Variant base price is authoritative. */
-    @Builder.Default
-    @Column(nullable = false, precision = 15, scale = 2)
-    private BigDecimal price = BigDecimal.ZERO.setScale(2);
-
-    private double discountPercent;
-
     private boolean published;
 
     @Column(length = 4096)
@@ -67,16 +58,4 @@ public class Product extends AuditEntity {
     @OrderBy("id ASC")
     @Builder.Default
     private List<ProductVariant> variants = new ArrayList<>();
-
-    public BigDecimal getDiscountedPrice() {
-        if (this.discountPercent > 0) {
-            BigDecimal discountAmount = price.multiply(BigDecimal.valueOf(discountPercent / 100));
-            BigDecimal discountedPrice = price.subtract(discountAmount);
-
-            return discountedPrice
-                    .divide(BigDecimal.valueOf(100000), 0, RoundingMode.HALF_UP)
-                    .multiply(BigDecimal.valueOf(100000));
-        }
-        return null;
-    }
 }

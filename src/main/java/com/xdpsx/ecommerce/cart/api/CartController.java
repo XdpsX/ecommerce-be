@@ -27,9 +27,9 @@ public class CartController {
         return ResponseEntity.ok(response);
     }
 
-    @DeleteMapping("/remove/{productId}")
-    public ResponseEntity<Void> removeCartItem(@PathVariable Long productId, Authentication authentication) {
-        cartService.removeCartItem(authentication.getName(), productId);
+    @DeleteMapping("/remove/{variantId}")
+    public ResponseEntity<Void> removeCartItem(@PathVariable Long variantId, Authentication authentication) {
+        cartService.removeCartItem(authentication.getName(), variantId);
         return ResponseEntity.noContent().build();
     }
 

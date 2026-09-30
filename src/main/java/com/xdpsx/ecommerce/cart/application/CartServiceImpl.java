@@ -2,16 +2,18 @@ package com.xdpsx.ecommerce.cart.application;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.xdpsx.ecommerce.cart.api.dto.CartItemRequest;
 import com.xdpsx.ecommerce.cart.api.dto.CartItemResponse;
 import com.xdpsx.ecommerce.cart.domain.CartItem;
 import com.xdpsx.ecommerce.cart.domain.CartItemId;
 import com.xdpsx.ecommerce.cart.persistence.CartItemRepository;
-import com.xdpsx.ecommerce.catalog.product.domain.Product;
-import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
+import com.xdpsx.ecommerce.catalog.product.domain.ProductVariant;
+import com.xdpsx.ecommerce.catalog.product.persistence.ProductVariantRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.user.domain.User;
@@ -25,33 +27,43 @@ public class CartServiceImpl implements CartService {
     private final CartItemMapper cartItemMapper;
     private final UserRepository userRepository;
     private final CartItemRepository cartItemRepository;
-    private final ProductRepository productRepository;
+    private final ProductVariantRepository productVariantRepository;
 
     @Override
+    @Transactional
     public CartItemResponse addToCart(String userEmail, CartItemRequest request) {
         User user = getUser(userEmail);
-        Product product = getProduct(request);
-        CartItemId cartItemId = new CartItemId(user.getId(), product.getId());
+        ProductVariant variant = getVariant(request.getVariantId());
+        CartItemId cartItemId = new CartItemId(user.getId(), variant.getId());
         CartItem cartItem = cartItemRepository.findById(cartItemId).orElse(null);
         if (cartItem == null) {
             CartItem newCartItem = CartItem.builder()
                     .id(cartItemId)
                     .quantity(request.getQuantity())
                     .user(user)
-                    .product(product)
+                    .variant(variant)
                     .build();
-            return cartItemMapper.fromEntityToResponse(cartItemRepository.save(newCartItem));
+            CartItem saved = cartItemRepository.save(newCartItem);
+            saved.setAvailable(cartItemRepository
+                    .findAvailableEligibleVariantIdsByUserId(user.getId())
+                    .contains(variant.getId()));
+            return cartItemMapper.fromEntityToResponse(saved);
         } else {
             cartItem.setQuantity(cartItem.getQuantity() + request.getQuantity());
-            return cartItemMapper.fromEntityToResponse(cartItemRepository.save(cartItem));
+            CartItem saved = cartItemRepository.save(cartItem);
+            saved.setAvailable(cartItemRepository
+                    .findAvailableEligibleVariantIdsByUserId(user.getId())
+                    .contains(variant.getId()));
+            return cartItemMapper.fromEntityToResponse(saved);
         }
     }
 
     @Override
-    public void removeCartItem(String userEmail, Long productId) {
+    @Transactional
+    public void removeCartItem(String userEmail, Long variantId) {
         User user = getUser(userEmail);
         CartItemId cartItemId =
-                CartItemId.builder().productId(productId).userId(user.getId()).build();
+                CartItemId.builder().variantId(variantId).userId(user.getId()).build();
         CartItem cartItem = getCartItem(cartItemId);
         cartItemRepository.delete(cartItem);
     }
@@ -61,23 +73,33 @@ public class CartServiceImpl implements CartService {
                 .findById(cartItemId)
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND,
-                        Map.of("resourceType", "cartItem", "productId", cartItemId.getProductId())));
+                        Map.of("resourceType", "cartItem", "variantId", cartItemId.getVariantId())));
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<CartItemResponse> getCart(String userEmail) {
         User user = getUser(userEmail);
         List<CartItem> cartItems = cartItemRepository.findNewestByUserId(user.getId());
+        Set<Long> availableVariantIds =
+                Set.copyOf(cartItemRepository.findAvailableEligibleVariantIdsByUserId(user.getId()));
+        cartItems.forEach(item ->
+                item.setAvailable(availableVariantIds.contains(item.getVariant().getId())));
         return cartItems.stream().map(cartItemMapper::fromEntityToResponse).toList();
     }
 
     @Override
+    @Transactional
     public CartItemResponse updateCartItem(String userEmail, CartItemRequest request) {
         User user = getUser(userEmail);
-        CartItemId cartItemId = new CartItemId(user.getId(), request.getProductId());
+        CartItemId cartItemId = new CartItemId(user.getId(), request.getVariantId());
         CartItem cartItem = getCartItem(cartItemId);
         cartItem.setQuantity(request.getQuantity());
-        return cartItemMapper.fromEntityToResponse(cartItemRepository.save(cartItem));
+        CartItem saved = cartItemRepository.save(cartItem);
+        saved.setAvailable(cartItemRepository
+                .findAvailableEligibleVariantIdsByUserId(user.getId())
+                .contains(request.getVariantId()));
+        return cartItemMapper.fromEntityToResponse(saved);
     }
 
     @Override
@@ -86,12 +108,12 @@ public class CartServiceImpl implements CartService {
         return cartItemRepository.countByUserId(user.getId());
     }
 
-    private Product getProduct(CartItemRequest request) {
-        return productRepository
-                .findProductById(request.getProductId())
+    private ProductVariant getVariant(Long variantId) {
+        ProductVariant variant = productVariantRepository
+                .findEligibleStorefrontVariant(variantId)
                 .orElseThrow(() -> new ApplicationException(
-                        ErrorCode.RESOURCE_NOT_FOUND,
-                        Map.of("resourceType", "product", "resourceId", request.getProductId())));
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "variant", "resourceId", variantId)));
+        return variant;
     }
 
     private User getUser(String userEmail) {

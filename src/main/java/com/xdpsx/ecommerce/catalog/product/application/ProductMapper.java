@@ -4,14 +4,19 @@ import java.util.List;
 
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import com.xdpsx.ecommerce.catalog.brand.api.dto.BrandNoCatsDTO;
 import com.xdpsx.ecommerce.catalog.category.api.dto.CategorySummaryResponse;
 import com.xdpsx.ecommerce.catalog.product.api.dto.*;
 import com.xdpsx.ecommerce.catalog.product.domain.Product;
+import com.xdpsx.ecommerce.config.StorePricingProperties;
 
 @Mapper(componentModel = "spring")
 public abstract class ProductMapper {
+    @Autowired
+    protected StorePricingProperties storePricingProperties;
+
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "published", constant = "false")
     @Mapping(target = "category", ignore = true)
@@ -20,32 +25,15 @@ public abstract class ProductMapper {
     @Mapping(target = "variants", ignore = true)
     public abstract Product fromCreateRequestToEntity(ProductCreateRequest request);
 
-    @Mapping(target = "mainImage", ignore = true)
-    @Mapping(target = "discountedPrice", expression = "java(entity.getDiscountedPrice())")
-    protected abstract ProductResponse toResponse(Product entity);
-
-    public ProductResponse fromEntityToResponse(Product entity) {
-        ProductResponse response = toResponse(entity);
-        response.setMainImage(entity.getImages().stream()
-                .filter(image -> image.getDisplayOrder() == 0)
-                .map(image -> image.getMedia().getUrl())
-                .findFirst()
-                .orElse(null));
-        return response;
-    }
-
-    public StorefrontProductSummaryResponse toStorefrontSummary(Product entity) {
-        return toStorefrontSummary(entity, false);
-    }
-
-    public StorefrontProductSummaryResponse toStorefrontSummary(Product entity, boolean inStock) {
+    public StorefrontProductSummaryResponse toStorefrontSummary(
+            Product entity, boolean inStock, java.math.BigDecimal minimumPrice, java.math.BigDecimal maximumPrice) {
         return new StorefrontProductSummaryResponse(
                 entity.getId(),
                 entity.getName(),
                 entity.getSlug(),
-                entity.getPrice(),
-                entity.getDiscountedPrice(),
-                entity.getDiscountPercent(),
+                minimumPrice,
+                maximumPrice,
+                currency(),
                 inStock,
                 mainImage(entity),
                 category(entity),
@@ -61,9 +49,6 @@ public abstract class ProductMapper {
                 entity.getId(),
                 entity.getName(),
                 entity.getSlug(),
-                entity.getPrice(),
-                entity.getDiscountedPrice(),
-                entity.getDiscountPercent(),
                 inStock,
                 entity.isPublished(),
                 mainImage(entity),
@@ -72,12 +57,9 @@ public abstract class ProductMapper {
     }
 
     public StorefrontProductDetailResponse toStorefrontDetail(
-            Product entity, List<ProductOptionResponse> options, List<ProductVariantSelectionResponse> variants) {
-        return toStorefrontDetail(entity, options, variants, false);
-    }
-
-    public StorefrontProductDetailResponse toStorefrontDetail(
             Product entity,
+            java.math.BigDecimal minimumPrice,
+            java.math.BigDecimal maximumPrice,
             List<ProductOptionResponse> options,
             List<ProductVariantSelectionResponse> variants,
             boolean inStock) {
@@ -85,9 +67,9 @@ public abstract class ProductMapper {
                 entity.getId(),
                 entity.getName(),
                 entity.getSlug(),
-                entity.getPrice(),
-                entity.getDiscountedPrice(),
-                entity.getDiscountPercent(),
+                minimumPrice,
+                maximumPrice,
+                currency(),
                 inStock,
                 mainImage(entity),
                 category(entity),
@@ -112,9 +94,6 @@ public abstract class ProductMapper {
                 entity.getId(),
                 entity.getName(),
                 entity.getSlug(),
-                entity.getPrice(),
-                entity.getDiscountedPrice(),
-                entity.getDiscountPercent(),
                 inStock,
                 entity.isPublished(),
                 mainImage(entity),
@@ -132,6 +111,10 @@ public abstract class ProductMapper {
                 .map(image -> image.getMedia().getUrl())
                 .findFirst()
                 .orElse(null);
+    }
+
+    private String currency() {
+        return storePricingProperties == null ? "VND" : storePricingProperties.getCurrency();
     }
 
     private static java.util.List<ProductImageDTO> imageDtos(Product entity) {
