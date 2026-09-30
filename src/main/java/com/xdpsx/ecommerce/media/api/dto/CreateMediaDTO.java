@@ -10,9 +10,8 @@ import com.xdpsx.ecommerce.media.api.validation.FileTypeConstraint;
 
 public record CreateMediaDTO(
         String caption,
-
         @NotNull
-        @FileTypeConstraint(
-                allowedTypes = {IMAGE_JPEG_VALUE, IMAGE_PNG_VALUE, IMAGE_GIF_VALUE},
-                message = "File type not allowed. Allowed types are: JPEG, PNG, GIF")
-        MultipartFile file) {}
+                @FileTypeConstraint(
+                        allowedTypes = {IMAGE_JPEG_VALUE, IMAGE_PNG_VALUE, IMAGE_GIF_VALUE},
+                        message = "File type not allowed. Allowed types are: JPEG, PNG, GIF")
+                MultipartFile file) {}

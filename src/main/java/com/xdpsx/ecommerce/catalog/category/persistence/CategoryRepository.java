@@ -132,36 +132,39 @@ public interface CategoryRepository extends JpaRepository<Category, Integer>, Jp
      * always enough to reach a root and no lazy load can be triggered while
      * filtering or mapping.
      */
-    @Query("""
-            	SELECT c FROM Category c
-            	LEFT JOIN FETCH c.image
-            	LEFT JOIN FETCH c.parent p
-            	LEFT JOIN FETCH p.parent
-            	ORDER BY c.displayOrder ASC, c.id ASC
-            """)
+    @Query(
+            """
+				SELECT c FROM Category c
+				LEFT JOIN FETCH c.image
+				LEFT JOIN FETCH c.parent p
+				LEFT JOIN FETCH p.parent
+				ORDER BY c.displayOrder ASC, c.id ASC
+			""")
     List<Category> findAllWithAncestryAndImage();
 
     /**
      * Storefront/admin lookup of one node with the full ancestor chain, for
      * effective-status derivation.
      */
-    @Query("""
-            	SELECT c FROM Category c
-            	LEFT JOIN FETCH c.image
-            	LEFT JOIN FETCH c.parent p
-            	LEFT JOIN FETCH p.parent
-            	WHERE c.id = :id
-            """)
+    @Query(
+            """
+				SELECT c FROM Category c
+				LEFT JOIN FETCH c.image
+				LEFT JOIN FETCH c.parent p
+				LEFT JOIN FETCH p.parent
+				WHERE c.id = :id
+			""")
     Optional<Category> findByIdWithAncestry(@Param("id") Integer id);
 
     /** Storefront detail lookup by slug with the full ancestor chain and image. */
-    @Query("""
-            	SELECT c FROM Category c
-            	LEFT JOIN FETCH c.image
-            	LEFT JOIN FETCH c.parent p
-            	LEFT JOIN FETCH p.parent
-            	WHERE c.slug = :slug
-            """)
+    @Query(
+            """
+				SELECT c FROM Category c
+				LEFT JOIN FETCH c.image
+				LEFT JOIN FETCH c.parent p
+				LEFT JOIN FETCH p.parent
+				WHERE c.slug = :slug
+			""")
     Optional<Category> findBySlugWithAncestry(@Param("slug") String slug);
 
     /**
@@ -169,12 +172,13 @@ public interface CategoryRepository extends JpaRepository<Category, Integer>, Jp
      * category set in one query
      * instead of one lookup per ID.
      */
-    @Query("""
-            	SELECT c FROM Category c
-            	LEFT JOIN FETCH c.parent p
-            	LEFT JOIN FETCH p.parent
-            	WHERE c.id IN :ids
-            """)
+    @Query(
+            """
+				SELECT c FROM Category c
+				LEFT JOIN FETCH c.parent p
+				LEFT JOIN FETCH p.parent
+				WHERE c.id IN :ids
+			""")
     List<Category> findAllByIdInWithAncestry(@Param("ids") java.util.Collection<Integer> ids);
 
     /**
@@ -188,12 +192,15 @@ public interface CategoryRepository extends JpaRepository<Category, Integer>, Jp
     @Query("SELECT c FROM Category c WHERE c.id = :id AND c.status = :status")
     Optional<Category> findByIdAndStatus(@Param("id") Integer id, @Param("status") CategoryStatus status);
 
-    @Query(value = """
-            	SELECT COUNT(*) FROM (
-            		SELECT category_id FROM category_brands WHERE category_id = ?1
-            		UNION ALL
-            		SELECT category_id FROM products WHERE category_id = ?1
-            	) AS combined
-            """, nativeQuery = true)
+    @Query(
+            value =
+                    """
+				SELECT COUNT(*) FROM (
+					SELECT category_id FROM category_brands WHERE category_id = ?1
+					UNION ALL
+					SELECT category_id FROM products WHERE category_id = ?1
+				) AS combined
+			""",
+            nativeQuery = true)
     long countCategoriesInOtherTables(Integer categoryId);
 }

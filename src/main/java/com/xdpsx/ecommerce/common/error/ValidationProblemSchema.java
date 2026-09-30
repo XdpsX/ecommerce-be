@@ -10,28 +10,16 @@ import io.swagger.v3.oas.annotations.media.Schema;
  */
 @Schema(name = "ValidationProblem", description = "RFC 9457 problem response for request validation failures")
 public record ValidationProblemSchema(
-        @Schema(description = "Problem type URI", example = "about:blank")
-        String type,
-
-        @Schema(description = "Controlled human-readable summary", example = "Request validation failed")
-        String title,
-
-        @Schema(description = "HTTP status code", example = "400")
-        int status,
-
+        @Schema(description = "Problem type URI", example = "about:blank") String type,
+        @Schema(description = "Controlled human-readable summary", example = "Request validation failed") String title,
+        @Schema(description = "HTTP status code", example = "400") int status,
         @Schema(description = "Controlled explanation", example = "One or more request fields are invalid")
-        String detail,
-
-        @Schema(description = "Request path", example = "/auth/register")
-        String instance,
-
+                String detail,
+        @Schema(description = "Request path", example = "/auth/register") String instance,
         @Schema(
-                description = "Correlation id of the failing request, also returned in the X-Correlation-ID header",
-                example = "680461dd-851b-4f52-86ea-506fac28ea65")
-        String correlationId,
-
-        @Schema(description = "Stable machine-readable error code", example = "VALIDATION_FAILED")
-        String code,
-
-        @Schema(description = "Individual validation violations")
-        List<FieldViolation> errors) {}
+                        description =
+                                "Correlation id of the failing request, also returned in the X-Correlation-ID header",
+                        example = "680461dd-851b-4f52-86ea-506fac28ea65")
+                String correlationId,
+        @Schema(description = "Stable machine-readable error code", example = "VALIDATION_FAILED") String code,
+        @Schema(description = "Individual validation violations") List<FieldViolation> errors) {}

@@ -8,7 +8,7 @@ import com.xdpsx.ecommerce.cart.api.dto.CartItemResponse;
 public interface CartService {
     CartItemResponse addToCart(String userEmail, CartItemRequest request);
 
-    void removeCartItem(String userEmail, Long productId);
+    void removeCartItem(String userEmail, Long variantId);
 
     List<CartItemResponse> getCart(String userEmail);
 

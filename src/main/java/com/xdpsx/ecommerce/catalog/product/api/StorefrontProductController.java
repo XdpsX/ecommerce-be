@@ -36,12 +36,6 @@ public class StorefrontProductController implements StorefrontProductApiDocs {
         return productService.getStorefrontFilterOptions(categoryId, brandId);
     }
 
-    @GetMapping("/discount")
-    public PageResponse<StorefrontProductSummaryResponse> getDiscountedProducts(
-            @RequestParam(defaultValue = "1") int pageNum, @RequestParam(defaultValue = "8") int pageSize) {
-        return productService.getDiscountedStorefrontProducts(pageNum, pageSize);
-    }
-
     @GetMapping("/latest")
     public PageResponse<StorefrontProductSummaryResponse> getLatestProducts(
             @RequestParam(defaultValue = "1") int pageNum, @RequestParam(defaultValue = "8") int pageSize) {

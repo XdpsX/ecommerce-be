@@ -2,6 +2,7 @@ package com.xdpsx.ecommerce.catalog.product.persistence;
 
 import static com.xdpsx.ecommerce.catalog.shared.persistence.FieldConstants.*;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -17,8 +18,10 @@ import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.product.domain.Product;
 import com.xdpsx.ecommerce.catalog.product.domain.ProductVariant;
+import com.xdpsx.ecommerce.catalog.product.domain.ProductVariantSelection;
 import com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus;
 import com.xdpsx.ecommerce.catalog.shared.persistence.BasicSpecification;
+import com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus;
 import com.xdpsx.ecommerce.inventory.domain.InventoryBalance;
 
 @Component
@@ -31,9 +34,8 @@ public class ProductSpecification extends BasicSpecification<Product> {
     public Specification<Product> getStorefrontFiltersSpec(
             String search,
             String sort,
-            Double minPrice,
-            Double maxPrice,
-            Boolean hasDiscount,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
             Boolean inStock,
             Integer categoryId,
             Integer brandId,
@@ -41,9 +43,7 @@ public class ProductSpecification extends BasicSpecification<Product> {
         return storefrontVisibility()
                 .and(hasName(search))
                 .and(getSortSpec(sort))
-                .and(hasMinPrice(minPrice))
-                .and(hasMaxPrice(maxPrice))
-                .and(hasDiscount(hasDiscount))
+                .and(hasPriceInRange(minPrice, maxPrice))
                 .and(isInStock(inStock))
                 .and(belongsToCategory(categoryId))
                 .and(belongsToBrand(brandId))
@@ -54,7 +54,7 @@ public class ProductSpecification extends BasicSpecification<Product> {
         return hasPublished(true)
                 .and(hasActiveBrand())
                 .and(hasEffectivelyActiveCategory())
-                .and(hasActiveVariant());
+                .and(hasEligibleVariant());
     }
 
     public Specification<Product> hasActiveBrand() {
@@ -88,25 +88,8 @@ public class ProductSpecification extends BasicSpecification<Product> {
         };
     }
 
-    public Specification<Product> getFiltersSpec(
-            String name,
-            String sort,
-            Boolean hasPublished,
-            Double minPrice,
-            Double maxPrice,
-            Boolean hasDiscount,
-            Boolean inStock,
-            Integer categoryId,
-            Integer brandId) {
-        return hasName(name)
-                .and(getSortSpec(sort))
-                .and(hasPublished(hasPublished))
-                .and(hasMinPrice(minPrice))
-                .and(hasMaxPrice(maxPrice))
-                .and(hasDiscount(hasDiscount))
-                .and(isInStock(inStock))
-                .and(belongsToCategory(categoryId))
-                .and(belongsToBrand(brandId));
+    public Specification<Product> hasEligibleVariant() {
+        return (root, query, cb) -> eligibleVariantExists(root, query, cb, null, null);
     }
 
     private static jakarta.persistence.criteria.Predicate activeOrMissing(
@@ -114,21 +97,6 @@ public class ProductSpecification extends BasicSpecification<Product> {
         return criteriaBuilder.or(
                 criteriaBuilder.isNull(category.get("id")),
                 criteriaBuilder.equal(category.get("status"), CategoryStatus.ACTIVE));
-    }
-
-    public Specification<Product> getFiltersSpec(
-            String name,
-            String sort,
-            Boolean hasPublished,
-            Double minPrice,
-            Double maxPrice,
-            Boolean hasDiscount,
-            Boolean inStock,
-            Integer categoryId,
-            Integer brandId,
-            Map<Long, List<Long>> optionValueIdsByOption) {
-        return getFiltersSpec(name, sort, hasPublished, minPrice, maxPrice, hasDiscount, inStock, categoryId, brandId)
-                .and(hasMatchingActiveVariant(optionValueIdsByOption));
     }
 
     public Specification<Product> hasMatchingActiveVariant(Map<Long, List<Long>> optionValueIdsByOption) {
@@ -146,6 +114,7 @@ public class ProductSpecification extends BasicSpecification<Product> {
             subquery.where(
                     criteriaBuilder.equal(variant.get("product").get("id"), root.get("id")),
                     criteriaBuilder.equal(variant.get("status"), ProductVariantStatus.ACTIVE),
+                    eligibleVariantSelections(criteriaBuilder, query, variant),
                     selection.get("optionValueId").in(selectedValueIds));
             subquery.groupBy(variant.get("id"));
             subquery.having(criteriaBuilder.equal(
@@ -172,22 +141,43 @@ public class ProductSpecification extends BasicSpecification<Product> {
         };
     }
 
-    public Specification<Product> hasMinPrice(Double minPrice) {
-        return (root, query, criteriaBuilder) -> {
-            if (minPrice == null) {
-                return criteriaBuilder.conjunction();
-            }
-            return criteriaBuilder.greaterThanOrEqualTo(root.get("price"), minPrice);
-        };
+    public Specification<Product> hasPriceInRange(BigDecimal minPrice, BigDecimal maxPrice) {
+        return (root, query, cb) -> eligibleVariantExists(root, query, cb, minPrice, maxPrice);
     }
 
-    public Specification<Product> hasMaxPrice(Double maxPrice) {
-        return (root, query, criteriaBuilder) -> {
-            if (maxPrice == null) {
-                return criteriaBuilder.conjunction();
-            }
-            return criteriaBuilder.lessThanOrEqualTo(root.get("price"), maxPrice);
-        };
+    private jakarta.persistence.criteria.Predicate eligibleVariantExists(
+            jakarta.persistence.criteria.Root<Product> root,
+            jakarta.persistence.criteria.CriteriaQuery<?> query,
+            CriteriaBuilder cb,
+            BigDecimal minPrice,
+            BigDecimal maxPrice) {
+        var subquery = query.subquery(Long.class);
+        var variant = subquery.from(ProductVariant.class);
+        List<jakarta.persistence.criteria.Predicate> predicates = new java.util.ArrayList<>();
+        predicates.add(cb.equal(variant.get("product").get("id"), root.get("id")));
+        predicates.add(cb.equal(variant.get("status"), ProductVariantStatus.ACTIVE));
+        predicates.add(eligibleVariantSelections(cb, query, variant));
+        if (minPrice != null) predicates.add(cb.greaterThanOrEqualTo(variant.get("basePrice"), minPrice));
+        if (maxPrice != null) predicates.add(cb.lessThanOrEqualTo(variant.get("basePrice"), maxPrice));
+        subquery.select(variant.get("id")).where(predicates.toArray(jakarta.persistence.criteria.Predicate[]::new));
+        return cb.exists(subquery);
+    }
+
+    private jakarta.persistence.criteria.Predicate eligibleVariantSelections(
+            CriteriaBuilder cb,
+            jakarta.persistence.criteria.CriteriaQuery<?> query,
+            jakarta.persistence.criteria.From<?, ProductVariant> variant) {
+        var inactive = query.subquery(Long.class);
+        var selection = inactive.from(ProductVariantSelection.class);
+        inactive.select(selection.get("id"));
+        inactive.where(cb.and(
+                cb.equal(selection.get("variant"), variant),
+                cb.or(
+                        cb.notEqual(selection.get("optionValue").get("status"), VariantOptionStatus.ACTIVE),
+                        cb.notEqual(
+                                selection.get("optionValue").get("option").get("status"),
+                                VariantOptionStatus.ACTIVE))));
+        return cb.not(cb.exists(inactive));
     }
 
     public Specification<Product> hasPublished(Boolean hasPublished) {
@@ -197,27 +187,31 @@ public class ProductSpecification extends BasicSpecification<Product> {
         };
     }
 
-    public Specification<Product> hasDiscount(Boolean hasDiscount) {
-        return (root, query, criteriaBuilder) -> {
-            if (hasDiscount == null) return criteriaBuilder.conjunction();
-            if (hasDiscount) {
-                return criteriaBuilder.greaterThan(root.get("discountPercent"), 0);
-            } else {
-                return criteriaBuilder.equal(root.get("discountPercent"), 0);
-            }
-        };
-    }
-
     public Specification<Product> isInStock(Boolean inStock) {
         return (root, query, criteriaBuilder) -> {
             if (inStock == null) return criteriaBuilder.conjunction();
             var subquery = query.subquery(Long.class);
             var balance = subquery.from(InventoryBalance.class);
+            Join<InventoryBalance, ProductVariant> variant = balance.join("variant");
+            Join<ProductVariant, Product> product = variant.join("product");
+            Join<Product, Category> category = product.join("category");
+            Join<Category, Category> parent = category.join("parent", JoinType.LEFT);
+            Join<Category, Category> grandparent = parent.join("parent", JoinType.LEFT);
+            Join<Category, Category> greatGrandparent = grandparent.join("parent", JoinType.LEFT);
+            Join<Product, com.xdpsx.ecommerce.catalog.brand.domain.Brand> brand = product.join("brand");
+            List<jakarta.persistence.criteria.Predicate> predicates = new java.util.ArrayList<>();
+            predicates.add(criteriaBuilder.equal(product.get("id"), root.get("id")));
+            predicates.add(criteriaBuilder.equal(variant.get("status"), ProductVariantStatus.ACTIVE));
+            predicates.add(criteriaBuilder.isTrue(product.get("published")));
+            predicates.add(criteriaBuilder.equal(brand.get("status"), BrandStatus.ACTIVE));
+            predicates.add(criteriaBuilder.equal(category.get("status"), CategoryStatus.ACTIVE));
+            predicates.add(activeOrMissing(criteriaBuilder, parent));
+            predicates.add(activeOrMissing(criteriaBuilder, grandparent));
+            predicates.add(criteriaBuilder.isNull(greatGrandparent.get("id")));
+            predicates.add(eligibleVariantSelections(criteriaBuilder, query, variant));
+            predicates.add(criteriaBuilder.greaterThan(balance.get("onHand"), balance.get("reserved")));
             subquery.select(balance.get("variantId"));
-            subquery.where(
-                    criteriaBuilder.equal(balance.get("variant").get("product").get("id"), root.get("id")),
-                    criteriaBuilder.equal(balance.get("variant").get("status"), ProductVariantStatus.ACTIVE),
-                    criteriaBuilder.greaterThan(balance.get("onHand"), balance.get("reserved")));
+            subquery.where(predicates.toArray(jakarta.persistence.criteria.Predicate[]::new));
             var available = criteriaBuilder.exists(subquery);
             return inStock ? available : criteriaBuilder.not(available);
         };
@@ -257,10 +251,17 @@ public class ProductSpecification extends BasicSpecification<Product> {
 
     public Specification<Product> sortByPrice(boolean asc) {
         return (root, query, criteriaBuilder) -> {
+            var subquery = query.subquery(BigDecimal.class);
+            var variant = subquery.from(ProductVariant.class);
+            subquery.select(criteriaBuilder.min(variant.get("basePrice")));
+            subquery.where(
+                    criteriaBuilder.equal(variant.get("product").get("id"), root.get("id")),
+                    criteriaBuilder.equal(variant.get("status"), ProductVariantStatus.ACTIVE),
+                    eligibleVariantSelections(criteriaBuilder, query, variant));
             if (asc) {
-                query.orderBy(criteriaBuilder.asc(root.get("price")));
+                query.orderBy(criteriaBuilder.asc(subquery), criteriaBuilder.asc(root.get("id")));
             } else {
-                query.orderBy(criteriaBuilder.desc(root.get("price")));
+                query.orderBy(criteriaBuilder.desc(subquery), criteriaBuilder.asc(root.get("id")));
             }
             return criteriaBuilder.conjunction();
         };

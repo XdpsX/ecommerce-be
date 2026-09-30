@@ -36,9 +36,6 @@ interface StorefrontProductApiDocs {
     @Operation(summary = "Get storefront product filter options")
     List<ProductOptionResponse> getFilterOptions(Integer categoryId, Integer brandId);
 
-    @Operation(summary = "Get discounted storefront products")
-    PageResponse<StorefrontProductSummaryResponse> getDiscountedProducts(int pageNum, int pageSize);
-
     @Operation(summary = "Get latest storefront products")
     PageResponse<StorefrontProductSummaryResponse> getLatestProducts(int pageNum, int pageSize);
 }

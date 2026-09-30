@@ -15,7 +15,15 @@ import lombok.*;
 @Embeddable
 public class CartItemId implements Serializable {
     private Long userId;
-    private Long productId;
+    private Long variantId;
+
+    public Long getProductId() {
+        return variantId;
+    }
+
+    public void setProductId(Long productId) {
+        this.variantId = productId;
+    }
 
     @Override
     public boolean equals(Object o) {
@@ -25,13 +33,13 @@ public class CartItemId implements Serializable {
         CartItemId that = (CartItemId) o;
 
         if (!userId.equals(that.userId)) return false;
-        return Objects.equals(productId, that.productId);
+        return Objects.equals(variantId, that.variantId);
     }
 
     @Override
     public int hashCode() {
         int result = userId.hashCode();
-        result = 31 * result + (productId != null ? productId.hashCode() : 0);
+        result = 31 * result + (variantId != null ? variantId.hashCode() : 0);
         return result;
     }
 }

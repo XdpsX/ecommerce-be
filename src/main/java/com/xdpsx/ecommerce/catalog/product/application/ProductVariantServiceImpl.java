@@ -140,7 +140,6 @@ public class ProductVariantServiceImpl implements ProductVariantService {
             throw translateConstraint(exception);
         }
         inventoryProvisioningService.provisionBalances(variants);
-        recomputeProductPrice(product);
         return variants.stream().map(this::toResponse).toList();
     }
 
@@ -167,7 +166,7 @@ public class ProductVariantServiceImpl implements ProductVariantService {
     @Override
     public ProductVariantResponse updatePrice(
             Long productId, Long variantId, UpdateProductVariantPriceRequest request) {
-        Product product = lockProduct(productId);
+        lockProduct(productId);
         ProductVariant variant = findVariant(productId, variantId);
         try {
             variant.changeBasePrice(request.basePrice());
@@ -175,7 +174,6 @@ public class ProductVariantServiceImpl implements ProductVariantService {
             throw invalid("basePrice", exception.getMessage());
         }
         variantRepository.saveAndFlush(variant);
-        recomputeProductPrice(product);
         return toResponse(variant);
     }
 
@@ -204,7 +202,6 @@ public class ProductVariantServiceImpl implements ProductVariantService {
         }
         variant.setStatus(target);
         variantRepository.saveAndFlush(variant);
-        recomputeProductPrice(product);
         return toResponse(variant);
     }
 
@@ -373,13 +370,6 @@ public class ProductVariantServiceImpl implements ProductVariantService {
         if (pricingProperties == null || pricingProperties.getCurrency() == null) return "VND";
         String value = pricingProperties.getCurrency().trim();
         return value.isEmpty() ? "VND" : value;
-    }
-
-    private void recomputeProductPrice(Product product) {
-        java.util.Optional<java.math.BigDecimal> minimum =
-                variantRepository.findMinimumActiveBasePrice(product.getId());
-        product.setPrice(minimum == null ? java.math.BigDecimal.ZERO : minimum.orElse(java.math.BigDecimal.ZERO));
-        productRepository.saveAndFlush(product);
     }
 
     private static ApplicationException notFound(String type, Long id) {

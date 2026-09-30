@@ -1,5 +1,6 @@
 package com.xdpsx.ecommerce.catalog.product.application;
 
+import java.math.BigDecimal;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -37,6 +38,7 @@ import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionValueR
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
+import com.xdpsx.ecommerce.config.StorePricingProperties;
 import com.xdpsx.ecommerce.inventory.persistence.InventoryBalanceRepository;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
@@ -61,6 +63,7 @@ public class ProductServiceImpl implements ProductService {
     private final MediaRepository mediaRepository;
     private final InventoryBalanceRepository inventoryBalanceRepository;
     private final OrderItemRepository orderItemRepository;
+    private final StorePricingProperties storePricingProperties;
 
     @Transactional(readOnly = true)
     @Override
@@ -71,7 +74,6 @@ public class ProductServiceImpl implements ProductService {
                 filter.getSort(),
                 filter.getMinPrice(),
                 filter.getMaxPrice(),
-                filter.getHasDiscount(),
                 filter.getInStock(),
                 filter.getCategoryId(),
                 filter.getBrandId(),
@@ -79,10 +81,16 @@ public class ProductServiceImpl implements ProductService {
         Page<Product> page =
                 productRepository.findAll(productSpec, PageRequest.of(filter.getPageNum() - 1, filter.getPageSize()));
         loadImages(page.getContent());
-        Set<Long> availableProductIds = availableProductIds(page.getContent());
-        return PageMapper.toPageResponse(
-                page,
-                product -> productMapper.toStorefrontSummary(product, availableProductIds.contains(product.getId())));
+        Map<Long, ProductPriceRange> ranges = loadPriceRanges(page.getContent());
+        Set<Long> availableProductIds = storefrontAvailableProductIds(page.getContent());
+        return PageMapper.toPageResponse(page, product -> {
+            ProductPriceRange range = ranges.get(product.getId());
+            ProductPriceRange resolved = range == null
+                    ? new ProductPriceRange(BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2))
+                    : range;
+            return productMapper.toStorefrontSummary(
+                    product, availableProductIds.contains(product.getId()), resolved.minimum(), resolved.maximum());
+        });
     }
 
     @Transactional(readOnly = true)
@@ -90,9 +98,15 @@ public class ProductServiceImpl implements ProductService {
     public StorefrontProductDetailResponse getStorefrontProductBySlug(String slug) {
         Product product =
                 productRepository.findStorefrontProductBySlug(slug).orElseThrow(() -> notFound("product", slug));
-        VariantMatrix matrix = loadVariantMatrix(product.getId());
+        VariantMatrix matrix = loadVariantMatrix(product.getId(), true);
+        ProductPriceRange range = loadPriceRanges(List.of(product))
+                .getOrDefault(
+                        product.getId(),
+                        new ProductPriceRange(BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2)));
         return productMapper.toStorefrontDetail(
                 product,
+                range.minimum(),
+                range.maximum(),
                 matrix.options(),
                 matrix.variants(),
                 !matrix.availableVariantIds().isEmpty());
@@ -106,26 +120,20 @@ public class ProductServiceImpl implements ProductService {
 
     @Transactional(readOnly = true)
     @Override
-    public PageResponse<StorefrontProductSummaryResponse> getDiscountedStorefrontProducts(int pageNum, int pageSize) {
-        Page<Product> page = productRepository.findAll(
-                spec.storefrontVisibility().and(spec.hasDiscount(true)), PageRequest.of(pageNum - 1, pageSize));
-        loadImages(page.getContent());
-        Set<Long> availableProductIds = availableProductIds(page.getContent());
-        return PageMapper.toPageResponse(
-                page,
-                product -> productMapper.toStorefrontSummary(product, availableProductIds.contains(product.getId())));
-    }
-
-    @Transactional(readOnly = true)
-    @Override
     public PageResponse<StorefrontProductSummaryResponse> getLatestStorefrontProducts(int pageNum, int pageSize) {
         Page<Product> page = productRepository.findAll(
                 spec.storefrontVisibility().and(spec.getSortSpec("-date")), PageRequest.of(pageNum - 1, pageSize));
         loadImages(page.getContent());
-        Set<Long> availableProductIds = availableProductIds(page.getContent());
-        return PageMapper.toPageResponse(
-                page,
-                product -> productMapper.toStorefrontSummary(product, availableProductIds.contains(product.getId())));
+        Map<Long, ProductPriceRange> ranges = loadPriceRanges(page.getContent());
+        Set<Long> availableProductIds = storefrontAvailableProductIds(page.getContent());
+        return PageMapper.toPageResponse(page, product -> {
+            ProductPriceRange range = ranges.get(product.getId());
+            ProductPriceRange resolved = range == null
+                    ? new ProductPriceRange(BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2))
+                    : range;
+            return productMapper.toStorefrontSummary(
+                    product, availableProductIds.contains(product.getId()), resolved.minimum(), resolved.maximum());
+        });
     }
 
     @Transactional(readOnly = true)
@@ -135,7 +143,7 @@ public class ProductServiceImpl implements ProductService {
                 spec.getAdminFiltersSpec(filter.getSearch(), filter.getSort(), filter.getHasPublished()),
                 PageRequest.of(filter.getPageNum() - 1, filter.getPageSize()));
         loadImages(page.getContent());
-        Set<Long> availableProductIds = availableProductIds(page.getContent());
+        Set<Long> availableProductIds = adminAvailableProductIds(page.getContent());
         return PageMapper.toPageResponse(
                 page, product -> productMapper.toAdminSummary(product, availableProductIds.contains(product.getId())));
     }
@@ -144,7 +152,7 @@ public class ProductServiceImpl implements ProductService {
     @Override
     public AdminProductDetailResponse getAdminProduct(Long id) {
         Product product = productRepository.findAdminProductById(id).orElseThrow(() -> notFound("product", id));
-        VariantMatrix matrix = loadVariantMatrix(product.getId());
+        VariantMatrix matrix = loadVariantMatrix(product.getId(), false);
         return productMapper.toAdminDetail(
                 product,
                 matrix.options(),
@@ -212,7 +220,7 @@ public class ProductServiceImpl implements ProductService {
         }
         Product saved = productRepository.save(product);
         return productMapper.toAdminSummary(
-                saved, !availableProductIds(List.of(saved)).isEmpty());
+                saved, !adminAvailableProductIds(List.of(saved)).isEmpty());
     }
 
     @Transactional
@@ -356,17 +364,25 @@ public class ProductServiceImpl implements ProductService {
         }
     }
 
-    private Set<Long> availableProductIds(List<Product> products) {
+    private Set<Long> storefrontAvailableProductIds(List<Product> products) {
         if (products.isEmpty()) return Set.of();
-        return new HashSet<>(inventoryBalanceRepository.findAvailableProductIdsByProductIds(
+        return new HashSet<>(inventoryBalanceRepository.findAvailableStorefrontProductIdsByProductIds(
                 products.stream().map(Product::getId).toList()));
     }
 
-    private VariantMatrix loadVariantMatrix(Long productId) {
+    private Set<Long> adminAvailableProductIds(List<Product> products) {
+        if (products.isEmpty()) return Set.of();
+        return new HashSet<>(inventoryBalanceRepository.findAvailableAdminProductIdsByProductIds(
+                products.stream().map(Product::getId).toList()));
+    }
+
+    private VariantMatrix loadVariantMatrix(Long productId, boolean storefront) {
         List<ProductVariant> variants =
                 productVariantRepository.findActiveWithSelectionsAndOptionsByProductId(productId);
-        Set<Long> availableVariantIds =
-                new HashSet<>(inventoryBalanceRepository.findAvailableVariantIdsByProductId(productId));
+        Set<Long> availableVariantIds = new HashSet<>(
+                storefront
+                        ? inventoryBalanceRepository.findAvailableStorefrontVariantIdsByProductId(productId)
+                        : inventoryBalanceRepository.findAvailableAdminVariantIdsByProductId(productId));
         Map<Long, ProductOptionAccumulator> options = new LinkedHashMap<>();
         List<ProductVariantSelectionResponse> variantResponses = variants.stream()
                 .map(variant -> {
@@ -404,7 +420,12 @@ public class ProductServiceImpl implements ProductService {
                                                 value.getDisplayOrder()));
                     });
                     return new ProductVariantSelectionResponse(
-                            variant.getId(), variant.getSku(), valueIds, availableVariantIds.contains(variant.getId()));
+                            variant.getId(),
+                            variant.getSku(),
+                            valueIds,
+                            variant.getBasePrice(),
+                            storeCurrency(),
+                            availableVariantIds.contains(variant.getId()));
                 })
                 .filter(Objects::nonNull)
                 .toList();
@@ -416,6 +437,20 @@ public class ProductServiceImpl implements ProductService {
                         .toList(),
                 variantResponses,
                 availableVariantIds);
+    }
+
+    private Map<Long, ProductPriceRange> loadPriceRanges(List<Product> products) {
+        if (products.isEmpty()) return Map.of();
+        return productVariantRepository
+                .findEligiblePriceRanges(products.stream().map(Product::getId).toList())
+                .stream()
+                .collect(Collectors.toMap(
+                        ProductVariantRepository.PriceRangeView::getProductId,
+                        view -> new ProductPriceRange(view.getMinimumPrice(), view.getMaximumPrice())));
+    }
+
+    private String storeCurrency() {
+        return storePricingProperties == null ? "VND" : storePricingProperties.getCurrency();
     }
 
     private List<ProductOptionResponse> toOptions(List<ProductVariantRepository.FilterOptionValueView> views) {
@@ -509,6 +544,8 @@ public class ProductServiceImpl implements ProductService {
             List<ProductOptionResponse> options,
             List<ProductVariantSelectionResponse> variants,
             Set<Long> availableVariantIds) {}
+
+    private record ProductPriceRange(BigDecimal minimum, BigDecimal maximum) {}
 
     private static ApplicationException notFound(String type, Object id) {
         return new ApplicationException(ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", type, "resourceId", id));
