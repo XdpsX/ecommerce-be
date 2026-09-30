@@ -258,7 +258,6 @@ class ProductImagePersistenceTest {
         return Product.builder()
                 .name(name)
                 .slug(name.toLowerCase())
-                .price(java.math.BigDecimal.TEN)
                 .category(category)
                 .brand(brand)
                 .build();

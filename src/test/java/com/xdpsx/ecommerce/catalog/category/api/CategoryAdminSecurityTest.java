@@ -65,8 +65,8 @@ class CategoryAdminSecurityTest {
     private ObjectMapper objectMapper;
 
     private static final String CREATE_BODY = """
-            	{"name":"Laptops","status":"ACTIVE"}
-            """;
+				{"name":"Laptops","status":"ACTIVE"}
+			""";
 
     private RequestPostProcessor admin() {
         return user("admin").roles("ADMIN");
@@ -358,9 +358,10 @@ class CategoryAdminSecurityTest {
 
     @Test
     void updateCategory_ShouldRejectMalformedExplicitSlug() throws Exception {
-        String body = """
-                	{"name":"Laptops","status":"ACTIVE","slug":"Not Normalized","lastRetrievedAt":"2026-01-01T00:00:00"}
-                """;
+        String body =
+                """
+					{"name":"Laptops","status":"ACTIVE","slug":"Not Normalized","lastRetrievedAt":"2026-01-01T00:00:00"}
+				""";
 
         mockMvc.perform(put("/admin/categories/3")
                         .with(admin())
@@ -379,9 +380,10 @@ class CategoryAdminSecurityTest {
                 new AdminCategoryResponse(3, "Laptops", "laptops", CategoryStatus.ACTIVE, true, 2, null, null);
         when(categoryService.updateCategory(anyInt(), any(UpdateCategoryRequest.class)))
                 .thenReturn(response);
-        String body = """
-                	{"name":"Laptops","status":"ACTIVE","parentId":99,"lastRetrievedAt":"2026-01-01T00:00:00"}
-                """;
+        String body =
+                """
+					{"name":"Laptops","status":"ACTIVE","parentId":99,"lastRetrievedAt":"2026-01-01T00:00:00"}
+				""";
 
         mockMvc.perform(put("/admin/categories/3")
                         .with(admin())

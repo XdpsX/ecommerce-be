@@ -18,6 +18,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.xdpsx.ecommerce.cart.api.CartController;
+import com.xdpsx.ecommerce.cart.application.CartService;
 import com.xdpsx.ecommerce.catalog.brand.api.AdminBrandController;
 import com.xdpsx.ecommerce.catalog.brand.api.StorefrontBrandController;
 import com.xdpsx.ecommerce.catalog.brand.application.BrandService;
@@ -31,6 +33,8 @@ import com.xdpsx.ecommerce.catalog.variantoption.api.AdminVariantOptionControlle
 import com.xdpsx.ecommerce.catalog.variantoption.application.VariantOptionService;
 import com.xdpsx.ecommerce.media.api.MediaController;
 import com.xdpsx.ecommerce.media.application.MediaService;
+import com.xdpsx.ecommerce.order.api.OrderController;
+import com.xdpsx.ecommerce.order.application.OrderService;
 import com.xdpsx.ecommerce.testsupport.SecurityConfigForControllerTests;
 
 import tools.jackson.databind.JsonNode;
@@ -57,7 +61,9 @@ import tools.jackson.databind.ObjectMapper;
             AdminProductController.class,
             StorefrontProductController.class,
             AdminVariantOptionController.class,
-            MediaController.class
+            MediaController.class,
+            CartController.class,
+            OrderController.class
         })
 @Import(SecurityConfigForControllerTests.class)
 @ImportAutoConfiguration({
@@ -85,6 +91,12 @@ class OpenApiDocumentationTest {
 
     @MockitoBean
     private MediaService mediaService;
+
+    @MockitoBean
+    private CartService cartService;
+
+    @MockitoBean
+    private OrderService orderService;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -491,7 +503,25 @@ class OpenApiDocumentationTest {
         assertThat(variantProperties.has("available")).isTrue();
 
         JsonNode storefrontSummary = openApi.at("/components/schemas/StorefrontProductSummaryResponse/properties");
+        assertThat(storefrontSummary.has("minimumPrice")).isTrue();
+        assertThat(storefrontSummary.has("maximumPrice")).isTrue();
+        assertThat(storefrontSummary.has("currency")).isTrue();
         assertThat(storefrontSummary.has("inStock")).isTrue();
+        JsonNode storefrontDetail = openApi.at("/components/schemas/StorefrontProductDetailResponse/properties");
+        assertThat(storefrontDetail.has("minimumPrice")).isTrue();
+        assertThat(storefrontDetail.has("maximumPrice")).isTrue();
+        assertThat(storefrontDetail.has("currency")).isTrue();
+        assertThat(variantProperties.has("basePrice")).isTrue();
+        assertThat(variantProperties.has("currency")).isTrue();
+        JsonNode cartItem = openApi.at("/components/schemas/CartItemResponse/properties");
+        assertThat(cartItem.has("basePrice")).isTrue();
+        assertThat(cartItem.has("currency")).isTrue();
+        JsonNode orderItem = openApi.at("/components/schemas/OrderItemResponse/properties");
+        assertThat(orderItem.has("unitBasePrice")).isTrue();
+        assertThat(orderItem.has("discountAmount")).isTrue();
+        assertThat(orderItem.has("finalUnitPrice")).isTrue();
+        assertThat(orderItem.has("subtotal")).isTrue();
+        assertThat(orderItem.has("currency")).isTrue();
         JsonNode productCreate = openApi.at("/components/schemas/ProductCreateRequest/properties");
         JsonNode productUpdate = openApi.at("/components/schemas/ProductUpdateRequest/properties");
         assertThat(productCreate.has("price")).isFalse();

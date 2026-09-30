@@ -166,8 +166,10 @@ class ProductServiceImplTest {
         when(productRepository.findStorefrontProductBySlug("available")).thenReturn(Optional.of(product));
         when(productVariantRepository.findActiveWithSelectionsAndOptionsByProductId(1L))
                 .thenReturn(List.of(variant));
-        when(inventoryBalanceRepository.findAvailableVariantIdsByProductId(1L)).thenReturn(List.of(10L));
-        when(productMapper.toStorefrontDetail(eq(product), anyList(), anyList(), eq(true)))
+        when(inventoryBalanceRepository.findAvailableStorefrontVariantIdsByProductId(1L))
+                .thenReturn(List.of(10L));
+        when(productMapper.toStorefrontDetail(
+                        eq(product), any(BigDecimal.class), any(BigDecimal.class), anyList(), anyList(), eq(true)))
                 .thenReturn(null);
 
         productService.getStorefrontProductBySlug("available");
@@ -175,6 +177,8 @@ class ProductServiceImplTest {
         verify(productMapper)
                 .toStorefrontDetail(
                         eq(product),
+                        any(BigDecimal.class),
+                        any(BigDecimal.class),
                         anyList(),
                         argThat(variants -> variants.get(0).available()),
                         eq(true));
@@ -186,32 +190,44 @@ class ProductServiceImplTest {
         Product second = product(2L, activeCategory(7), activeBrand(5));
         @SuppressWarnings("unchecked")
         Page<Product> page = mock(Page.class);
-        when(productSpecification.getStorefrontFiltersSpec(
-                        any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(productSpecification.getStorefrontFiltersSpec(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn((root, query, criteriaBuilder) -> criteriaBuilder.conjunction());
         when(productRepository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(page);
         when(page.getContent()).thenReturn(List.of(first, second));
-        when(productMapper.toStorefrontSummary(any(Product.class), anyBoolean()))
+        when(productVariantRepository.findEligiblePriceRanges(List.of(1L, 2L))).thenReturn(List.of());
+        when(inventoryBalanceRepository.findAvailableStorefrontProductIdsByProductIds(List.of(1L, 2L)))
+                .thenReturn(List.of());
+        when(productMapper.toStorefrontSummary(
+                        any(Product.class), anyBoolean(), any(BigDecimal.class), any(BigDecimal.class)))
                 .thenReturn(new StorefrontProductSummaryResponse(
-                        1L, "Product", "product", BigDecimal.TEN, null, 0, true, null, null, null));
+                        1L, "Product", "product", BigDecimal.TEN, BigDecimal.TEN, "VND", true, null, null, null));
 
         productService.getStorefrontProducts(StorefrontProductFilter.builder().build());
 
         verify(productRepository).findAllWithImagesByIdIn(List.of(1L, 2L));
-        verify(productMapper).toStorefrontSummary(first, false);
-        verify(productMapper).toStorefrontSummary(second, false);
+        verify(productVariantRepository, times(1)).findEligiblePriceRanges(List.of(1L, 2L));
+        verify(inventoryBalanceRepository, times(1)).findAvailableStorefrontProductIdsByProductIds(List.of(1L, 2L));
+        verify(productMapper)
+                .toStorefrontSummary(first, false, BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2));
+        verify(productMapper)
+                .toStorefrontSummary(second, false, BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2));
     }
 
     @Test
     void getAdminProducts_ShouldUsePublicationFilterWithoutStorefrontVisibility() {
+        Product draft = product(1L, activeCategory(7), activeBrand(5));
         @SuppressWarnings("unchecked")
         Page<Product> page = mock(Page.class);
         when(productSpecification.getAdminFiltersSpec("draft", "name", false))
                 .thenReturn((root, query, criteriaBuilder) -> criteriaBuilder.conjunction());
         when(productRepository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(page);
-        when(page.getContent()).thenReturn(List.of());
+        when(page.getContent()).thenReturn(List.of(draft));
+        when(inventoryBalanceRepository.findAvailableAdminProductIdsByProductIds(List.of(1L)))
+                .thenReturn(List.of(1L));
+        when(productMapper.toAdminSummary(eq(draft), eq(true)))
+                .thenReturn(new AdminProductSummaryResponse(1L, "Draft", "draft", true, false, null, null, null));
 
         productService.getAdminProducts(AdminProductFilter.builder()
                 .search("draft")
@@ -221,6 +237,8 @@ class ProductServiceImplTest {
 
         verify(productSpecification).getAdminFiltersSpec("draft", "name", false);
         verify(productSpecification, never()).storefrontVisibility();
+        verify(inventoryBalanceRepository).findAvailableAdminProductIdsByProductIds(List.of(1L));
+        verify(productMapper).toAdminSummary(draft, true);
     }
 
     @Test

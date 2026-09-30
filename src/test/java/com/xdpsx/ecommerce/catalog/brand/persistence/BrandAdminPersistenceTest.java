@@ -2,7 +2,6 @@ package com.xdpsx.ecommerce.catalog.brand.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.math.BigDecimal;
 import java.util.List;
 
 import jakarta.persistence.EntityManager;
@@ -227,7 +226,6 @@ class BrandAdminPersistenceTest {
             productRepository.saveAndFlush(Product.builder()
                     .name("Referenced product")
                     .slug("referenced-product")
-                    .price(BigDecimal.TEN)
                     .brand(saved)
                     .build());
             return saved;

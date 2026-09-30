@@ -56,15 +56,16 @@ import com.xdpsx.ecommerce.payment.infrastructure.vnpay.IpnHandler;
 @Import({SecurityConfig.class, CustomAuthEntryPoint.class})
 class SecurityBoundaryTest {
 
-    private static final String CREATE_PRODUCT = """
-            {
-              "name": "Keyboard",
-              "slug": "keyboard",
-              "categoryId": 1,
-              "brandId": 1,
-              "imageIds": []
-            }
-            """;
+    private static final String CREATE_PRODUCT =
+            """
+			{
+			"name": "Keyboard",
+			"slug": "keyboard",
+			"categoryId": 1,
+			"brandId": 1,
+			"imageIds": []
+			}
+			""";
 
     @Autowired
     private MockMvc mockMvc;
@@ -118,8 +119,7 @@ class SecurityBoundaryTest {
     @Test
     void productWrite_ShouldRequireAdmin() throws Exception {
         when(productService.createProduct(any(ProductCreateRequest.class)))
-                .thenReturn(new AdminProductSummaryResponse(
-                        1L, "Keyboard", "keyboard", null, null, 0, true, false, null, null, null));
+                .thenReturn(new AdminProductSummaryResponse(1L, "Keyboard", "keyboard", true, false, null, null, null));
         mockMvc.perform(post("/admin/products")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(CREATE_PRODUCT))
