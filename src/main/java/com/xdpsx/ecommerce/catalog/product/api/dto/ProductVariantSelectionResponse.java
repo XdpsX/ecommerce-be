@@ -8,5 +8,17 @@ public record ProductVariantSelectionResponse(
         String sku,
         List<Long> optionValueIds,
         BigDecimal basePrice,
+        BigDecimal discountAmount,
+        BigDecimal finalUnitPrice,
         String currency,
-        boolean available) {}
+        boolean available) {
+    public ProductVariantSelectionResponse(
+            Long variantId,
+            String sku,
+            List<Long> optionValueIds,
+            BigDecimal basePrice,
+            String currency,
+            boolean available) {
+        this(variantId, sku, optionValueIds, basePrice, BigDecimal.ZERO.setScale(2), basePrice, currency, available);
+    }
+}

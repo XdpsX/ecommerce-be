@@ -1,6 +1,8 @@
 package com.xdpsx.ecommerce.order.application;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -49,11 +51,13 @@ public class OrderServiceImpl implements OrderService {
     private final PaymentService paymentService;
     private final PaymentRepository paymentRepository;
     private final StorePricingProperties storePricingProperties;
+    private final Clock pricingClock;
 
     @Transactional
     @Override
     public OrderResponse placeOrder(String userEmail, OrderRequest orderRequest) {
         User user = getUser(userEmail);
+        Instant now = now();
         List<CartItem> cartItems = cartItemRepository.findNewestByUserId(user.getId());
         if (cartItems.isEmpty()) {
             throw new ApplicationException(ErrorCode.CART_EMPTY);
@@ -69,7 +73,8 @@ public class OrderServiceImpl implements OrderService {
         BigDecimal totalAmount = BigDecimal.ZERO;
         for (CartItem item : cartItems) {
             var variant = item.getVariant();
-            BigDecimal unitPrice = variant.getBasePrice().setScale(2);
+            var resolved = variant.resolvePriceAt(now);
+            BigDecimal unitPrice = resolved.finalUnitPrice();
             BigDecimal subtotal =
                     unitPrice.multiply(BigDecimal.valueOf(item.getQuantity())).setScale(2);
             OrderItem orderItem = OrderItem.builder()
@@ -91,8 +96,8 @@ public class OrderServiceImpl implements OrderService {
                             .map(s -> s.getOptionValue().getOption().getName() + ": "
                                     + s.getOptionValue().getName())
                             .collect(java.util.stream.Collectors.joining(", ")))
-                    .unitBasePrice(unitPrice)
-                    .discountAmount(BigDecimal.ZERO.setScale(2))
+                    .unitBasePrice(resolved.basePrice())
+                    .discountAmount(resolved.discountAmount())
                     .finalUnitPrice(unitPrice)
                     .subtotal(subtotal)
                     .currency(storePricingProperties == null ? "VND" : storePricingProperties.getCurrency())
@@ -244,6 +249,10 @@ public class OrderServiceImpl implements OrderService {
                 .findByEmail(userEmail)
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "user", "email", userEmail)));
+    }
+
+    private Instant now() {
+        return (pricingClock == null ? Clock.systemUTC() : pricingClock).instant();
     }
 
     private OrderDTO convertToDTO(Order savedOrder) {

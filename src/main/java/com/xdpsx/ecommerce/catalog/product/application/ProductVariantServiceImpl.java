@@ -1,11 +1,14 @@
 package com.xdpsx.ecommerce.catalog.product.application;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
 import jakarta.persistence.EntityManager;
 
 import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,7 +29,7 @@ import com.xdpsx.ecommerce.inventory.application.InventoryProvisioningService;
 import lombok.RequiredArgsConstructor;
 
 @Service
-@RequiredArgsConstructor
+@RequiredArgsConstructor(onConstructor_ = @Autowired)
 public class ProductVariantServiceImpl implements ProductVariantService {
     private final ProductRepository productRepository;
     private final ProductVariantRepository variantRepository;
@@ -35,13 +38,34 @@ public class ProductVariantServiceImpl implements ProductVariantService {
     private final EntityManager entityManager;
     private final InventoryProvisioningService inventoryProvisioningService;
     private final StorePricingProperties pricingProperties;
+    private final Clock pricingClock;
+
+    public ProductVariantServiceImpl(
+            ProductRepository productRepository,
+            ProductVariantRepository variantRepository,
+            VariantOptionRepository optionRepository,
+            VariantOptionValueRepository optionValueRepository,
+            EntityManager entityManager,
+            InventoryProvisioningService inventoryProvisioningService,
+            StorePricingProperties pricingProperties) {
+        this(
+                productRepository,
+                variantRepository,
+                optionRepository,
+                optionValueRepository,
+                entityManager,
+                inventoryProvisioningService,
+                pricingProperties,
+                Clock.systemUTC());
+    }
 
     @Transactional(readOnly = true)
     @Override
     public List<ProductVariantResponse> getVariants(Long productId) {
         requireProduct(productId);
+        Instant now = now();
         return variantRepository.findAllWithSelectionsByProductId(productId).stream()
-                .map(this::toResponse)
+                .map(variant -> toResponse(variant, now))
                 .toList();
     }
 
@@ -140,7 +164,8 @@ public class ProductVariantServiceImpl implements ProductVariantService {
             throw translateConstraint(exception);
         }
         inventoryProvisioningService.provisionBalances(variants);
-        return variants.stream().map(this::toResponse).toList();
+        Instant now = now();
+        return variants.stream().map(variant -> toResponse(variant, now)).toList();
     }
 
     @Transactional
@@ -159,7 +184,7 @@ public class ProductVariantServiceImpl implements ProductVariantService {
         } catch (DataIntegrityViolationException exception) {
             throw translateConstraint(exception);
         }
-        return toResponse(variant);
+        return toResponse(variant, now());
     }
 
     @Transactional
@@ -174,7 +199,7 @@ public class ProductVariantServiceImpl implements ProductVariantService {
             throw invalid("basePrice", exception.getMessage());
         }
         variantRepository.saveAndFlush(variant);
-        return toResponse(variant);
+        return toResponse(variant, now());
     }
 
     @Transactional
@@ -202,7 +227,33 @@ public class ProductVariantServiceImpl implements ProductVariantService {
         }
         variant.setStatus(target);
         variantRepository.saveAndFlush(variant);
-        return toResponse(variant);
+        return toResponse(variant, now());
+    }
+
+    @Transactional
+    @Override
+    public ProductVariantResponse scheduleSale(
+            Long productId, Long variantId, ScheduleProductVariantSaleRequest request) {
+        Instant now = now();
+        validateCurrency(request.currency());
+        lockProduct(productId);
+        ProductVariant variant = findVariant(productId, variantId);
+        try {
+            variant.replaceSaleSchedule(request.salePrice(), request.startsAt(), request.endsAt(), now);
+        } catch (IllegalArgumentException exception) {
+            throw invalid("sale", exception.getMessage());
+        }
+        variantRepository.saveAndFlush(variant);
+        return toResponse(variant, now);
+    }
+
+    @Transactional
+    @Override
+    public void removeSale(Long productId, Long variantId) {
+        lockProduct(productId);
+        ProductVariant variant = findVariant(productId, variantId);
+        variant.clearSaleSchedule();
+        variantRepository.saveAndFlush(variant);
     }
 
     private Map<Long, VariantOptionValue> loadActiveValues(List<Long> ids) {
@@ -351,19 +402,35 @@ public class ProductVariantServiceImpl implements ProductVariantService {
         return text.toString().toLowerCase(Locale.ROOT);
     }
 
-    private ProductVariantResponse toResponse(ProductVariant variant) {
+    private ProductVariantResponse toResponse(ProductVariant variant, Instant now) {
         List<Long> optionValueIds = variant.getSelections().stream()
                 .sorted(Comparator.comparing(selection -> selection.getId().getOptionId()))
                 .map(ProductVariantSelection::getOptionValueId)
                 .toList();
+        var resolved = variant.resolvePriceAt(now);
         return new ProductVariantResponse(
                 variant.getId(),
                 variant.getSku(),
                 variant.getBarcode(),
-                variant.getBasePrice(),
+                resolved.basePrice(),
+                variant.getSalePrice(),
+                variant.getSaleStartsAt(),
+                variant.getSaleEndsAt(),
+                resolved.discountAmount(),
+                resolved.finalUnitPrice(),
                 currency(),
                 variant.getStatus(),
                 optionValueIds);
+    }
+
+    private void validateCurrency(String currency) {
+        if (!Objects.equals(currency(), currency)) {
+            throw invalid("currency", "currency must match the configured store currency");
+        }
+    }
+
+    private Instant now() {
+        return (pricingClock == null ? Clock.systemUTC() : pricingClock).instant();
     }
 
     private String currency() {

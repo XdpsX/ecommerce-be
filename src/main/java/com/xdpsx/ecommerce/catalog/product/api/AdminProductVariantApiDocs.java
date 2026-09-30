@@ -97,4 +97,34 @@ interface AdminProductVariantApiDocs {
                         content = @Content(schema = @Schema(implementation = ApiProblemSchema.class)))
             })
     ProductVariantResponse updateStatus(Long productId, Long variantId, UpdateProductVariantStatusRequest request);
+
+    @Operation(
+            summary = "Create or replace product variant sale",
+            description = "Schedule one complete sale interval for a SKU.",
+            security = @SecurityRequirement(name = "Bearer Authorization"),
+            responses = {
+                @ApiResponse(responseCode = "200", description = "OK"),
+                @ApiResponse(
+                        responseCode = "400",
+                        description = "Validation error",
+                        content = @Content(schema = @Schema(implementation = ValidationProblemSchema.class))),
+                @ApiResponse(
+                        responseCode = "404",
+                        description = "Variant not found",
+                        content = @Content(schema = @Schema(implementation = ApiProblemSchema.class)))
+            })
+    ProductVariantResponse scheduleSale(Long productId, Long variantId, ScheduleProductVariantSaleRequest request);
+
+    @Operation(
+            summary = "Remove product variant sale",
+            description = "Remove the SKU sale schedule. Repeating the operation is safe.",
+            security = @SecurityRequirement(name = "Bearer Authorization"),
+            responses = {
+                @ApiResponse(responseCode = "204", description = "No Content"),
+                @ApiResponse(
+                        responseCode = "404",
+                        description = "Variant not found",
+                        content = @Content(schema = @Schema(implementation = ApiProblemSchema.class)))
+            })
+    ResponseEntity<Void> removeSale(Long productId, Long variantId);
 }

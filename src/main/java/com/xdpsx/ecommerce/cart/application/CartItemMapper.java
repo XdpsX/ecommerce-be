@@ -1,5 +1,7 @@
 package com.xdpsx.ecommerce.cart.application;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 
 import org.mapstruct.Mapper;
@@ -14,7 +16,14 @@ public abstract class CartItemMapper {
     @Autowired
     private StorePricingProperties pricingProperties;
 
+    @Autowired
+    private Clock pricingClock;
+
     public CartItemResponse fromEntityToResponse(CartItem entity) {
+        return fromEntityToResponse(entity, (pricingClock == null ? Clock.systemUTC() : pricingClock).instant());
+    }
+
+    public CartItemResponse fromEntityToResponse(CartItem entity, Instant now) {
         var variant = entity.getVariant();
         var product = variant == null ? null : variant.getProduct();
         CartItemResponse response = new CartItemResponse();
@@ -29,9 +38,17 @@ public abstract class CartItemMapper {
                                 .map(s -> s.getOptionValueId())
                                 .toList());
         response.setQuantity(entity.getQuantity());
-        response.setBasePrice(variant == null ? null : variant.getBasePrice());
-        response.setCurrency(pricingProperties == null ? "VND" : pricingProperties.getCurrency());
+        var resolved = variant == null ? null : variant.resolvePriceAt(now);
+        response.setBasePrice(resolved == null ? null : resolved.basePrice());
+        response.setDiscountAmount(resolved == null ? null : resolved.discountAmount());
+        response.setFinalUnitPrice(resolved == null ? null : resolved.finalUnitPrice());
+        response.setCurrency(currency());
         response.setAvailable(entity.isAvailable());
         return response;
+    }
+
+    private String currency() {
+        if (pricingProperties == null || pricingProperties.getCurrency() == null) return "VND";
+        return pricingProperties.getCurrency();
     }
 }
