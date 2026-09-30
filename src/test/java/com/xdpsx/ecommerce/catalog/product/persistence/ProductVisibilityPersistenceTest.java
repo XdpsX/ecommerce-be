@@ -2,6 +2,7 @@ package com.xdpsx.ecommerce.catalog.product.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 
@@ -48,6 +49,8 @@ import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
 @SpringJUnitConfig(ProductVisibilityPersistenceTest.PersistenceConfig.class)
 class ProductVisibilityPersistenceTest {
+    private static final Instant NOW = Instant.parse("2026-01-01T12:00:00Z");
+
     @Configuration
     @EnableTransactionManagement
     @EnableJpaAuditing
@@ -305,6 +308,68 @@ class ProductVisibilityPersistenceTest {
         assertThat(range.getMaximumPrice()).isEqualByComparingTo("30.00");
         assertThat(matching.getContent()).extracting(Product::getId).containsExactly(seed.visibleProductId());
         assertThat(notMatching).isEmpty();
+    }
+
+    @Test
+    void effectivePriceQueries_ShouldResolveActiveFutureAndExpiredSalesAtCapturedInstant() {
+        Seed seed = seedProducts();
+        transactionTemplate.executeWithoutResult(status -> {
+            List<ProductVariant> visibleVariants = productVariantRepository.findByProductIdAndStatus(
+                    seed.visibleProductId(), ProductVariantStatus.ACTIVE);
+            ProductVariant activeSale = visibleVariants.stream()
+                    .filter(variant -> variant.getSku().equals("VISIBLE-BLACK"))
+                    .findFirst()
+                    .orElseThrow();
+            activeSale.replaceSaleSchedule(
+                    new java.math.BigDecimal("5.00"), NOW.minusSeconds(60), NOW.plusSeconds(60), NOW);
+            ProductVariant futureSale = visibleVariants.stream()
+                    .filter(variant -> variant.getSku().equals("VISIBLE-WHITE"))
+                    .findFirst()
+                    .orElseThrow();
+            futureSale.replaceSaleSchedule(
+                    new java.math.BigDecimal("1.00"), NOW.plusSeconds(60), NOW.plusSeconds(120), NOW);
+            productVariantRepository.saveAllAndFlush(visibleVariants);
+
+            ProductVariant expiredSale = productVariantRepository
+                    .findByProductIdAndStatus(seed.secondVisibleProductId(), ProductVariantStatus.ACTIVE)
+                    .get(0);
+            expiredSale.setBasePrice(new java.math.BigDecimal("20.00"));
+            expiredSale.setSalePrice(new java.math.BigDecimal("2.00"));
+            expiredSale.setSaleStartsAt(NOW.minusSeconds(120));
+            expiredSale.setSaleEndsAt(NOW.minusSeconds(60));
+            productVariantRepository.saveAndFlush(expiredSale);
+        });
+
+        List<ProductVariantRepository.PriceRangeView> ranges =
+                transactionTemplate.execute(status -> productVariantRepository.findEligiblePriceRanges(
+                        List.of(seed.visibleProductId(), seed.secondVisibleProductId()), NOW));
+        ProductVariantRepository.PriceRangeView visibleRange = ranges.stream()
+                .filter(range -> range.getProductId().equals(seed.visibleProductId()))
+                .findFirst()
+                .orElseThrow();
+        ProductVariantRepository.PriceRangeView secondRange = ranges.stream()
+                .filter(range -> range.getProductId().equals(seed.secondVisibleProductId()))
+                .findFirst()
+                .orElseThrow();
+
+        Page<Product> matching = transactionTemplate.execute(status -> productRepository.findAll(
+                productSpecification
+                        .storefrontVisibility()
+                        .and(productSpecification.hasPriceInRange(
+                                new java.math.BigDecimal("5.00"), new java.math.BigDecimal("5.00"), NOW)),
+                PageRequest.of(0, 10, Sort.by("id"))));
+        Page<Product> sorted = transactionTemplate.execute(status -> productRepository.findAll(
+                productSpecification.storefrontVisibility().and(productSpecification.getSortSpec("price", NOW)),
+                PageRequest.of(0, 10)));
+
+        assertThat(visibleRange.getMinimumPrice()).isEqualByComparingTo("5.00");
+        assertThat(visibleRange.getMaximumPrice()).isEqualByComparingTo("10.00");
+        assertThat(secondRange.getMinimumPrice()).isEqualByComparingTo("20.00");
+        assertThat(secondRange.getMaximumPrice()).isEqualByComparingTo("20.00");
+        assertThat(matching.getContent()).extracting(Product::getId).containsExactly(seed.visibleProductId());
+        assertThat(sorted.getContent())
+                .extracting(Product::getId)
+                .containsExactly(seed.visibleProductId(), seed.secondVisibleProductId());
     }
 
     @Test

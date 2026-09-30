@@ -6,6 +6,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -33,6 +35,8 @@ import com.xdpsx.ecommerce.inventory.application.InventoryProvisioningService;
 
 @ExtendWith(MockitoExtension.class)
 class ProductVariantServiceImplTest {
+    private static final Instant NOW = Instant.parse("2026-01-01T12:00:00Z");
+
     @Mock
     private ProductRepository productRepository;
 
@@ -243,6 +247,100 @@ class ProductVariantServiceImplTest {
 
         assertThat(exception.getCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
         verify(variantRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void saleSchedule_ShouldCreateReplaceAndIdempotentlyRemoveWithFixedClock() {
+        Product product = Product.builder().id(1L).name("Shirt").slug("shirt").build();
+        ProductVariant variant = ProductVariant.builder()
+                .id(8L)
+                .product(product)
+                .sku("SHIRT-BLACK")
+                .basePrice(new BigDecimal("100.00"))
+                .status(ProductVariantStatus.ACTIVE)
+                .combinationKey("10=101")
+                .build();
+        when(pricingProperties.getCurrency()).thenReturn("VND");
+        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
+        when(variantRepository.findByIdAndProductIdWithSelections(8L, 1L)).thenReturn(Optional.of(variant));
+
+        ProductVariantServiceImpl fixedClockService = serviceAt(NOW);
+        ProductVariantResponse created = fixedClockService.scheduleSale(
+                1L,
+                8L,
+                new ScheduleProductVariantSaleRequest(
+                        new BigDecimal("80.00"), "VND", NOW.minusSeconds(1), NOW.plusSeconds(3600)));
+
+        assertThat(created.salePrice()).isEqualByComparingTo("80.00");
+        assertThat(created.discountAmount()).isEqualByComparingTo("20.00");
+        assertThat(created.finalUnitPrice()).isEqualByComparingTo("80.00");
+
+        ProductVariantResponse replaced = fixedClockService.scheduleSale(
+                1L,
+                8L,
+                new ScheduleProductVariantSaleRequest(
+                        new BigDecimal("70.00"), "VND", NOW.plusSeconds(60), NOW.plusSeconds(7200)));
+
+        assertThat(replaced.salePrice()).isEqualByComparingTo("70.00");
+        assertThat(replaced.discountAmount()).isEqualByComparingTo("0.00");
+        assertThat(replaced.finalUnitPrice()).isEqualByComparingTo("100.00");
+
+        fixedClockService.removeSale(1L, 8L);
+
+        assertThat(variant.getSalePrice()).isNull();
+        assertThat(variant.getSaleStartsAt()).isNull();
+        assertThat(variant.getSaleEndsAt()).isNull();
+        fixedClockService.removeSale(1L, 8L);
+        verify(variantRepository, times(4)).saveAndFlush(variant);
+    }
+
+    @Test
+    void saleSchedule_ShouldRejectUnsupportedCurrencyAndExpiredEndWithoutMutation() {
+        Product product = Product.builder().id(1L).name("Shirt").slug("shirt").build();
+        ProductVariant variant = ProductVariant.builder()
+                .id(8L)
+                .product(product)
+                .sku("SHIRT-BLACK")
+                .basePrice(new BigDecimal("100.00"))
+                .status(ProductVariantStatus.ACTIVE)
+                .combinationKey("10=101")
+                .build();
+        when(pricingProperties.getCurrency()).thenReturn("VND");
+        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
+        when(variantRepository.findByIdAndProductIdWithSelections(8L, 1L)).thenReturn(Optional.of(variant));
+        ProductVariantServiceImpl fixedClockService = serviceAt(NOW);
+
+        ApplicationException currencyError = assertThrows(
+                ApplicationException.class,
+                () -> fixedClockService.scheduleSale(
+                        1L,
+                        8L,
+                        new ScheduleProductVariantSaleRequest(
+                                new BigDecimal("80.00"), "USD", NOW, NOW.plusSeconds(60))));
+        assertThat(currencyError.getCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+
+        ApplicationException endError = assertThrows(
+                ApplicationException.class,
+                () -> fixedClockService.scheduleSale(
+                        1L,
+                        8L,
+                        new ScheduleProductVariantSaleRequest(
+                                new BigDecimal("80.00"), "VND", NOW.minusSeconds(120), NOW)));
+        assertThat(endError.getCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+        assertThat(variant.getSalePrice()).isNull();
+        verify(variantRepository, never()).saveAndFlush(any());
+    }
+
+    private ProductVariantServiceImpl serviceAt(Instant instant) {
+        return new ProductVariantServiceImpl(
+                productRepository,
+                variantRepository,
+                optionRepository,
+                optionValueRepository,
+                entityManager,
+                inventoryProvisioningService,
+                pricingProperties,
+                Clock.fixed(instant, java.time.ZoneOffset.UTC));
     }
 
     private static VariantOption option(Long id, String code) {

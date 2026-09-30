@@ -1,10 +1,13 @@
 package com.xdpsx.ecommerce.cart.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -63,8 +66,10 @@ class CartServiceImplTest {
         when(cartItemRepository.findNewestByUserId(user.getId())).thenReturn(List.of(availableItem, soldOutItem));
         when(cartItemRepository.findAvailableEligibleVariantIdsByUserId(user.getId()))
                 .thenReturn(List.of(101L));
-        when(cartItemMapper.fromEntityToResponse(availableItem)).thenReturn(availableResponse);
-        when(cartItemMapper.fromEntityToResponse(soldOutItem)).thenReturn(soldOutResponse);
+        when(cartItemMapper.fromEntityToResponse(eq(availableItem), any(Instant.class)))
+                .thenReturn(availableResponse);
+        when(cartItemMapper.fromEntityToResponse(eq(soldOutItem), any(Instant.class)))
+                .thenReturn(soldOutResponse);
 
         assertThat(cartService.getCart(user.getEmail())).containsExactly(availableResponse, soldOutResponse);
         assertThat(availableItem.isAvailable()).isTrue();

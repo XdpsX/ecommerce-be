@@ -27,8 +27,10 @@ import com.xdpsx.ecommerce.catalog.category.api.AdminCategoryController;
 import com.xdpsx.ecommerce.catalog.category.api.StorefrontCategoryController;
 import com.xdpsx.ecommerce.catalog.category.application.CategoryService;
 import com.xdpsx.ecommerce.catalog.product.api.AdminProductController;
+import com.xdpsx.ecommerce.catalog.product.api.AdminProductVariantController;
 import com.xdpsx.ecommerce.catalog.product.api.StorefrontProductController;
 import com.xdpsx.ecommerce.catalog.product.application.ProductService;
+import com.xdpsx.ecommerce.catalog.product.application.ProductVariantService;
 import com.xdpsx.ecommerce.catalog.variantoption.api.AdminVariantOptionController;
 import com.xdpsx.ecommerce.catalog.variantoption.application.VariantOptionService;
 import com.xdpsx.ecommerce.media.api.MediaController;
@@ -59,6 +61,7 @@ import tools.jackson.databind.ObjectMapper;
             AdminBrandController.class,
             StorefrontBrandController.class,
             AdminProductController.class,
+            AdminProductVariantController.class,
             StorefrontProductController.class,
             AdminVariantOptionController.class,
             MediaController.class,
@@ -85,6 +88,9 @@ class OpenApiDocumentationTest {
 
     @MockitoBean
     private ProductService productService;
+
+    @MockitoBean
+    private ProductVariantService productVariantService;
 
     @MockitoBean
     private VariantOptionService variantOptionService;
@@ -512,16 +518,30 @@ class OpenApiDocumentationTest {
         assertThat(storefrontDetail.has("maximumPrice")).isTrue();
         assertThat(storefrontDetail.has("currency")).isTrue();
         assertThat(variantProperties.has("basePrice")).isTrue();
+        assertThat(variantProperties.has("discountAmount")).isTrue();
+        assertThat(variantProperties.has("finalUnitPrice")).isTrue();
         assertThat(variantProperties.has("currency")).isTrue();
         JsonNode cartItem = openApi.at("/components/schemas/CartItemResponse/properties");
         assertThat(cartItem.has("basePrice")).isTrue();
+        assertThat(cartItem.has("discountAmount")).isTrue();
+        assertThat(cartItem.has("finalUnitPrice")).isTrue();
         assertThat(cartItem.has("currency")).isTrue();
+        assertThat(openApi.at("/paths/~1admin~1products~1{productId}~1variants~1{variantId}~1sale/put")
+                        .isMissingNode())
+                .isFalse();
+        assertThat(openApi.at("/paths/~1admin~1products~1{productId}~1variants~1{variantId}~1sale/delete")
+                        .isMissingNode())
+                .isFalse();
         JsonNode orderItem = openApi.at("/components/schemas/OrderItemResponse/properties");
         assertThat(orderItem.has("unitBasePrice")).isTrue();
         assertThat(orderItem.has("discountAmount")).isTrue();
         assertThat(orderItem.has("finalUnitPrice")).isTrue();
         assertThat(orderItem.has("subtotal")).isTrue();
         assertThat(orderItem.has("currency")).isTrue();
+        JsonNode adminVariantProperties = openApi.at("/components/schemas/ProductVariantResponse/properties");
+        assertThat(adminVariantProperties.has("salePrice")).isTrue();
+        assertThat(adminVariantProperties.has("saleStartsAt")).isTrue();
+        assertThat(adminVariantProperties.has("saleEndsAt")).isTrue();
         JsonNode productCreate = openApi.at("/components/schemas/ProductCreateRequest/properties");
         JsonNode productUpdate = openApi.at("/components/schemas/ProductUpdateRequest/properties");
         assertThat(productCreate.has("price")).isFalse();

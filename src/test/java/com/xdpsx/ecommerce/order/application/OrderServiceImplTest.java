@@ -8,6 +8,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -40,6 +42,8 @@ import com.xdpsx.ecommerce.user.persistence.UserRepository;
 
 @ExtendWith(MockitoExtension.class)
 class OrderServiceImplTest {
+    private static final Instant NOW = Instant.parse("2026-01-01T12:00:00Z");
+
     @Mock
     private OrderMapper orderMapper;
 
@@ -135,6 +139,55 @@ class OrderServiceImplTest {
     }
 
     @Test
+    void placeOrder_ShouldSnapshotActiveSaleAndRemainStableAfterSaleChanges() {
+        User user = User.builder().id(7L).email("buyer@example.test").build();
+        Product product = Product.builder().id(11L).name("Shirt").slug("shirt").build();
+        ProductVariant variant = ProductVariant.builder()
+                .id(101L)
+                .product(product)
+                .sku("SHIRT-BLACK")
+                .basePrice(new BigDecimal("12.50"))
+                .build();
+        variant.replaceSaleSchedule(new BigDecimal("10.00"), NOW.minusSeconds(1), NOW.plusSeconds(3600), NOW);
+        CartItem item = CartItem.builder()
+                .id(new CartItemId(user.getId(), variant.getId()))
+                .user(user)
+                .variant(variant)
+                .quantity(2)
+                .build();
+        OrderRequest request = new OrderRequest();
+        request.setAddress("Address");
+        request.setMobileNumber("0123456789");
+        Order mappedOrder = Order.builder().build();
+        when(userRepository.findByEmail(user.getEmail())).thenReturn(Optional.of(user));
+        when(cartItemRepository.findNewestByUserId(user.getId())).thenReturn(List.of(item));
+        when(cartItemRepository.findAvailableEligibleVariantIdsByUserId(user.getId()))
+                .thenReturn(List.of(101L));
+        when(orderMapper.fromRequestToEntity(request)).thenReturn(mappedOrder);
+        when(orderRepository.save(org.mockito.ArgumentMatchers.any(Order.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(storePricingProperties.getCurrency()).thenReturn("VND");
+        when(paymentService.init(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(InitPaymentResponse.builder().vnpUrl("payment").build());
+
+        fixedClockOrderService().placeOrder(user.getEmail(), request);
+
+        assertEquals(new BigDecimal("20.00"), mappedOrder.getTotalAmount());
+        assertEquals(new BigDecimal("12.50"), mappedOrder.getItems().get(0).getUnitBasePrice());
+        assertEquals(new BigDecimal("2.50"), mappedOrder.getItems().get(0).getDiscountAmount());
+        assertEquals(new BigDecimal("10.00"), mappedOrder.getItems().get(0).getFinalUnitPrice());
+        assertEquals(new BigDecimal("20.00"), mappedOrder.getItems().get(0).getSubtotal());
+        assertEquals("VND", mappedOrder.getItems().get(0).getCurrency());
+
+        variant.clearSaleSchedule();
+        variant.changeBasePrice(new BigDecimal("99.00"));
+
+        assertEquals(new BigDecimal("12.50"), mappedOrder.getItems().get(0).getUnitBasePrice());
+        assertEquals(new BigDecimal("10.00"), mappedOrder.getItems().get(0).getFinalUnitPrice());
+        assertEquals(new BigDecimal("20.00"), mappedOrder.getTotalAmount());
+    }
+
+    @Test
     void orderDetails_ShouldKeepSnapshotWhenCatalogDataChanges() {
         User user = User.builder().id(7L).email("buyer@example.test").build();
         Product product = Product.builder().id(11L).name("Shirt").slug("shirt").build();
@@ -217,5 +270,17 @@ class OrderServiceImplTest {
         Order order = Order.builder().id(42L).totalAmount(amount).build();
         order.setPayment(Payment.builder().order(order).status(status).build());
         return order;
+    }
+
+    private OrderServiceImpl fixedClockOrderService() {
+        return new OrderServiceImpl(
+                orderMapper,
+                orderRepository,
+                userRepository,
+                cartItemRepository,
+                paymentService,
+                paymentRepository,
+                storePricingProperties,
+                Clock.fixed(NOW, java.time.ZoneOffset.UTC));
     }
 }
