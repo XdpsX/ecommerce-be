@@ -2,6 +2,7 @@ package com.xdpsx.ecommerce.config;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -17,7 +18,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.util.List;
 
+import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -46,6 +49,8 @@ import com.xdpsx.ecommerce.catalog.product.api.dto.ProductVariantResponse;
 import com.xdpsx.ecommerce.catalog.product.application.ProductService;
 import com.xdpsx.ecommerce.catalog.product.application.ProductVariantService;
 import com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus;
+import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.config.security.SecurityConfig;
 import com.xdpsx.ecommerce.media.api.MediaController;
 import com.xdpsx.ecommerce.media.application.MediaService;
@@ -54,6 +59,13 @@ import com.xdpsx.ecommerce.order.application.OrderService;
 import com.xdpsx.ecommerce.payment.api.PaymentController;
 import com.xdpsx.ecommerce.payment.api.dto.VNPayIpnResponse;
 import com.xdpsx.ecommerce.payment.infrastructure.vnpay.IpnHandler;
+import com.xdpsx.ecommerce.user.api.UserAddressController;
+import com.xdpsx.ecommerce.user.api.UserController;
+import com.xdpsx.ecommerce.user.api.dto.UserAddressRequest;
+import com.xdpsx.ecommerce.user.api.dto.UserAddressResponse;
+import com.xdpsx.ecommerce.user.api.dto.UserProfile;
+import com.xdpsx.ecommerce.user.application.UserAddressService;
+import com.xdpsx.ecommerce.user.application.UserService;
 
 @WebMvcTest(
         controllers = {
@@ -64,7 +76,9 @@ import com.xdpsx.ecommerce.payment.infrastructure.vnpay.IpnHandler;
             CartController.class,
             MediaController.class,
             OrderController.class,
-            PaymentController.class
+            PaymentController.class,
+            UserController.class,
+            UserAddressController.class
         },
         properties = {
             "app.jwt.secret=01234567890123456789012345678901",
@@ -112,6 +126,12 @@ class SecurityBoundaryTest {
 
     @MockitoBean
     private IpnHandler ipnHandler;
+
+    @MockitoBean
+    private UserService userService;
+
+    @MockitoBean
+    private UserAddressService userAddressService;
 
     @MockitoBean
     private CustomOAuth2UserService customOAuth2UserService;
@@ -268,5 +288,146 @@ class SecurityBoundaryTest {
                         .header("Access-Control-Request-Method", "POST")
                         .header("Access-Control-Request-Headers", "X-Session-Request"))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void customerProfileAndAddressEndpoints_ShouldRequireAuthenticationAndPassPrincipalIdentity() throws Exception {
+        mockMvc.perform(get("/users/me")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/users/me/addresses")).andExpect(status().isUnauthorized());
+        verifyNoInteractions(userService, userAddressService);
+
+        when(userService.getUserByEmail("customer@example.test"))
+                .thenReturn(UserProfile.builder()
+                        .id(7L)
+                        .name("Customer")
+                        .email("customer@example.test")
+                        .build());
+        when(userService.updateCurrentProfile(eq("customer@example.test"), any()))
+                .thenReturn(UserProfile.builder()
+                        .id(7L)
+                        .name("Renamed")
+                        .email("customer@example.test")
+                        .build());
+        when(userAddressService.create(eq("customer@example.test"), any()))
+                .thenReturn(new UserAddressResponse(
+                        11L, "Customer", "+84901234567", "Street", "Ward", "District", "City", null));
+        when(userAddressService.replace(eq("customer@example.test"), eq(11L), any()))
+                .thenReturn(new UserAddressResponse(
+                        11L, "Updated Customer", "+84901234567", "Updated Street", "Ward", "District", "City", null));
+
+        mockMvc.perform(get("/users/me").with(user("customer@example.test").roles("USER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("customer@example.test"));
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/users/me")
+                        .with(user("customer@example.test").roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Renamed\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Renamed"));
+        mockMvc.perform(post("/users/me/addresses")
+                        .with(user("customer@example.test").roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "recipientName": "Customer",
+                                  "phoneNumber": "+84901234567",
+                                  "addressLine": "Street",
+                                  "wardCommune": "Ward",
+                                  "district": "District",
+                                  "provinceCity": "City"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(11));
+        mockMvc.perform(put("/users/me/addresses/11")
+                        .with(user("customer@example.test").roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "recipientName": "Updated Customer",
+                                  "phoneNumber": "+84901234567",
+                                  "addressLine": "Updated Street",
+                                  "wardCommune": "Ward",
+                                  "district": "District",
+                                  "provinceCity": "City"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recipientName").value("Updated Customer"));
+        mockMvc.perform(delete("/users/me/addresses/11")
+                        .with(user("customer@example.test").roles("USER")))
+                .andExpect(status().isNoContent());
+
+        verify(userService).getUserByEmail("customer@example.test");
+        verify(userService).updateCurrentProfile(eq("customer@example.test"), any());
+        verify(userAddressService).create(eq("customer@example.test"), any());
+        verify(userAddressService).replace(eq("customer@example.test"), eq(11L), any());
+        verify(userAddressService).delete("customer@example.test", 11L);
+    }
+
+    @Test
+    void addressCreate_ShouldNormalizeWhitespaceBeforeBeanValidation() throws Exception {
+        when(userAddressService.create(eq("customer@example.test"), any()))
+                .thenReturn(new UserAddressResponse(
+                        11L, "Customer", "+84901234567", "Street", "Ward", "District", "City", null));
+
+        mockMvc.perform(post("/users/me/addresses")
+                        .with(user("customer@example.test").roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "recipientName": "  Customer  ",
+                                  "phoneNumber": " +84901234567 ",
+                                  "addressLine": "  Street  ",
+                                  "wardCommune": " Ward ",
+                                  "district": " District ",
+                                  "provinceCity": " City ",
+                                  "postalCode": "   "
+                                }
+                                """))
+                .andExpect(status().isCreated());
+
+        ArgumentCaptor<UserAddressRequest> requestCaptor = ArgumentCaptor.forClass(UserAddressRequest.class);
+        verify(userAddressService).create(eq("customer@example.test"), requestCaptor.capture());
+        UserAddressRequest request = requestCaptor.getValue();
+        Assertions.assertThat(request.recipientName()).isEqualTo("Customer");
+        Assertions.assertThat(request.phoneNumber()).isEqualTo("+84901234567");
+        Assertions.assertThat(request.postalCode()).isNull();
+    }
+
+    @Test
+    void addressCreate_ShouldReturnValidationProblemForInvalidPhone() throws Exception {
+        mockMvc.perform(post("/users/me/addresses")
+                        .with(user("customer@example.test").roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "recipientName": "Customer",
+                                  "phoneNumber": "not-a-phone",
+                                  "addressLine": "Street",
+                                  "wardCommune": "Ward",
+                                  "district": "District",
+                                  "provinceCity": "City"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+
+        verifyNoInteractions(userAddressService);
+    }
+
+    @Test
+    void addressDelete_ShouldNotDiscloseCrossOwnerMiss() throws Exception {
+        doThrow(new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, java.util.Map.of("resourceType", "user address")))
+                .when(userAddressService)
+                .delete("customer@example.test", 42L);
+
+        mockMvc.perform(delete("/users/me/addresses/42")
+                        .with(user("customer@example.test").roles("USER")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+
+        verify(userAddressService).delete("customer@example.test", 42L);
     }
 }
