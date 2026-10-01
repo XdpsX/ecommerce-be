@@ -11,6 +11,7 @@ public enum ErrorCode {
     VALIDATION_FAILED("Request validation failed", "One or more request fields are invalid"),
     MALFORMED_REQUEST("Malformed request", "The request could not be understood or is missing required parts"),
     INVALID_CREDENTIALS("Invalid credentials", "Email or password is incorrect"),
+    INVALID_REFRESH_CREDENTIAL("Invalid refresh credential", "The refresh credential is invalid or no longer usable"),
     AUTHENTICATION_REQUIRED("Authentication required", "Authentication is required to access this resource"),
     ACCESS_DENIED("Access denied", "You do not have permission to perform this operation"),
     RESOURCE_NOT_FOUND("Resource not found", "The requested resource does not exist"),

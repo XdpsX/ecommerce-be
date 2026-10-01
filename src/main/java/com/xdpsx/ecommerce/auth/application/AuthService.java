@@ -2,10 +2,13 @@ package com.xdpsx.ecommerce.auth.application;
 
 import com.xdpsx.ecommerce.auth.api.dto.LoginRequest;
 import com.xdpsx.ecommerce.auth.api.dto.RegisterRequest;
-import com.xdpsx.ecommerce.auth.api.dto.TokenResponse;
 
 public interface AuthService {
-    TokenResponse register(RegisterRequest request);
+    AuthenticatedSession register(RegisterRequest request);
 
-    TokenResponse login(LoginRequest request);
+    AuthenticatedSession login(LoginRequest request);
+
+    AuthenticatedSession refresh(String refreshCredential);
+
+    void logout(String refreshCredential);
 }

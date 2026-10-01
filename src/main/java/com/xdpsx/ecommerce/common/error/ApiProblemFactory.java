@@ -42,7 +42,7 @@ public final class ApiProblemFactory {
                     INVALID_CATEGORY_SLUG,
                     INVALID_PRODUCT_IMAGE_COUNT,
                     INVALID_IMAGE_WIDTH -> HttpStatus.BAD_REQUEST;
-            case INVALID_CREDENTIALS, AUTHENTICATION_REQUIRED -> HttpStatus.UNAUTHORIZED;
+            case INVALID_CREDENTIALS, INVALID_REFRESH_CREDENTIAL, AUTHENTICATION_REQUIRED -> HttpStatus.UNAUTHORIZED;
             case ACCESS_DENIED -> HttpStatus.FORBIDDEN;
             case RESOURCE_NOT_FOUND -> HttpStatus.NOT_FOUND;
             case RESOURCE_ALREADY_EXISTS,

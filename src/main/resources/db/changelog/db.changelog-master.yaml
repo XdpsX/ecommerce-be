@@ -33,3 +33,5 @@ databaseChangeLog:
       file: db/changelog/changesets/changeset-16.sql
   - include:
       file: db/changelog/changesets/changeset-17.sql
+  - include:
+      file: db/changelog/changesets/changeset-18.sql
