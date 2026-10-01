@@ -33,4 +33,8 @@ public class User {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private AuthProvider authProvider;
+
+    public void rename(String normalizedName) {
+        name = normalizedName;
+    }
 }
