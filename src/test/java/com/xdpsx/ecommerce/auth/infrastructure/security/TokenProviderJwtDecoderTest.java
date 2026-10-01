@@ -1,17 +1,32 @@
 package com.xdpsx.ecommerce.auth.infrastructure.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import javax.crypto.spec.SecretKeySpec;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtIssuerValidator;
+import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.JWSObject;
+import com.nimbusds.jose.Payload;
+import com.nimbusds.jose.crypto.MACSigner;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.xdpsx.ecommerce.config.AuthSessionProperties;
 import com.xdpsx.ecommerce.user.domain.AuthProvider;
 import com.xdpsx.ecommerce.user.domain.Role;
 
@@ -25,19 +40,27 @@ import com.xdpsx.ecommerce.user.domain.Role;
 class TokenProviderJwtDecoderTest {
 
     private static final String SECRET_KEY = "test-secret-key-that-is-long-enough-for-hs256";
+    private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-10-01T00:00:00Z"), ZoneOffset.UTC);
 
     private TokenProvider tokenProvider() {
         TokenProvider tokenProvider = new TokenProvider();
         ReflectionTestUtils.setField(tokenProvider, "SECRET_KEY", SECRET_KEY);
         ReflectionTestUtils.setField(tokenProvider, "EXPIRATION_SECONDS", 3600L);
+        AuthSessionProperties properties = new AuthSessionProperties();
+        properties.setExpectedIssuer("xdpsx.com");
+        properties.setLocalAccessTokenLifetime(Duration.ofMinutes(15));
+        ReflectionTestUtils.setField(tokenProvider, "authSessionProperties", properties);
+        ReflectionTestUtils.setField(tokenProvider, "clock", CLOCK);
         return tokenProvider;
     }
 
     private JwtDecoder jwtDecoder() {
         SecretKeySpec secretKeySpec = new SecretKeySpec(SECRET_KEY.getBytes(), JWSAlgorithm.HS256.getName());
-        return NimbusJwtDecoder.withSecretKey(secretKeySpec)
+        NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(secretKeySpec)
                 .macAlgorithm(MacAlgorithm.HS256)
                 .build();
+        decoder.setJwtValidator(timestampValidator(CLOCK));
+        return decoder;
     }
 
     @Test
@@ -55,5 +78,62 @@ class TokenProviderJwtDecoderTest {
         assertThat(jwt.getSubject()).isEqualTo("user@example.com");
         assertThat(jwt.getClaimAsString("scope")).isEqualTo("ROLE_USER");
         assertThat(jwt.getExpiresAt()).isAfter(jwt.getIssuedAt());
+    }
+
+    @Test
+    void localToken_shouldUseConfiguredIssuerAndFifteenMinuteLifetime() {
+        CustomUserDetails user = CustomUserDetails.builder()
+                .username("user@example.com")
+                .authProvider(AuthProvider.LOCAL)
+                .role(Role.USER)
+                .build();
+
+        Jwt jwt = jwtDecoderWithIssuer().decode(tokenProvider().generateLocalToken(user));
+
+        assertThat(jwt.getClaimAsString("iss")).isEqualTo("xdpsx.com");
+        assertThat(jwt.getExpiresAt()).isEqualTo(Instant.parse("2026-10-01T00:15:00Z"));
+    }
+
+    @Test
+    void decoder_shouldRejectCorrectlySignedTokenWithWrongIssuer() throws Exception {
+        JWTClaimsSet claims = new JWTClaimsSet.Builder()
+                .subject("user@example.com")
+                .issuer("other.example")
+                .issueTime(java.util.Date.from(Instant.parse("2026-10-01T00:00:00Z")))
+                .expirationTime(java.util.Date.from(Instant.parse("2026-10-01T01:00:00Z")))
+                .claim("scope", "ROLE_USER")
+                .build();
+        JWSObject signed = new JWSObject(new JWSHeader(JWSAlgorithm.HS256), new Payload(claims.toJSONObject()));
+        signed.sign(new MACSigner(SECRET_KEY.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+        assertThatThrownBy(() -> jwtDecoderWithIssuer().decode(signed.serialize()))
+                .isInstanceOf(Exception.class);
+    }
+
+    @Test
+    void socialToken_shouldKeepLegacyOneHourLifetime() {
+        CustomUserDetails user = CustomUserDetails.builder()
+                .username("google@example.com")
+                .authProvider(AuthProvider.GOOGLE)
+                .role(Role.USER)
+                .build();
+
+        Jwt jwt = jwtDecoderWithIssuer().decode(tokenProvider().generateToken(user));
+
+        assertThat(jwt.getExpiresAt()).isEqualTo(Instant.parse("2026-10-01T01:00:00Z"));
+    }
+
+    private JwtDecoder jwtDecoderWithIssuer() {
+        NimbusJwtDecoder decoder = (NimbusJwtDecoder) jwtDecoder();
+        OAuth2TokenValidator<Jwt> validator =
+                new DelegatingOAuth2TokenValidator<>(timestampValidator(CLOCK), new JwtIssuerValidator("xdpsx.com"));
+        decoder.setJwtValidator(validator);
+        return decoder;
+    }
+
+    private static JwtTimestampValidator timestampValidator(Clock clock) {
+        JwtTimestampValidator validator = new JwtTimestampValidator();
+        validator.setClock(clock);
+        return validator;
     }
 }

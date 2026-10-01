@@ -18,6 +18,10 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.xdpsx.ecommerce.auth.api.AuthController;
+import com.xdpsx.ecommerce.auth.api.RefreshCookieService;
+import com.xdpsx.ecommerce.auth.api.RefreshRequestGuard;
+import com.xdpsx.ecommerce.auth.application.AuthService;
 import com.xdpsx.ecommerce.cart.api.CartController;
 import com.xdpsx.ecommerce.cart.application.CartService;
 import com.xdpsx.ecommerce.catalog.brand.api.AdminBrandController;
@@ -66,7 +70,8 @@ import tools.jackson.databind.ObjectMapper;
             AdminVariantOptionController.class,
             MediaController.class,
             CartController.class,
-            OrderController.class
+            OrderController.class,
+            AuthController.class
         })
 @Import(SecurityConfigForControllerTests.class)
 @ImportAutoConfiguration({
@@ -104,6 +109,15 @@ class OpenApiDocumentationTest {
     @MockitoBean
     private OrderService orderService;
 
+    @MockitoBean
+    private AuthService authService;
+
+    @MockitoBean
+    private RefreshCookieService refreshCookieService;
+
+    @MockitoBean
+    private RefreshRequestGuard refreshRequestGuard;
+
     @Autowired
     private ObjectMapper objectMapper;
 
@@ -129,6 +143,20 @@ class OpenApiDocumentationTest {
         JsonNode pathParameter = operation.path("parameters").get(0);
         assertThat(pathParameter.path("name").asString()).isEqualTo("id");
         assertThat(pathParameter.path("in").asString()).isEqualTo("path");
+    }
+
+    @Test
+    void localAuthSessionRoutes_shouldDocumentAccessTokenOnlyAndRefreshLifecycle() {
+        assertThat(openApi.at("/paths/~1auth~1register/post").isMissingNode()).isFalse();
+        assertThat(openApi.at("/paths/~1auth~1login/post").isMissingNode()).isFalse();
+        assertThat(openApi.at("/paths/~1auth~1refresh/post").isMissingNode()).isFalse();
+        assertThat(openApi.at("/paths/~1auth~1logout/post").isMissingNode()).isFalse();
+        assertThat(openApi.at("/paths/~1auth~1logout/post/responses/204").isMissingNode())
+                .isFalse();
+
+        JsonNode tokenProperties = openApi.at("/components/schemas/TokenResponse/properties");
+        assertThat(tokenProperties.has("accessToken")).isTrue();
+        assertThat(tokenProperties.has("refreshCredential")).isFalse();
     }
 
     @Test

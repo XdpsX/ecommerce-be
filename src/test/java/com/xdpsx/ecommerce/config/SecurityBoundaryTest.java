@@ -8,8 +8,10 @@ import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -25,6 +27,10 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.xdpsx.ecommerce.auth.api.AuthController;
+import com.xdpsx.ecommerce.auth.api.RefreshCookieService;
+import com.xdpsx.ecommerce.auth.api.RefreshRequestGuard;
+import com.xdpsx.ecommerce.auth.application.AuthService;
 import com.xdpsx.ecommerce.auth.infrastructure.security.CustomAuthEntryPoint;
 import com.xdpsx.ecommerce.auth.infrastructure.security.oauth2.CustomAuthenticationSuccessHandler;
 import com.xdpsx.ecommerce.auth.infrastructure.security.oauth2.CustomOAuth2FailureHandler;
@@ -51,6 +57,7 @@ import com.xdpsx.ecommerce.payment.infrastructure.vnpay.IpnHandler;
 
 @WebMvcTest(
         controllers = {
+            AuthController.class,
             AdminProductController.class,
             AdminProductVariantController.class,
             StorefrontProductController.class,
@@ -59,7 +66,10 @@ import com.xdpsx.ecommerce.payment.infrastructure.vnpay.IpnHandler;
             OrderController.class,
             PaymentController.class
         },
-        properties = {"app.jwt.secret=01234567890123456789012345678901", "app.cors.allowed-origins=http://localhost"})
+        properties = {
+            "app.jwt.secret=01234567890123456789012345678901",
+            "app.cors.allowed-origins=http://localhost:3001"
+        })
 @Import({SecurityConfig.class, CustomAuthEntryPoint.class})
 class SecurityBoundaryTest {
 
@@ -75,6 +85,15 @@ class SecurityBoundaryTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockitoBean
+    private AuthService authService;
+
+    @MockitoBean
+    private RefreshCookieService refreshCookieService;
+
+    @MockitoBean
+    private RefreshRequestGuard refreshRequestGuard;
 
     @MockitoBean
     private ProductService productService;
@@ -233,5 +252,21 @@ class SecurityBoundaryTest {
 
         verify(productVariantService).scheduleSale(eq(1L), eq(2L), any());
         verify(productVariantService).removeSale(1L, 2L);
+    }
+
+    @Test
+    void credentialedRefreshPreflight_ShouldAcceptGuardHeaderOnlyFromConfiguredOrigin() throws Exception {
+        mockMvc.perform(options("/auth/refresh")
+                        .header("Origin", "http://localhost:3001")
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "X-Session-Request"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:3001"));
+
+        mockMvc.perform(options("/auth/refresh")
+                        .header("Origin", "http://unconfigured.example")
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "X-Session-Request"))
+                .andExpect(status().isForbidden());
     }
 }
