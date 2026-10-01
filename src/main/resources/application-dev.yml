@@ -58,6 +58,8 @@ cloudinary:
     name: ${CLOUDINARY_CLOUD_NAME}
 
 app:
+  auth-session:
+    refresh-cookie-secure: ${APP_REFRESH_COOKIE_SECURE:false}
   jwt:
     secret: ${JWT_SECRET}
     expiration:

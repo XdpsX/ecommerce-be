@@ -12,9 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.xdpsx.ecommerce.auth.api.dto.LoginRequest;
 import com.xdpsx.ecommerce.auth.api.dto.RegisterRequest;
-import com.xdpsx.ecommerce.auth.api.dto.TokenResponse;
 import com.xdpsx.ecommerce.auth.infrastructure.security.CustomUserDetails;
-import com.xdpsx.ecommerce.auth.infrastructure.security.TokenProvider;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.user.domain.AuthProvider;
@@ -30,12 +28,12 @@ import lombok.RequiredArgsConstructor;
 public class AuthServiceImpl implements AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final TokenProvider tokenProvider;
     private final AuthenticationManager authenticationManager;
+    private final RefreshSessionManager refreshSessionManager;
 
     @Override
     @Transactional
-    public TokenResponse register(RegisterRequest request) {
+    public AuthenticatedSession register(RegisterRequest request) {
         String canonicalEmail = EmailIdentity.canonicalize(request.getEmail());
         if (userRepository.existsByEmail(canonicalEmail)) {
             throw new ApplicationException(
@@ -58,18 +56,36 @@ public class AuthServiceImpl implements AuthService {
             }
             throw exception;
         }
-        String accessToken = tokenProvider.generateToken(savedUser);
-        return TokenResponse.builder().accessToken(accessToken).build();
+        return refreshSessionManager.issue(savedUser);
     }
 
     @Override
-    public TokenResponse login(LoginRequest request) {
+    public AuthenticatedSession login(LoginRequest request) {
         String canonicalEmail = EmailIdentity.canonicalize(request.getEmail());
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(canonicalEmail, request.getPassword()));
         CustomUserDetails user = (CustomUserDetails) authentication.getPrincipal();
-        String accessToken = tokenProvider.generateToken(user);
-        return TokenResponse.builder().accessToken(accessToken).build();
+        User authenticatedUser = User.builder()
+                .id(user.getId())
+                .email(user.getUsername())
+                .authProvider(user.getAuthProvider())
+                .role(user.getRole())
+                .build();
+        return refreshSessionManager.issue(authenticatedUser);
+    }
+
+    @Override
+    public AuthenticatedSession refresh(String refreshCredential) {
+        RefreshRotationOutcome outcome = refreshSessionManager.rotate(refreshCredential);
+        if (!outcome.successful()) {
+            throw new ApplicationException(ErrorCode.INVALID_REFRESH_CREDENTIAL);
+        }
+        return outcome.toAuthenticatedSession();
+    }
+
+    @Override
+    public void logout(String refreshCredential) {
+        refreshSessionManager.revoke(refreshCredential);
     }
 
     private static boolean isEmailUniqueConstraintViolation(Throwable exception) {

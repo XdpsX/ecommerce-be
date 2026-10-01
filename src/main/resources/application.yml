@@ -20,3 +20,13 @@ logging:
 app:
   store:
     currency: ${APP_STORE_CURRENCY:VND}
+  auth-session:
+    expected-issuer: ${APP_AUTH_EXPECTED_ISSUER:xdpsx.com}
+    local-access-token-lifetime: ${APP_LOCAL_ACCESS_TOKEN_LIFETIME:15m}
+    refresh-session-lifetime: ${APP_REFRESH_SESSION_LIFETIME:30d}
+    refresh-cookie-name: ${APP_REFRESH_COOKIE_NAME:refresh_session}
+    refresh-cookie-path: ${APP_REFRESH_COOKIE_PATH:/auth}
+    refresh-cookie-secure: ${APP_REFRESH_COOKIE_SECURE:true}
+    refresh-cookie-same-site: ${APP_REFRESH_COOKIE_SAME_SITE:Strict}
+    guard-header-name: ${APP_SESSION_REQUEST_HEADER:X-Session-Request}
+    guard-header-value: ${APP_SESSION_REQUEST_HEADER_VALUE:1}
