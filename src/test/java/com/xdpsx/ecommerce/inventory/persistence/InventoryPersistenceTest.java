@@ -26,9 +26,11 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.xdpsx.ecommerce.cart.domain.Cart;
 import com.xdpsx.ecommerce.cart.domain.CartItem;
 import com.xdpsx.ecommerce.cart.domain.CartItemId;
 import com.xdpsx.ecommerce.cart.persistence.CartItemRepository;
+import com.xdpsx.ecommerce.cart.persistence.CartRepository;
 import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
 import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
 import com.xdpsx.ecommerce.catalog.brand.persistence.BrandRepository;
@@ -68,6 +70,7 @@ class InventoryPersistenceTest {
                 VariantOptionRepository.class,
                 VariantOptionValueRepository.class,
                 CartItemRepository.class,
+                CartRepository.class,
                 UserRepository.class,
                 InventoryBalanceRepository.class,
                 InventoryAdjustmentRepository.class
@@ -142,6 +145,9 @@ class InventoryPersistenceTest {
     private CartItemRepository cartItemRepository;
 
     @Autowired
+    private CartRepository cartRepository;
+
+    @Autowired
     private UserRepository userRepository;
 
     @Autowired
@@ -162,6 +168,7 @@ class InventoryPersistenceTest {
             adjustmentRepository.deleteAll();
             balanceRepository.deleteAll();
             cartItemRepository.deleteAll();
+            cartRepository.deleteAll();
             variantRepository.deleteAll();
             productRepository.deleteAll();
             brandRepository.deleteAll();
@@ -292,15 +299,16 @@ class InventoryPersistenceTest {
             availableBalance.adjustOnHand(2);
             balanceRepository.saveAndFlush(availableBalance);
             balanceRepository.saveAndFlush(InventoryBalance.zero(soldOutVariant));
+            Cart cart = cartRepository.saveAndFlush(Cart.forCustomer(userRepository.getReferenceById(userId)));
             cartItemRepository.save(CartItem.builder()
-                    .id(new CartItemId(userId, availableVariant.getId()))
-                    .user(userRepository.getReferenceById(userId))
+                    .id(new CartItemId(cart.getId(), availableVariant.getId()))
+                    .cart(cart)
                     .variant(availableVariant)
                     .quantity(1)
                     .build());
             cartItemRepository.save(CartItem.builder()
-                    .id(new CartItemId(userId, soldOutVariant.getId()))
-                    .user(userRepository.getReferenceById(userId))
+                    .id(new CartItemId(cart.getId(), soldOutVariant.getId()))
+                    .cart(cart)
                     .variant(soldOutVariant)
                     .quantity(1)
                     .build());

@@ -39,6 +39,7 @@ import com.xdpsx.ecommerce.auth.infrastructure.security.oauth2.CustomAuthenticat
 import com.xdpsx.ecommerce.auth.infrastructure.security.oauth2.CustomOAuth2FailureHandler;
 import com.xdpsx.ecommerce.auth.infrastructure.security.oauth2.CustomOAuth2UserService;
 import com.xdpsx.ecommerce.cart.api.CartController;
+import com.xdpsx.ecommerce.cart.api.dto.CartResponse;
 import com.xdpsx.ecommerce.cart.application.CartService;
 import com.xdpsx.ecommerce.catalog.product.api.AdminProductController;
 import com.xdpsx.ecommerce.catalog.product.api.AdminProductVariantController;
@@ -157,11 +158,38 @@ class SecurityBoundaryTest {
     void authenticatedCustomerEndpoint_ShouldRejectAnonymousAndAllowUser() throws Exception {
         mockMvc.perform(get("/cart")).andExpect(status().isUnauthorized());
 
-        when(cartService.getCart("customer@example.test")).thenReturn(List.of());
+        when(cartService.getCartForCustomer("customer@example.test")).thenReturn(new CartResponse());
         mockMvc.perform(get("/cart").with(user("customer@example.test").roles("USER")))
                 .andExpect(status().isOk());
 
-        verify(cartService).getCart("customer@example.test");
+        verify(cartService).getCartForCustomer("customer@example.test");
+    }
+
+    @Test
+    void cartItemRoutes_ShouldUseResourceOrientedCartContract() throws Exception {
+        CartResponse response = new CartResponse();
+        when(cartService.addItem(eq("customer@example.test"), any())).thenReturn(response);
+        when(cartService.replaceItem(eq("customer@example.test"), eq(101L), any()))
+                .thenReturn(response);
+        when(cartService.removeItem("customer@example.test", 101L)).thenReturn(response);
+
+        mockMvc.perform(post("/cart/items")
+                        .with(user("customer@example.test").roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"variantId\":101,\"quantity\":2}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(put("/cart/items/101")
+                        .with(user("customer@example.test").roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"quantity\":3}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(delete("/cart/items/101")
+                        .with(user("customer@example.test").roles("USER")))
+                .andExpect(status().isOk());
+
+        verify(cartService).addItem(eq("customer@example.test"), any());
+        verify(cartService).replaceItem(eq("customer@example.test"), eq(101L), any());
+        verify(cartService).removeItem("customer@example.test", 101L);
     }
 
     @Test

@@ -1,7 +1,5 @@
 package com.xdpsx.ecommerce.cart.api;
 
-import java.util.List;
-
 import jakarta.validation.Valid;
 
 import org.springframework.http.ResponseEntity;
@@ -9,7 +7,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import com.xdpsx.ecommerce.cart.api.dto.CartItemRequest;
-import com.xdpsx.ecommerce.cart.api.dto.CartItemResponse;
+import com.xdpsx.ecommerce.cart.api.dto.CartQuantityRequest;
+import com.xdpsx.ecommerce.cart.api.dto.CartResponse;
 import com.xdpsx.ecommerce.cart.application.CartService;
 
 import lombok.RequiredArgsConstructor;
@@ -20,34 +19,27 @@ import lombok.RequiredArgsConstructor;
 public class CartController {
     private final CartService cartService;
 
-    @PostMapping("/add")
-    public ResponseEntity<CartItemResponse> addToCart(
-            @Valid @RequestBody CartItemRequest request, Authentication authentication) {
-        CartItemResponse response = cartService.addToCart(authentication.getName(), request);
-        return ResponseEntity.ok(response);
-    }
-
-    @DeleteMapping("/remove/{variantId}")
-    public ResponseEntity<Void> removeCartItem(@PathVariable Long variantId, Authentication authentication) {
-        cartService.removeCartItem(authentication.getName(), variantId);
-        return ResponseEntity.noContent().build();
-    }
-
     @GetMapping
-    public ResponseEntity<List<CartItemResponse>> getCart(Authentication authentication) {
-        List<CartItemResponse> response = cartService.getCart(authentication.getName());
-        return ResponseEntity.ok(response);
+    public ResponseEntity<CartResponse> getCart(Authentication authentication) {
+        return ResponseEntity.ok(cartService.getCartForCustomer(authentication.getName()));
     }
 
-    @PutMapping("/update")
-    public ResponseEntity<CartItemResponse> updateCart(
+    @PostMapping("/items")
+    public ResponseEntity<CartResponse> addItem(
             @Valid @RequestBody CartItemRequest request, Authentication authentication) {
-        CartItemResponse response = cartService.updateCartItem(authentication.getName(), request);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(cartService.addItem(authentication.getName(), request));
     }
 
-    @GetMapping("/count")
-    public ResponseEntity<Long> countCart(Authentication authentication) {
-        return ResponseEntity.ok(cartService.countCartItems(authentication.getName()));
+    @PutMapping("/items/{variantId}")
+    public ResponseEntity<CartResponse> replaceItem(
+            @PathVariable Long variantId,
+            @Valid @RequestBody CartQuantityRequest request,
+            Authentication authentication) {
+        return ResponseEntity.ok(cartService.replaceItem(authentication.getName(), variantId, request));
+    }
+
+    @DeleteMapping("/items/{variantId}")
+    public ResponseEntity<CartResponse> removeItem(@PathVariable Long variantId, Authentication authentication) {
+        return ResponseEntity.ok(cartService.removeItem(authentication.getName(), variantId));
     }
 }

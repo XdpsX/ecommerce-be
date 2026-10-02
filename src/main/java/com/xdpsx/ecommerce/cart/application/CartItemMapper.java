@@ -7,6 +7,7 @@ import java.util.List;
 import org.mapstruct.Mapper;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.xdpsx.ecommerce.cart.api.dto.CartAvailability;
 import com.xdpsx.ecommerce.cart.api.dto.CartItemResponse;
 import com.xdpsx.ecommerce.cart.domain.CartItem;
 import com.xdpsx.ecommerce.config.StorePricingProperties;
@@ -42,7 +43,15 @@ public abstract class CartItemMapper {
         response.setBasePrice(resolved == null ? null : resolved.basePrice());
         response.setDiscountAmount(resolved == null ? null : resolved.discountAmount());
         response.setFinalUnitPrice(resolved == null ? null : resolved.finalUnitPrice());
+        response.setEstimatedSubtotal(
+                resolved == null || entity.getQuantity() == null
+                        ? null
+                        : resolved.finalUnitPrice().multiply(java.math.BigDecimal.valueOf(entity.getQuantity())));
         response.setCurrency(currency());
+        response.setAvailability(
+                entity.getAvailability() == null
+                        ? (entity.isAvailable() ? CartAvailability.AVAILABLE : CartAvailability.UNAVAILABLE)
+                        : CartAvailability.valueOf(entity.getAvailability()));
         response.setAvailable(entity.isAvailable());
         return response;
     }

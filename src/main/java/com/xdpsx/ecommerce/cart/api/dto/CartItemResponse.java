@@ -16,6 +16,9 @@ public class CartItemResponse {
     private BigDecimal basePrice;
     private BigDecimal discountAmount;
     private BigDecimal finalUnitPrice;
+    private BigDecimal estimatedSubtotal;
     private String currency;
+    private CartAvailability availability;
+    /** @deprecated use availability. */
     private boolean available;
 }

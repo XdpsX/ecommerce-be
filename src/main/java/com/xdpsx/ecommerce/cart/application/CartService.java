@@ -1,18 +1,15 @@
 package com.xdpsx.ecommerce.cart.application;
 
-import java.util.List;
-
 import com.xdpsx.ecommerce.cart.api.dto.CartItemRequest;
-import com.xdpsx.ecommerce.cart.api.dto.CartItemResponse;
+import com.xdpsx.ecommerce.cart.api.dto.CartQuantityRequest;
+import com.xdpsx.ecommerce.cart.api.dto.CartResponse;
 
 public interface CartService {
-    CartItemResponse addToCart(String userEmail, CartItemRequest request);
+    CartResponse getCartForCustomer(String userEmail);
 
-    void removeCartItem(String userEmail, Long variantId);
+    CartResponse addItem(String userEmail, CartItemRequest request);
 
-    List<CartItemResponse> getCart(String userEmail);
+    CartResponse replaceItem(String userEmail, Long variantId, CartQuantityRequest request);
 
-    CartItemResponse updateCartItem(String userEmail, CartItemRequest request);
-
-    long countCartItems(String userEmail);
+    CartResponse removeItem(String userEmail, Long variantId);
 }

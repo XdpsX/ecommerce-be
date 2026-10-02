@@ -7,12 +7,9 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 @Data
-public class CartItemRequest {
-    @NotNull(message = "Variant ID is required")
-    private Long variantId;
-
+public class CartQuantityRequest {
     @NotNull(message = "Quantity is required")
-    @Min(1)
-    @Max(99)
+    @Min(value = 1, message = "Quantity must be between 1 and 99")
+    @Max(value = 99, message = "Quantity must be between 1 and 99")
     private Integer quantity;
 }

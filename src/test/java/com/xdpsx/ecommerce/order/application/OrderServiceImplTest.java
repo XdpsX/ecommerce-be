@@ -79,7 +79,6 @@ class OrderServiceImplTest {
                 .build();
         CartItem item = CartItem.builder()
                 .id(new CartItemId(user.getId(), variant.getId()))
-                .user(user)
                 .variant(variant)
                 .quantity(1)
                 .build();
@@ -107,7 +106,6 @@ class OrderServiceImplTest {
                 .build();
         CartItem item = CartItem.builder()
                 .id(new CartItemId(user.getId(), variant.getId()))
-                .user(user)
                 .variant(variant)
                 .quantity(2)
                 .build();
@@ -151,7 +149,6 @@ class OrderServiceImplTest {
         variant.replaceSaleSchedule(new BigDecimal("10.00"), NOW.minusSeconds(1), NOW.plusSeconds(3600), NOW);
         CartItem item = CartItem.builder()
                 .id(new CartItemId(user.getId(), variant.getId()))
-                .user(user)
                 .variant(variant)
                 .quantity(2)
                 .build();
@@ -199,7 +196,6 @@ class OrderServiceImplTest {
                 .build();
         CartItem item = CartItem.builder()
                 .id(new CartItemId(user.getId(), variant.getId()))
-                .user(user)
                 .variant(variant)
                 .quantity(2)
                 .build();
