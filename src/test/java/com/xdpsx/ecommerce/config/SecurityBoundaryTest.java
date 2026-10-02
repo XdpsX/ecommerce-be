@@ -3,6 +3,7 @@ package com.xdpsx.ecommerce.config;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -25,6 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseCookie;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -39,7 +41,12 @@ import com.xdpsx.ecommerce.auth.infrastructure.security.oauth2.CustomAuthenticat
 import com.xdpsx.ecommerce.auth.infrastructure.security.oauth2.CustomOAuth2FailureHandler;
 import com.xdpsx.ecommerce.auth.infrastructure.security.oauth2.CustomOAuth2UserService;
 import com.xdpsx.ecommerce.cart.api.CartController;
+import com.xdpsx.ecommerce.cart.api.GuestCartCookieService;
+import com.xdpsx.ecommerce.cart.api.GuestCartRequestGuard;
 import com.xdpsx.ecommerce.cart.api.dto.CartResponse;
+import com.xdpsx.ecommerce.cart.application.CartMutationResult;
+import com.xdpsx.ecommerce.cart.application.CartOwner;
+import com.xdpsx.ecommerce.cart.application.CartOwnerResolver;
 import com.xdpsx.ecommerce.cart.application.CartService;
 import com.xdpsx.ecommerce.catalog.product.api.AdminProductController;
 import com.xdpsx.ecommerce.catalog.product.api.AdminProductVariantController;
@@ -120,6 +127,15 @@ class SecurityBoundaryTest {
     private CartService cartService;
 
     @MockitoBean
+    private CartOwnerResolver cartOwnerResolver;
+
+    @MockitoBean
+    private GuestCartCookieService guestCartCookieService;
+
+    @MockitoBean
+    private GuestCartRequestGuard guestCartRequestGuard;
+
+    @MockitoBean
     private MediaService mediaService;
 
     @MockitoBean
@@ -156,22 +172,26 @@ class SecurityBoundaryTest {
 
     @Test
     void authenticatedCustomerEndpoint_ShouldRejectAnonymousAndAllowUser() throws Exception {
-        mockMvc.perform(get("/cart")).andExpect(status().isUnauthorized());
+        when(cartOwnerResolver.resolve(any(), any())).thenReturn(CartOwner.guest(null));
+        when(cartService.getCart(any())).thenReturn(new CartResponse());
+        mockMvc.perform(get("/cart")).andExpect(status().isOk());
 
-        when(cartService.getCartForCustomer("customer@example.test")).thenReturn(new CartResponse());
+        when(cartOwnerResolver.resolve(any(), any())).thenReturn(CartOwner.customer("customer@example.test"));
+        when(cartService.getCart(any())).thenReturn(new CartResponse());
         mockMvc.perform(get("/cart").with(user("customer@example.test").roles("USER")))
                 .andExpect(status().isOk());
 
-        verify(cartService).getCartForCustomer("customer@example.test");
+        verify(cartService, times(2)).getCart(any());
     }
 
     @Test
     void cartItemRoutes_ShouldUseResourceOrientedCartContract() throws Exception {
         CartResponse response = new CartResponse();
-        when(cartService.addItem(eq("customer@example.test"), any())).thenReturn(response);
-        when(cartService.replaceItem(eq("customer@example.test"), eq(101L), any()))
-                .thenReturn(response);
-        when(cartService.removeItem("customer@example.test", 101L)).thenReturn(response);
+        CartMutationResult mutation = new CartMutationResult(response, null, null, false);
+        when(cartOwnerResolver.resolve(any(), any())).thenReturn(CartOwner.customer("customer@example.test"));
+        when(cartService.addItem(any(CartOwner.class), any())).thenReturn(mutation);
+        when(cartService.replaceItem(any(CartOwner.class), eq(101L), any())).thenReturn(mutation);
+        when(cartService.removeItem(any(CartOwner.class), eq(101L))).thenReturn(mutation);
 
         mockMvc.perform(post("/cart/items")
                         .with(user("customer@example.test").roles("USER"))
@@ -187,9 +207,43 @@ class SecurityBoundaryTest {
                         .with(user("customer@example.test").roles("USER")))
                 .andExpect(status().isOk());
 
-        verify(cartService).addItem(eq("customer@example.test"), any());
-        verify(cartService).replaceItem(eq("customer@example.test"), eq(101L), any());
-        verify(cartService).removeItem("customer@example.test", 101L);
+        verify(cartService).addItem(any(CartOwner.class), any());
+        verify(cartService).replaceItem(any(CartOwner.class), eq(101L), any());
+        verify(cartService).removeItem(any(CartOwner.class), eq(101L));
+    }
+
+    @Test
+    void guestCartMutation_ShouldRequireGuardAndNeverReturnCredentialInJson() throws Exception {
+        when(cartOwnerResolver.resolve(any(), any())).thenReturn(CartOwner.guest(null));
+        mockMvc.perform(post("/cart/items")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"variantId\":101,\"quantity\":2}"))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(cartService);
+
+        when(guestCartRequestGuard.isAllowed(any())).thenReturn(true);
+        when(cartService.addItem(any(CartOwner.class), any()))
+                .thenReturn(new CartMutationResult(
+                        new CartResponse(), "42.secret", java.time.Instant.parse("2026-02-01T00:00:00Z"), false));
+        when(guestCartCookieService.create(any(), any()))
+                .thenReturn(ResponseCookie.from("guest_cart", "42.secret")
+                        .httpOnly(true)
+                        .path("/cart")
+                        .build());
+
+        mockMvc.perform(post("/cart/items")
+                        .header("X-Cart-Request", "1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"variantId\":101,\"quantity\":2}"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Set-Cookie", org.hamcrest.Matchers.containsString("HttpOnly")))
+                .andExpect(jsonPath("$.guestCredential").doesNotExist());
+    }
+
+    @Test
+    void guestCartClaim_ShouldRequireAuthentication() throws Exception {
+        mockMvc.perform(post("/cart/claim")).andExpect(status().isUnauthorized());
+        verifyNoInteractions(cartService);
     }
 
     @Test

@@ -36,6 +36,7 @@ import com.xdpsx.ecommerce.catalog.product.domain.ProductVariant;
 import com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductVariantRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.config.CartProperties;
 import com.xdpsx.ecommerce.inventory.domain.InventoryBalance;
 import com.xdpsx.ecommerce.inventory.persistence.InventoryBalanceRepository;
 import com.xdpsx.ecommerce.user.domain.User;
@@ -71,6 +72,8 @@ class CartRenewedServiceImplTest {
     private ProductVariant variant;
     private CartItem item;
     private CartServiceImpl service;
+    private GuestCartCredentialService guestCredentialService;
+    private CartProperties cartProperties;
 
     @BeforeEach
     void setUp() {
@@ -78,6 +81,8 @@ class CartRenewedServiceImplTest {
         cart = Cart.builder().id(12L).user(user).build();
         variant = ProductVariant.builder().id(101L).build();
         item = CartItem.builder().cart(cart).variant(variant).quantity(2).build();
+        guestCredentialService = new GuestCartCredentialService();
+        cartProperties = new CartProperties();
         when(userRepository.findByEmail(user.getEmail())).thenReturn(Optional.of(user));
         service = new CartServiceImpl(
                 mapper,
@@ -87,7 +92,9 @@ class CartRenewedServiceImplTest {
                 variantRepository,
                 inventoryRepository,
                 null,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                guestCredentialService,
+                cartProperties);
     }
 
     @Test
@@ -106,7 +113,7 @@ class CartRenewedServiceImplTest {
 
         CartItemRequest request = request(3);
 
-        service.addItem(user.getEmail(), request);
+        service.addItem(CartOwner.customer(user.getEmail()), request);
 
         assertThat(item.getQuantity()).isEqualTo(5);
     }
@@ -120,7 +127,8 @@ class CartRenewedServiceImplTest {
         when(inventoryRepository.findByVariantIdWithVariant(variant.getId())).thenReturn(Optional.of(balance));
         when(balance.available()).thenReturn(3L);
 
-        assertThatThrownBy(() -> service.addItem(user.getEmail(), request(2))).isInstanceOf(ApplicationException.class);
+        assertThatThrownBy(() -> service.addItem(CartOwner.customer(user.getEmail()), request(2)))
+                .isInstanceOf(ApplicationException.class);
 
         assertThat(item.getQuantity()).isEqualTo(2);
     }
@@ -138,7 +146,7 @@ class CartRenewedServiceImplTest {
         when(balance.available()).thenReturn(5L);
         when(cartItemRepository.findByCartIdWithCatalog(created.getId())).thenReturn(List.of());
 
-        service.addItem(user.getEmail(), request(1));
+        service.addItem(CartOwner.customer(user.getEmail()), request(1));
 
         InOrder order = inOrder(cartRepository, userRepository);
         order.verify(cartRepository).findByUserIdForUpdate(user.getId());
@@ -177,17 +185,19 @@ class CartRenewedServiceImplTest {
                 variantRepository,
                 inventoryRepository,
                 null,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                guestCredentialService,
+                cartProperties);
         when(balance.available()).thenReturn(0L);
 
-        assertThat(service.getCartForCustomer(user.getEmail()).getItems())
+        assertThat(service.getCart(CartOwner.customer(user.getEmail())).getItems())
                 .singleElement()
                 .extracting(CartItemResponse::getAvailability)
                 .isEqualTo(CartAvailability.INSUFFICIENT_STOCK);
 
         variant.setStatus(ProductVariantStatus.INACTIVE);
 
-        assertThat(service.getCartForCustomer(user.getEmail()).getItems())
+        assertThat(service.getCart(CartOwner.customer(user.getEmail())).getItems())
                 .singleElement()
                 .extracting(CartItemResponse::getAvailability)
                 .isEqualTo(CartAvailability.UNAVAILABLE);

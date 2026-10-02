@@ -5,11 +5,13 @@ import com.xdpsx.ecommerce.cart.api.dto.CartQuantityRequest;
 import com.xdpsx.ecommerce.cart.api.dto.CartResponse;
 
 public interface CartService {
-    CartResponse getCartForCustomer(String userEmail);
+    CartResponse getCart(CartOwner owner);
 
-    CartResponse addItem(String userEmail, CartItemRequest request);
+    CartMutationResult addItem(CartOwner owner, CartItemRequest request);
 
-    CartResponse replaceItem(String userEmail, Long variantId, CartQuantityRequest request);
+    CartMutationResult replaceItem(CartOwner owner, Long variantId, CartQuantityRequest request);
 
-    CartResponse removeItem(String userEmail, Long variantId);
+    CartMutationResult removeItem(CartOwner owner, Long variantId);
+
+    CartMutationResult claimGuestCart(String userEmail, String guestCredential);
 }

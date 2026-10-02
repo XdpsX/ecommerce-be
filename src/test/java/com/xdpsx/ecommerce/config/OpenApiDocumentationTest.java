@@ -23,6 +23,9 @@ import com.xdpsx.ecommerce.auth.api.RefreshCookieService;
 import com.xdpsx.ecommerce.auth.api.RefreshRequestGuard;
 import com.xdpsx.ecommerce.auth.application.AuthService;
 import com.xdpsx.ecommerce.cart.api.CartController;
+import com.xdpsx.ecommerce.cart.api.GuestCartCookieService;
+import com.xdpsx.ecommerce.cart.api.GuestCartRequestGuard;
+import com.xdpsx.ecommerce.cart.application.CartOwnerResolver;
 import com.xdpsx.ecommerce.cart.application.CartService;
 import com.xdpsx.ecommerce.catalog.brand.api.AdminBrandController;
 import com.xdpsx.ecommerce.catalog.brand.api.StorefrontBrandController;
@@ -105,6 +108,15 @@ class OpenApiDocumentationTest {
 
     @MockitoBean
     private CartService cartService;
+
+    @MockitoBean
+    private CartOwnerResolver cartOwnerResolver;
+
+    @MockitoBean
+    private GuestCartCookieService guestCartCookieService;
+
+    @MockitoBean
+    private GuestCartRequestGuard guestCartRequestGuard;
 
     @MockitoBean
     private OrderService orderService;

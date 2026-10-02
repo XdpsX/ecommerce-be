@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +29,7 @@ import com.xdpsx.ecommerce.catalog.product.persistence.ProductVariantRepository;
 import com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
+import com.xdpsx.ecommerce.config.CartProperties;
 import com.xdpsx.ecommerce.config.StorePricingProperties;
 import com.xdpsx.ecommerce.inventory.domain.InventoryBalance;
 import com.xdpsx.ecommerce.inventory.persistence.InventoryBalanceRepository;
@@ -35,10 +37,7 @@ import com.xdpsx.ecommerce.user.domain.EmailIdentity;
 import com.xdpsx.ecommerce.user.domain.User;
 import com.xdpsx.ecommerce.user.persistence.UserRepository;
 
-import lombok.RequiredArgsConstructor;
-
 @Service
-@RequiredArgsConstructor
 public class CartServiceImpl implements CartService {
     private final CartItemMapper cartItemMapper;
     private final UserRepository userRepository;
@@ -48,19 +47,51 @@ public class CartServiceImpl implements CartService {
     private final InventoryBalanceRepository inventoryBalanceRepository;
     private final StorePricingProperties pricingProperties;
     private final Clock pricingClock;
+    private final GuestCartCredentialService guestCredentialService;
+    private final CartProperties cartProperties;
+
+    @Autowired
+    public CartServiceImpl(
+            CartItemMapper cartItemMapper,
+            UserRepository userRepository,
+            CartRepository cartRepository,
+            CartItemRepository cartItemRepository,
+            ProductVariantRepository productVariantRepository,
+            InventoryBalanceRepository inventoryBalanceRepository,
+            StorePricingProperties pricingProperties,
+            Clock pricingClock,
+            GuestCartCredentialService guestCredentialService,
+            CartProperties cartProperties) {
+        this.cartItemMapper = cartItemMapper;
+        this.userRepository = userRepository;
+        this.cartRepository = cartRepository;
+        this.cartItemRepository = cartItemRepository;
+        this.productVariantRepository = productVariantRepository;
+        this.inventoryBalanceRepository = inventoryBalanceRepository;
+        this.pricingProperties = pricingProperties;
+        this.pricingClock = pricingClock;
+        this.guestCredentialService = guestCredentialService;
+        this.cartProperties = cartProperties;
+    }
 
     @Override
     @Transactional(readOnly = true)
-    public CartResponse getCartForCustomer(String userEmail) {
-        User user = getUser(userEmail);
-        return readCart(cartRepository.findByUserId(user.getId()).orElse(null));
+    public CartResponse getCart(CartOwner owner) {
+        if (owner.isCustomer()) {
+            User user = getUser(owner.customerEmail());
+            return readCart(cartRepository.findByUserId(user.getId()).orElse(null));
+        }
+        if (owner.guestCredential() == null) return emptyCart();
+        GuestAccess guest = loadGuest(owner.guestCredential(), false);
+        return readCart(guest.cart());
     }
 
     @Override
     @Transactional
-    public CartResponse addItem(String userEmail, CartItemRequest request) {
+    public CartMutationResult addItem(CartOwner owner, CartItemRequest request) {
         validateRequest(request.getQuantity());
-        Cart cart = getOrCreateCustomerCart(userEmail);
+        MutationAccess access = resolveForMutation(owner);
+        Cart cart = access.cart();
         ProductVariant variant = getSaleableVariant(request.getVariantId());
         CartItem item = cartItemRepository
                 .findByCartIdAndVariantId(cart.getId(), variant.getId())
@@ -81,28 +112,62 @@ public class CartServiceImpl implements CartService {
             item.increaseBy(request.getQuantity());
         }
         cartItemRepository.save(item);
-        return readCart(cart);
+        return access.result(readCart(cart));
     }
 
     @Override
     @Transactional
-    public CartResponse replaceItem(String userEmail, Long variantId, CartQuantityRequest request) {
+    public CartMutationResult replaceItem(CartOwner owner, Long variantId, CartQuantityRequest request) {
         validateRequest(request.getQuantity());
-        Cart cart = getCustomerCartForWrite(userEmail);
+        MutationAccess access = resolveForMutation(owner);
+        Cart cart = access.cart();
         CartItem item = getCartItem(cart, variantId);
         ProductVariant variant = getSaleableVariant(variantId);
         ensureAvailable(variant.getId(), request.getQuantity());
         item.replaceQuantity(request.getQuantity());
-        return readCart(cart);
+        return access.result(readCart(cart));
     }
 
     @Override
     @Transactional
-    public CartResponse removeItem(String userEmail, Long variantId) {
-        Cart cart = getCustomerCartForWrite(userEmail);
+    public CartMutationResult removeItem(CartOwner owner, Long variantId) {
+        MutationAccess access = resolveForMutation(owner);
+        Cart cart = access.cart();
         CartItem item = getCartItem(cart, variantId);
         cartItemRepository.delete(item);
-        return readCart(cart);
+        return access.result(readCart(cart));
+    }
+
+    @Override
+    @Transactional
+    public CartMutationResult claimGuestCart(String userEmail, String guestCredential) {
+        User user = getUser(userEmail);
+        if (guestCredential == null) {
+            return new CartMutationResult(getCart(CartOwner.customer(userEmail)), null, null, true);
+        }
+
+        GuestCartCredentialService.ParsedCredential parsed = parseCredential(guestCredential);
+        Optional<Cart> customerSnapshot = cartRepository.findByUserId(user.getId());
+        if (customerSnapshot.isEmpty()) {
+            User lockedUser = userRepository.findByIdForUpdate(user.getId()).orElseThrow();
+            Optional<Cart> recheckedCustomer = cartRepository.findByUserIdForUpdate(lockedUser.getId());
+            if (recheckedCustomer.isEmpty()) {
+                Cart guest = loadGuestForUpdate(parsed);
+                guest.claimFor(lockedUser);
+                cartRepository.save(guest);
+                return new CartMutationResult(readCart(guest), null, null, true);
+            }
+            customerSnapshot = recheckedCustomer;
+        }
+
+        Cart customer = customerSnapshot.orElseThrow();
+        LockedCarts lockedCarts = lockGuestAndCustomer(parsed.cartId(), customer.getId());
+        customer = lockedCarts.customer();
+        Cart guest = lockedCarts.guest();
+        validateGuest(guest, parsed);
+        mergeGuestIntoCustomer(guest, customer);
+        cartRepository.delete(guest);
+        return new CartMutationResult(readCart(customer), null, null, true);
     }
 
     private Cart getOrCreateCustomerCart(String userEmail) {
@@ -115,12 +180,90 @@ public class CartServiceImpl implements CartService {
                 .orElseGet(() -> cartRepository.save(Cart.forCustomer(lockedUser)));
     }
 
-    private Cart getCustomerCartForWrite(String userEmail) {
-        User user = getUser(userEmail);
-        return cartRepository
-                .findByUserIdForUpdate(user.getId())
-                .orElseThrow(
-                        () -> new ApplicationException(ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "cart")));
+    private MutationAccess resolveForMutation(CartOwner owner) {
+        if (owner.isCustomer()) return MutationAccess.customer(getOrCreateCustomerCart(owner.customerEmail()));
+        if (owner.guestCredential() == null) return createGuestCart();
+        GuestAccess guest = loadGuest(owner.guestCredential(), true);
+        Instant expiresAt = now().plus(cartProperties.getGuestLifetime());
+        guest.cart().renewGuestUntil(expiresAt);
+        return MutationAccess.guest(guest.cart(), owner.guestCredential(), expiresAt);
+    }
+
+    private MutationAccess createGuestCart() {
+        GuestCartCredentialService.IssuedSecret issued = guestCredentialService.issueSecret();
+        Instant expiresAt = now().plus(cartProperties.getGuestLifetime());
+        Cart cart = cartRepository.saveAndFlush(Cart.forGuest(issued.secretHash(), expiresAt));
+        return MutationAccess.guest(cart, guestCredentialService.format(cart.getId(), issued.secret()), expiresAt);
+    }
+
+    private GuestAccess loadGuest(String rawCredential, boolean forUpdate) {
+        GuestCartCredentialService.ParsedCredential parsed = parseCredential(rawCredential);
+        Cart cart = (forUpdate
+                        ? cartRepository.findByIdForUpdate(parsed.cartId())
+                        : cartRepository.findById(parsed.cartId()))
+                .orElseThrow(this::invalidGuestCart);
+        validateGuest(cart, parsed);
+        return new GuestAccess(cart);
+    }
+
+    private Cart loadGuestForUpdate(GuestCartCredentialService.ParsedCredential parsed) {
+        Cart cart = cartRepository.findByIdForUpdate(parsed.cartId()).orElseThrow(this::invalidGuestCart);
+        validateGuest(cart, parsed);
+        return cart;
+    }
+
+    private LockedCarts lockGuestAndCustomer(Long guestId, Long customerId) {
+        if (guestId.equals(customerId)) throw invalidGuestCart();
+        if (guestId < customerId) {
+            Cart guest = cartRepository.findByIdForUpdate(guestId).orElseThrow(this::invalidGuestCart);
+            Cart customer = cartRepository.findByIdForUpdate(customerId).orElseThrow();
+            return new LockedCarts(guest, customer);
+        }
+        Cart customer = cartRepository.findByIdForUpdate(customerId).orElseThrow();
+        Cart guest = cartRepository.findByIdForUpdate(guestId).orElseThrow(this::invalidGuestCart);
+        return new LockedCarts(guest, customer);
+    }
+
+    private record LockedCarts(Cart guest, Cart customer) {}
+
+    private void validateGuest(Cart cart, GuestCartCredentialService.ParsedCredential parsed) {
+        if (!cart.isGuestOwned()
+                || cart.isExpiredAt(now())
+                || !guestCredentialService.matches(cart.getGuestSecretHash(), parsed.secret())) {
+            throw invalidGuestCart();
+        }
+    }
+
+    private GuestCartCredentialService.ParsedCredential parseCredential(String rawCredential) {
+        return guestCredentialService.parse(rawCredential).orElseThrow(this::invalidGuestCart);
+    }
+
+    private ApplicationException invalidGuestCart() {
+        return new ApplicationException(ErrorCode.INVALID_GUEST_CART);
+    }
+
+    private void mergeGuestIntoCustomer(Cart guest, Cart customer) {
+        Map<Long, CartItem> customerItems = new HashMap<>();
+        cartItemRepository
+                .findAllByCartIdOrderByCreatedAtAsc(customer.getId())
+                .forEach(item -> customerItems.put(item.getVariant().getId(), item));
+        for (CartItem guestItem : cartItemRepository.findAllByCartIdOrderByCreatedAtAsc(guest.getId())) {
+            CartItem customerItem = customerItems.get(guestItem.getVariant().getId());
+            if (customerItem == null) {
+                cartItemRepository.delete(guestItem);
+                cartItemRepository.save(CartItem.builder()
+                        .id(new CartItemId(
+                                customer.getId(), guestItem.getVariant().getId()))
+                        .cart(customer)
+                        .variant(guestItem.getVariant())
+                        .quantity(guestItem.getQuantity())
+                        .build());
+            } else {
+                customerItem.replaceQuantity(
+                        Math.min(CartItem.MAX_QUANTITY, safeSum(customerItem.getQuantity(), guestItem.getQuantity())));
+                cartItemRepository.delete(guestItem);
+            }
+        }
     }
 
     private CartItem getCartItem(Cart cart, Long variantId) {
@@ -231,5 +374,21 @@ public class CartServiceImpl implements CartService {
         return pricingProperties == null || pricingProperties.getCurrency() == null
                 ? "VND"
                 : pricingProperties.getCurrency();
+    }
+
+    private record GuestAccess(Cart cart) {}
+
+    private record MutationAccess(Cart cart, String guestCredential, Instant guestExpiresAt) {
+        static MutationAccess customer(Cart cart) {
+            return new MutationAccess(cart, null, null);
+        }
+
+        static MutationAccess guest(Cart cart, String credential, Instant expiresAt) {
+            return new MutationAccess(cart, credential, expiresAt);
+        }
+
+        CartMutationResult result(CartResponse response) {
+            return new CartMutationResult(response, guestCredential, guestExpiresAt, false);
+        }
     }
 }

@@ -48,6 +48,35 @@ public class Cart extends AuditEntity {
         return Cart.builder().user(user).build();
     }
 
+    public static Cart forGuest(byte[] secretHash, Instant expiresAt) {
+        if (secretHash == null || secretHash.length != 32) {
+            throw new IllegalArgumentException("guest secret hash must contain 32 bytes");
+        }
+        if (expiresAt == null) throw new IllegalArgumentException("guest expiry must not be null");
+        return Cart.builder()
+                .guestSecretHash(secretHash.clone())
+                .guestExpiresAt(expiresAt)
+                .build();
+    }
+
+    public void renewGuestUntil(Instant expiresAt) {
+        if (!isGuestOwned()) throw new IllegalStateException("Only guest Carts can renew guest expiry");
+        if (expiresAt == null) throw new IllegalArgumentException("guest expiry must not be null");
+        guestExpiresAt = expiresAt;
+    }
+
+    public boolean isExpiredAt(Instant now) {
+        return isGuestOwned() && !guestExpiresAt.isAfter(now);
+    }
+
+    public void claimFor(User customer) {
+        if (customer == null) throw new IllegalArgumentException("customer must not be null");
+        if (!isGuestOwned()) throw new IllegalStateException("Only guest Carts can be claimed");
+        user = customer;
+        guestSecretHash = null;
+        guestExpiresAt = null;
+    }
+
     public boolean isCustomerOwned() {
         return user != null && guestSecretHash == null && guestExpiresAt == null;
     }

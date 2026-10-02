@@ -60,6 +60,8 @@ cloudinary:
 app:
   auth-session:
     refresh-cookie-secure: ${APP_REFRESH_COOKIE_SECURE:false}
+  cart:
+    guest-cookie-secure: ${APP_CART_GUEST_COOKIE_SECURE:false}
   jwt:
     secret: ${JWT_SECRET}
     expiration:

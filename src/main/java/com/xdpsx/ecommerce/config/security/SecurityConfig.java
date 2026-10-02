@@ -73,7 +73,11 @@ public class SecurityConfig {
             throws Exception {
         http.csrf(AbstractHttpConfigurer::disable);
         http.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
-        http.authorizeHttpRequests(request -> request.requestMatchers(PUBLIC_ENDPOINTS)
+        http.authorizeHttpRequests(request -> request.requestMatchers("/cart/claim")
+                .authenticated()
+                .requestMatchers("/cart/**")
+                .permitAll()
+                .requestMatchers(PUBLIC_ENDPOINTS)
                 .permitAll()
                 .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS)
                 .permitAll()
