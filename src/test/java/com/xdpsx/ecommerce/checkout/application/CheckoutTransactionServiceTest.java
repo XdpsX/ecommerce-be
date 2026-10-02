@@ -123,7 +123,7 @@ class CheckoutTransactionServiceTest {
         arrange(user, address, cart, item, variant, balance);
         when(orderRepository.saveAndFlush(any(Order.class))).thenAnswer(invocation -> {
             Order order = invocation.getArgument(0);
-            order.setId(42L);
+            org.springframework.test.util.ReflectionTestUtils.setField(order, "id", 42L);
             return order;
         });
 

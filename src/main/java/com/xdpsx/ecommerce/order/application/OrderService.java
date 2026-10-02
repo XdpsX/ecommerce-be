@@ -9,8 +9,6 @@ import com.xdpsx.ecommerce.order.domain.OrderStatus;
 import com.xdpsx.ecommerce.payment.domain.PaymentStatus;
 
 public interface OrderService {
-    void payment(String userEmail, long orderId);
-
     PaymentCallbackResult processPaymentCallback(long orderId, BigDecimal amount, boolean successful);
 
     boolean expirePendingOrder(long orderId, Instant cutoff);

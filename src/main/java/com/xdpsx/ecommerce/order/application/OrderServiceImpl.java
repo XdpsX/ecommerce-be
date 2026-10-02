@@ -46,25 +46,6 @@ public class OrderServiceImpl implements OrderService {
     private final PaymentRepository paymentRepository;
     private final InventoryBalanceRepository inventoryBalanceRepository;
 
-    @Override
-    public void payment(String userEmail, long orderId) {
-        User user = getUser(userEmail);
-        Order order = orderRepository
-                .findById(orderId)
-                .orElseThrow(() -> new ApplicationException(
-                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "order", "resourceId", orderId)));
-        if (!user.getId().equals(order.getUser().getId())) {
-            throw new ApplicationException(
-                    ErrorCode.ACCESS_DENIED, Map.of("resourceType", "order", "resourceId", orderId));
-        }
-        Payment payment = order.getPayment();
-        payment.setStatus(PaymentStatus.PAID);
-        payment.setPaymentMethod(PaymentMethod.VNPAY);
-        payment.setPaymentDate(LocalDateTime.now());
-
-        paymentRepository.save(payment);
-    }
-
     @Transactional
     @Override
     public PaymentCallbackResult processPaymentCallback(long orderId, BigDecimal amount, boolean successful) {
@@ -194,15 +175,24 @@ public class OrderServiceImpl implements OrderService {
                 orderPage.getTotalPages());
     }
 
+    @Transactional
     @Override
     public OrderDTO updateOrderStatus(Long id, OrderStatusUpdate request) {
         Order order = orderRepository
-                .findById(id)
+                .findByIdForUpdate(id)
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "order", "resourceId", id)));
-        order.setStatus(request.getStatus());
-        if (request.getStatus().equals(OrderStatus.DELIVERED)) {
-            order.setDeliveredAt(LocalDateTime.now());
+        OrderStatus nextStatus = request.getStatus();
+        try {
+            order.advanceTo(nextStatus);
+        } catch (IllegalStateException exception) {
+            throw new ApplicationException(
+                    ErrorCode.MALFORMED_REQUEST,
+                    Map.of(
+                            "reason", "invalidOrderTransition",
+                            "from", order.getStatus().name(),
+                            "to", String.valueOf(nextStatus)),
+                    exception);
         }
         Order savedOrder = orderRepository.save(order);
         return convertToDTO(savedOrder);
@@ -227,15 +217,26 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private OrderDTO convertToDTO(Order savedOrder) {
+        var shipping = savedOrder.getShippingAddress();
         return OrderDTO.builder()
                 .id(savedOrder.getId())
                 .trackingNumber(savedOrder.getTrackingNumber())
                 .status(savedOrder.getStatus().name())
                 .total(savedOrder.getTotalAmount())
-                .mobileNumber(savedOrder.getMobileNumber())
+                .address(shipping == null ? savedOrder.getAddress() : shipping.getAddressLine())
+                .mobileNumber(shipping == null ? savedOrder.getMobileNumber() : shipping.getPhoneNumber())
+                .recipientName(shipping == null ? null : shipping.getRecipientName())
+                .phoneNumber(shipping == null ? savedOrder.getMobileNumber() : shipping.getPhoneNumber())
+                .addressLine(shipping == null ? savedOrder.getAddress() : shipping.getAddressLine())
+                .wardCommune(shipping == null ? null : shipping.getWardCommune())
+                .district(shipping == null ? null : shipping.getDistrict())
+                .provinceCity(shipping == null ? null : shipping.getProvinceCity())
+                .postalCode(shipping == null ? null : shipping.getPostalCode())
                 .currency(savedOrder.getCurrency())
-                .paymentStatus(savedOrder.getPayment().getStatus().name())
-                .address(savedOrder.getAddress())
+                .paymentStatus(
+                        savedOrder.getPayment() == null
+                                ? null
+                                : savedOrder.getPayment().getStatus().name())
                 .createdAt(savedOrder.getCreatedAt())
                 .deliveredAt(savedOrder.getDeliveredAt())
                 .build();

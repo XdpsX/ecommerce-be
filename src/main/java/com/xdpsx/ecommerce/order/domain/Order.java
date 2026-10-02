@@ -17,7 +17,6 @@ import com.xdpsx.ecommerce.user.domain.User;
 
 import lombok.*;
 
-@Setter
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor
@@ -98,6 +97,18 @@ public class Order {
         shippingAddress = value;
         address = value.getAddressLine();
         mobileNumber = value.getPhoneNumber();
+    }
+
+    public void setPayment(Payment value) {
+        payment = value;
+    }
+
+    public void setTotalAmount(BigDecimal value) {
+        totalAmount = value;
+    }
+
+    public void setReservationExpiresAt(Instant value) {
+        reservationExpiresAt = value;
     }
 
     public void confirmPayment() {

@@ -41,6 +41,8 @@ public abstract class OrderMapper {
         dto.setItems(items);
         if (entity.getShippingAddress() != null) {
             var shipping = entity.getShippingAddress();
+            dto.setAddress(shipping.getAddressLine());
+            dto.setMobileNumber(shipping.getPhoneNumber());
             dto.setRecipientName(shipping.getRecipientName());
             dto.setPhoneNumber(shipping.getPhoneNumber());
             dto.setAddressLine(shipping.getAddressLine());

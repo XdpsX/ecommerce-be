@@ -11,6 +11,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -294,6 +295,24 @@ class SecurityBoundaryTest {
         mockMvc.perform(get("/orders").with(user("admin@example.test").roles("ADMIN")))
                 .andExpect(status().isOk());
         verify(orderService).getAllOrders(1, 5, null, null);
+
+        when(orderService.updateOrderStatus(eq(42L), any()))
+                .thenReturn(com.xdpsx.ecommerce.order.api.dto.OrderDTO.builder()
+                        .id(42L)
+                        .status("PROCESSING")
+                        .build());
+        mockMvc.perform(patch("/orders/42/status")
+                        .with(user("customer@example.test").roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"PROCESSING\"}"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(patch("/orders/42/status")
+                        .with(user("admin@example.test").roles("ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"PROCESSING\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PROCESSING"));
+        verify(orderService).updateOrderStatus(eq(42L), any());
     }
 
     @Test
