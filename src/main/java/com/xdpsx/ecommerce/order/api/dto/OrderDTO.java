@@ -15,6 +15,14 @@ public class OrderDTO {
     private BigDecimal total;
     private String address;
     private String mobileNumber;
+    private String recipientName;
+    private String phoneNumber;
+    private String addressLine;
+    private String wardCommune;
+    private String district;
+    private String provinceCity;
+    private String postalCode;
+    private String currency;
     private String paymentStatus;
     private LocalDateTime createdAt;
     private LocalDateTime deliveredAt;

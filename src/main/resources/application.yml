@@ -40,3 +40,7 @@ app:
     guard-header-value: ${APP_CART_REQUEST_HEADER_VALUE:1}
     cleanup-batch-size: ${APP_CART_CLEANUP_BATCH_SIZE:100}
     cleanup-fixed-delay-ms: ${APP_CART_CLEANUP_FIXED_DELAY_MS:3600000}
+  checkout:
+    reservation-lifetime: ${APP_CHECKOUT_RESERVATION_LIFETIME:15m}
+    cleanup-batch-size: ${APP_CHECKOUT_CLEANUP_BATCH_SIZE:100}
+    cleanup-fixed-delay-ms: ${APP_CHECKOUT_CLEANUP_FIXED_DELAY_MS:60000}

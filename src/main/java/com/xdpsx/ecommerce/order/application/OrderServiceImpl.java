@@ -1,13 +1,9 @@
 package com.xdpsx.ecommerce.order.application;
 
 import java.math.BigDecimal;
-import java.time.Clock;
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -17,21 +13,14 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.xdpsx.ecommerce.cart.domain.CartItem;
-import com.xdpsx.ecommerce.cart.persistence.CartItemRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
-import com.xdpsx.ecommerce.config.StorePricingProperties;
 import com.xdpsx.ecommerce.order.api.dto.*;
 import com.xdpsx.ecommerce.order.domain.Order;
-import com.xdpsx.ecommerce.order.domain.OrderItem;
 import com.xdpsx.ecommerce.order.domain.OrderStatus;
 import com.xdpsx.ecommerce.order.persistence.OrderRepository;
 import com.xdpsx.ecommerce.order.persistence.OrderSpecification;
-import com.xdpsx.ecommerce.payment.api.dto.InitPaymentRequest;
-import com.xdpsx.ecommerce.payment.api.dto.InitPaymentResponse;
-import com.xdpsx.ecommerce.payment.application.PaymentService;
 import com.xdpsx.ecommerce.payment.domain.Payment;
 import com.xdpsx.ecommerce.payment.domain.PaymentMethod;
 import com.xdpsx.ecommerce.payment.domain.PaymentStatus;
@@ -48,93 +37,7 @@ public class OrderServiceImpl implements OrderService {
     private final OrderMapper orderMapper;
     private final OrderRepository orderRepository;
     private final UserRepository userRepository;
-    private final CartItemRepository cartItemRepository;
-    private final PaymentService paymentService;
     private final PaymentRepository paymentRepository;
-    private final StorePricingProperties storePricingProperties;
-    private final Clock pricingClock;
-
-    @Transactional
-    @Override
-    public OrderResponse placeOrder(String userEmail, OrderRequest orderRequest) {
-        User user = getUser(userEmail);
-        Instant now = now();
-        List<CartItem> cartItems = cartItemRepository.findNewestByUserId(user.getId());
-        if (cartItems.isEmpty()) {
-            throw new ApplicationException(ErrorCode.CART_EMPTY);
-        }
-        Set<Long> availableVariantIds =
-                Set.copyOf(cartItemRepository.findAvailableEligibleVariantIdsByUserId(user.getId()));
-        if (cartItems.stream()
-                .map(item -> item.getVariant().getId())
-                .anyMatch(id -> !availableVariantIds.contains(id))) {
-            throw new ApplicationException(ErrorCode.MALFORMED_REQUEST);
-        }
-        Order order = orderMapper.fromRequestToEntity(orderRequest);
-        BigDecimal totalAmount = BigDecimal.ZERO;
-        for (CartItem item : cartItems) {
-            var variant = item.getVariant();
-            var resolved = variant.resolvePriceAt(now);
-            BigDecimal unitPrice = resolved.finalUnitPrice();
-            BigDecimal subtotal =
-                    unitPrice.multiply(BigDecimal.valueOf(item.getQuantity())).setScale(2);
-            OrderItem orderItem = OrderItem.builder()
-                    .quantity(item.getQuantity())
-                    .productId(variant.getProduct().getId())
-                    .productName(variant.getProduct().getName())
-                    .variantId(variant.getId())
-                    .sku(variant.getSku())
-                    .variantDescription(variant.getSelections().stream()
-                            .sorted(java.util.Comparator.comparing(
-                                            (com.xdpsx.ecommerce.catalog.product.domain.ProductVariantSelection s) ->
-                                                    s.getOptionValue()
-                                                            .getOption()
-                                                            .getDisplayOrder())
-                                    .thenComparing(
-                                            s -> s.getOptionValue().getOption().getId())
-                                    .thenComparing(s -> s.getOptionValue().getDisplayOrder())
-                                    .thenComparing(s -> s.getOptionValue().getId()))
-                            .map(s -> s.getOptionValue().getOption().getName() + ": "
-                                    + s.getOptionValue().getName())
-                            .collect(java.util.stream.Collectors.joining(", ")))
-                    .unitBasePrice(resolved.basePrice())
-                    .discountAmount(resolved.discountAmount())
-                    .finalUnitPrice(unitPrice)
-                    .subtotal(subtotal)
-                    .currency(storePricingProperties == null ? "VND" : storePricingProperties.getCurrency())
-                    .order(order)
-                    .build();
-            order.getItems().add(orderItem);
-            totalAmount = totalAmount.add(subtotal);
-        }
-        order.setTrackingNumber(UUID.randomUUID().toString());
-        order.setUser(user);
-        order.setStatus(OrderStatus.PENDING);
-        order.setTotalAmount(totalAmount);
-
-        Payment payment =
-                Payment.builder().status(PaymentStatus.UNPAID).order(order).build();
-        order.setPayment(payment);
-
-        Order savedOrder = orderRepository.save(order);
-
-        //        cartItemRepository.deleteInStockCartByUserId(user.getId());
-
-        var initPaymentRequest = InitPaymentRequest.builder()
-                .userId(savedOrder.getUser().getId())
-                .amount(savedOrder.getTotalAmount())
-                .txnRef(String.valueOf(savedOrder.getId()))
-                .requestId(String.valueOf(savedOrder.getId()))
-                .ipAddress(orderRequest.getIpAddress())
-                .build();
-        InitPaymentResponse initPaymentResponse = paymentService.init(initPaymentRequest);
-
-        OrderDTO orderDTO = convertToDTO(savedOrder);
-        return OrderResponse.builder()
-                .order(orderDTO)
-                .payment(initPaymentResponse)
-                .build();
-    }
 
     @Override
     public void payment(String userEmail, long orderId) {
@@ -252,10 +155,6 @@ public class OrderServiceImpl implements OrderService {
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "user", "email", userEmail)));
     }
 
-    private Instant now() {
-        return (pricingClock == null ? Clock.systemUTC() : pricingClock).instant();
-    }
-
     private OrderDTO convertToDTO(Order savedOrder) {
         return OrderDTO.builder()
                 .id(savedOrder.getId())
@@ -263,6 +162,7 @@ public class OrderServiceImpl implements OrderService {
                 .status(savedOrder.getStatus().name())
                 .total(savedOrder.getTotalAmount())
                 .mobileNumber(savedOrder.getMobileNumber())
+                .currency(savedOrder.getCurrency())
                 .paymentStatus(savedOrder.getPayment().getStatus().name())
                 .address(savedOrder.getAddress())
                 .createdAt(savedOrder.getCreatedAt())

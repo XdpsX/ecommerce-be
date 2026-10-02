@@ -54,6 +54,13 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
     @Query("SELECT p FROM Product p WHERE p.id = :id")
     Optional<Product> findByIdForUpdate(@Param("id") Long id);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT DISTINCT p FROM Product p "
+            + "LEFT JOIN FETCH p.category c LEFT JOIN FETCH c.parent cp LEFT JOIN FETCH cp.parent cgp "
+            + "LEFT JOIN FETCH cgp.parent cggp LEFT JOIN FETCH p.brand "
+            + "WHERE p.id IN :ids ORDER BY p.id")
+    List<Product> findAllByIdForUpdate(@Param("ids") Collection<Long> ids);
+
     @Query("SELECT DISTINCT p FROM Product p LEFT JOIN FETCH p.category c "
             + "LEFT JOIN FETCH c.parent cp LEFT JOIN FETCH cp.parent cgp LEFT JOIN FETCH cgp.parent cggp "
             + "LEFT JOIN FETCH p.brand "

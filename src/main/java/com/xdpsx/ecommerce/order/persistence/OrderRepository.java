@@ -27,4 +27,8 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
 
     @Query("SELECT o FROM Order o JOIN FETCH o.items WHERE o.user.id = :userId AND o.trackingNumber = :trackingNumber")
     Optional<Order> findByUserIdAndTrackingNumber(Long userId, String trackingNumber);
+
+    @Query("SELECT DISTINCT o FROM Order o LEFT JOIN FETCH o.items LEFT JOIN FETCH o.payment "
+            + "WHERE o.user.id = :userId AND o.idempotencyKeyHash = :keyHash")
+    Optional<Order> findByUserIdAndIdempotencyKeyHash(Long userId, byte[] keyHash);
 }

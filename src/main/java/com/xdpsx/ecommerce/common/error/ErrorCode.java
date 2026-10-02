@@ -39,6 +39,9 @@ public enum ErrorCode {
             "Invalid media resource type", "The media resource type does not match the requested resource"),
     INVALID_IMAGE_WIDTH("Invalid image width", "The image width is below the required minimum"),
     MEDIA_UPLOAD_FAILED("Media upload failed", "The media provider failed to process the upload"),
+    PAYMENT_INITIALIZATION_FAILED(
+            "Payment initialization failed",
+            "The order was created, but payment initialization could not be completed"),
     INTERNAL_ERROR("Internal server error", "An unexpected error occurred");
 
     private final String title;

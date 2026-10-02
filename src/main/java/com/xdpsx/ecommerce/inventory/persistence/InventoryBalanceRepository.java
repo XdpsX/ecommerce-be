@@ -73,4 +73,9 @@ public interface InventoryBalanceRepository extends JpaRepository<InventoryBalan
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT b FROM InventoryBalance b JOIN FETCH b.variant WHERE b.variantId = :variantId")
     Optional<InventoryBalance> findByVariantIdForUpdate(@Param("variantId") Long variantId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query(
+            "SELECT b FROM InventoryBalance b JOIN FETCH b.variant WHERE b.variantId IN :variantIds ORDER BY b.variantId")
+    List<InventoryBalance> findAllByVariantIdsForUpdate(@Param("variantIds") Collection<Long> variantIds);
 }

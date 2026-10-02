@@ -1,6 +1,7 @@
 package com.xdpsx.ecommerce.order.domain;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -39,6 +40,7 @@ public class Order {
     private List<OrderItem> items = new ArrayList<>();
 
     @Enumerated(EnumType.STRING)
+    @Column(length = 32, nullable = false)
     private OrderStatus status;
 
     @ManyToOne
@@ -56,6 +58,21 @@ public class Order {
 
     private BigDecimal totalAmount;
 
+    @Column(nullable = false, length = 3)
+    private String currency;
+
+    @Column(name = "idempotency_key_hash", columnDefinition = "BINARY(32)")
+    private byte[] idempotencyKeyHash;
+
+    @Column(name = "checkout_request_hash", columnDefinition = "BINARY(32)")
+    private byte[] checkoutRequestHash;
+
+    @Column(name = "reservation_expires_at")
+    private Instant reservationExpiresAt;
+
+    @Embedded
+    private ShippingAddressSnapshot shippingAddress;
+
     @Column(nullable = false)
     @CreatedDate
     private LocalDateTime createdAt;
@@ -67,4 +84,44 @@ public class Order {
 
     @OneToOne(mappedBy = "order", cascade = CascadeType.PERSIST)
     private Payment payment;
+
+    public void setIdempotencyKeyHash(byte[] value) {
+        idempotencyKeyHash = value == null ? null : value.clone();
+    }
+
+    public void setCheckoutRequestHash(byte[] value) {
+        checkoutRequestHash = value == null ? null : value.clone();
+    }
+
+    public void setShippingAddress(ShippingAddressSnapshot value) {
+        value.validateComplete();
+        shippingAddress = value;
+        address = value.getAddressLine();
+        mobileNumber = value.getPhoneNumber();
+    }
+
+    public void confirmPayment() {
+        if (status != OrderStatus.PENDING_PAYMENT) {
+            throw new IllegalStateException("Only pending Orders can be confirmed");
+        }
+        status = OrderStatus.CONFIRMED;
+    }
+
+    public void markPaymentExpired() {
+        if (status != OrderStatus.PENDING_PAYMENT) {
+            throw new IllegalStateException("Only pending Orders can expire");
+        }
+        status = OrderStatus.PAYMENT_EXPIRED;
+    }
+
+    public void advanceTo(OrderStatus nextStatus) {
+        if (nextStatus == null
+                || !((status == OrderStatus.CONFIRMED && nextStatus == OrderStatus.PROCESSING)
+                        || (status == OrderStatus.PROCESSING && nextStatus == OrderStatus.SHIPPED)
+                        || (status == OrderStatus.SHIPPED && nextStatus == OrderStatus.DELIVERED))) {
+            throw new IllegalStateException("Invalid Order status transition");
+        }
+        status = nextStatus;
+        if (nextStatus == OrderStatus.DELIVERED) deliveredAt = LocalDateTime.now();
+    }
 }

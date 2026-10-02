@@ -1,6 +1,5 @@
 package com.xdpsx.ecommerce.order.api;
 
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
 import org.springframework.http.HttpStatus;
@@ -13,7 +12,6 @@ import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.order.api.dto.*;
 import com.xdpsx.ecommerce.order.application.OrderService;
 import com.xdpsx.ecommerce.order.domain.OrderStatus;
-import com.xdpsx.ecommerce.order.infrastructure.web.RequestUtil;
 import com.xdpsx.ecommerce.payment.domain.PaymentStatus;
 
 import lombok.RequiredArgsConstructor;
@@ -23,17 +21,6 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class OrderController {
     private final OrderService orderService;
-
-    @PostMapping("/create")
-    public ResponseEntity<OrderResponse> placeOrder(
-            Authentication authentication,
-            @Valid @RequestBody OrderRequest orderRequest,
-            HttpServletRequest httpServletRequest) {
-        var ipAddress = RequestUtil.getIpAddress(httpServletRequest);
-        orderRequest.setIpAddress(ipAddress);
-        return new ResponseEntity<>(
-                orderService.placeOrder(authentication.getName(), orderRequest), HttpStatus.CREATED);
-    }
 
     @GetMapping("/me")
     public ResponseEntity<PageResponse<OrderDTO>> getMyOrders(

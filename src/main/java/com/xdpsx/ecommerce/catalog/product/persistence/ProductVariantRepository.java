@@ -6,7 +6,10 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+import jakarta.persistence.LockModeType;
+
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -62,6 +65,17 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
                     + "AND (invalid.optionValue.status <> com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus.ACTIVE "
                     + "OR invalid.optionValue.option.status <> com.xdpsx.ecommerce.catalog.variantoption.domain.VariantOptionStatus.ACTIVE))")
     Optional<ProductVariant> findEligibleStorefrontVariant(@Param("variantId") Long variantId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT DISTINCT v FROM ProductVariant v JOIN FETCH v.product p "
+            + "LEFT JOIN FETCH p.category c LEFT JOIN FETCH c.parent cp LEFT JOIN FETCH cp.parent cgp "
+            + "LEFT JOIN FETCH cgp.parent cggp LEFT JOIN FETCH p.brand "
+            + "LEFT JOIN FETCH v.selections s LEFT JOIN FETCH s.optionValue value LEFT JOIN FETCH value.option option "
+            + "WHERE v.id IN :ids ORDER BY v.id")
+    List<ProductVariant> findAllByIdForUpdate(@Param("ids") Collection<Long> ids);
+
+    @Query("SELECT DISTINCT v.product.id FROM ProductVariant v WHERE v.id IN :ids ORDER BY v.product.id")
+    List<Long> findProductIdsByIds(@Param("ids") Collection<Long> ids);
 
     boolean existsBySku(String sku);
 

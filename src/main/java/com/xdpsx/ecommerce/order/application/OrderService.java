@@ -8,8 +8,6 @@ import com.xdpsx.ecommerce.order.domain.OrderStatus;
 import com.xdpsx.ecommerce.payment.domain.PaymentStatus;
 
 public interface OrderService {
-    OrderResponse placeOrder(String userEmail, OrderRequest orderRequest);
-
     void payment(String userEmail, long orderId);
 
     PaymentCallbackResult processPaymentCallback(long orderId, BigDecimal amount, boolean successful);

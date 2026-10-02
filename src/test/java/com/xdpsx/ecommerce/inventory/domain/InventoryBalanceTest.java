@@ -29,4 +29,31 @@ class InventoryBalanceTest {
         assertThatThrownBy(() -> balance.adjustOnHand(-4)).isInstanceOf(InventoryBalanceAdjustmentException.class);
         assertThat(balance.getOnHand()).isEqualTo(3);
     }
+
+    @Test
+    void reservationLifecycle_ShouldPreserveAvailableInvariant() {
+        ProductVariant variant = ProductVariant.builder().id(10L).sku("SKU-10").build();
+        InventoryBalance balance = InventoryBalance.zero(variant);
+
+        balance.adjustOnHand(10);
+        balance.reserve(4);
+        assertThat(balance.getReserved()).isEqualTo(4);
+        assertThat(balance.available()).isEqualTo(6);
+
+        balance.release(1);
+        balance.consumeReserved(2);
+        assertThat(balance.getOnHand()).isEqualTo(8);
+        assertThat(balance.getReserved()).isEqualTo(1);
+        assertThat(balance.available()).isEqualTo(7);
+    }
+
+    @Test
+    void reservation_ShouldRejectQuantityBeyondAvailable() {
+        ProductVariant variant = ProductVariant.builder().id(10L).sku("SKU-10").build();
+        InventoryBalance balance = InventoryBalance.zero(variant);
+        balance.adjustOnHand(2);
+
+        assertThatThrownBy(() -> balance.reserve(3)).isInstanceOf(InventoryBalanceAdjustmentException.class);
+        assertThat(balance.getReserved()).isZero();
+    }
 }

@@ -7,13 +7,10 @@ import org.mapstruct.Mapping;
 
 import com.xdpsx.ecommerce.order.api.dto.OrderDetailsDTO;
 import com.xdpsx.ecommerce.order.api.dto.OrderItemResponse;
-import com.xdpsx.ecommerce.order.api.dto.OrderRequest;
 import com.xdpsx.ecommerce.order.domain.Order;
 
 @Mapper(componentModel = "spring")
 public abstract class OrderMapper {
-    public abstract Order fromRequestToEntity(OrderRequest request);
-
     @Mapping(target = "status", source = "entity.status")
     @Mapping(target = "paymentStatus", source = "entity.payment.status")
     @Mapping(target = "total", source = "entity.totalAmount")
@@ -42,6 +39,17 @@ public abstract class OrderMapper {
                 })
                 .toList();
         dto.setItems(items);
+        if (entity.getShippingAddress() != null) {
+            var shipping = entity.getShippingAddress();
+            dto.setRecipientName(shipping.getRecipientName());
+            dto.setPhoneNumber(shipping.getPhoneNumber());
+            dto.setAddressLine(shipping.getAddressLine());
+            dto.setWardCommune(shipping.getWardCommune());
+            dto.setDistrict(shipping.getDistrict());
+            dto.setProvinceCity(shipping.getProvinceCity());
+            dto.setPostalCode(shipping.getPostalCode());
+        }
+        dto.setCurrency(entity.getCurrency());
         return dto;
     }
 }

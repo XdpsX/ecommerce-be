@@ -52,6 +52,31 @@ public class InventoryBalance {
         return Math.subtractExact(onHand, reserved);
     }
 
+    public void reserve(long quantity) {
+        validatePositive(quantity);
+        if (available() < quantity) {
+            throw new InventoryBalanceAdjustmentException("not enough inventory available");
+        }
+        reserved = Math.addExact(reserved, quantity);
+    }
+
+    public void release(long quantity) {
+        validatePositive(quantity);
+        if (reserved < quantity) {
+            throw new InventoryBalanceAdjustmentException("cannot release more inventory than reserved");
+        }
+        reserved -= quantity;
+    }
+
+    public void consumeReserved(long quantity) {
+        validatePositive(quantity);
+        if (reserved < quantity || onHand < quantity) {
+            throw new InventoryBalanceAdjustmentException("cannot consume more inventory than reserved");
+        }
+        reserved -= quantity;
+        onHand -= quantity;
+    }
+
     public void adjustOnHand(long quantityDelta) {
         final long nextOnHand;
         try {
@@ -66,5 +91,9 @@ public class InventoryBalance {
             throw new InventoryBalanceAdjustmentException("onHand cannot be lower than reserved");
         }
         onHand = nextOnHand;
+    }
+
+    private static void validatePositive(long quantity) {
+        if (quantity <= 0) throw new InventoryBalanceAdjustmentException("quantity must be positive");
     }
 }

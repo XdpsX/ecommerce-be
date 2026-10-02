@@ -53,7 +53,7 @@ public final class ApiProblemFactory {
                     CONCURRENT_WRITE_CONFLICT,
                     INVENTORY_ADJUSTMENT_REJECTED -> HttpStatus.CONFLICT;
             case INVALID_MEDIA_RESOURCE_TYPE -> HttpStatus.UNPROCESSABLE_CONTENT;
-            case MEDIA_UPLOAD_FAILED -> HttpStatus.BAD_GATEWAY;
+            case MEDIA_UPLOAD_FAILED, PAYMENT_INITIALIZATION_FAILED -> HttpStatus.BAD_GATEWAY;
             case INTERNAL_ERROR -> HttpStatus.INTERNAL_SERVER_ERROR;
         };
     }
