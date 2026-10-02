@@ -1,9 +1,13 @@
 package com.xdpsx.ecommerce.order.application;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -16,6 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
+import com.xdpsx.ecommerce.inventory.domain.InventoryBalance;
+import com.xdpsx.ecommerce.inventory.persistence.InventoryBalanceRepository;
 import com.xdpsx.ecommerce.order.api.dto.*;
 import com.xdpsx.ecommerce.order.domain.Order;
 import com.xdpsx.ecommerce.order.domain.OrderStatus;
@@ -38,6 +44,7 @@ public class OrderServiceImpl implements OrderService {
     private final OrderRepository orderRepository;
     private final UserRepository userRepository;
     private final PaymentRepository paymentRepository;
+    private final InventoryBalanceRepository inventoryBalanceRepository;
 
     @Override
     public void payment(String userEmail, long orderId) {
@@ -76,11 +83,75 @@ public class OrderServiceImpl implements OrderService {
         if (payment.getStatus() == PaymentStatus.PAID) return PaymentCallbackResult.ALREADY_CONFIRMED;
         if (!successful) return PaymentCallbackResult.CONFIRMED;
 
+        if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
+            throw new ApplicationException(ErrorCode.CONCURRENT_MODIFICATION);
+        }
+
+        List<Long> variantIds = order.getItems().stream()
+                .map(item -> item.getVariantId())
+                .distinct()
+                .sorted()
+                .toList();
+        if (variantIds.isEmpty()) {
+            throw new ApplicationException(ErrorCode.MALFORMED_REQUEST, Map.of("reason", "orderHasNoItems"));
+        }
+        Map<Long, InventoryBalance> balances =
+                inventoryBalanceRepository.findAllByVariantIdsForUpdate(variantIds).stream()
+                        .collect(Collectors.toMap(InventoryBalance::getVariantId, value -> value));
+        if (balances.size() != Set.copyOf(variantIds).size()) {
+            throw new ApplicationException(ErrorCode.MALFORMED_REQUEST, Map.of("reason", "missingInventoryBalance"));
+        }
+        try {
+            order.getItems().forEach(item -> balances.get(item.getVariantId()).consumeReserved(item.getQuantity()));
+        } catch (RuntimeException exception) {
+            throw new ApplicationException(
+                    ErrorCode.MALFORMED_REQUEST, Map.of("reason", "reservationUnavailable"), exception);
+        }
+
         payment.setStatus(PaymentStatus.PAID);
         payment.setPaymentMethod(PaymentMethod.VNPAY);
         payment.setPaymentDate(LocalDateTime.now());
+        order.confirmPayment();
         paymentRepository.save(payment);
         return PaymentCallbackResult.CONFIRMED;
+    }
+
+    @Transactional
+    @Override
+    public boolean expirePendingOrder(long orderId, Instant cutoff) {
+        Order order = orderRepository
+                .findByIdForUpdate(orderId)
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "order", "resourceId", orderId)));
+        if (order.getStatus() != OrderStatus.PENDING_PAYMENT
+                || order.getReservationExpiresAt() == null
+                || !order.getReservationExpiresAt().isBefore(cutoff)) {
+            return false;
+        }
+
+        List<Long> variantIds = order.getItems().stream()
+                .map(item -> item.getVariantId())
+                .distinct()
+                .sorted()
+                .toList();
+        if (variantIds.isEmpty()) {
+            throw new ApplicationException(ErrorCode.MALFORMED_REQUEST, Map.of("reason", "orderHasNoItems"));
+        }
+        Map<Long, InventoryBalance> balances = new HashMap<>();
+        inventoryBalanceRepository
+                .findAllByVariantIdsForUpdate(variantIds)
+                .forEach(balance -> balances.put(balance.getVariantId(), balance));
+        if (balances.size() != Set.copyOf(variantIds).size()) {
+            throw new ApplicationException(ErrorCode.MALFORMED_REQUEST, Map.of("reason", "missingInventoryBalance"));
+        }
+        try {
+            order.getItems().forEach(item -> balances.get(item.getVariantId()).release(item.getQuantity()));
+        } catch (RuntimeException exception) {
+            throw new ApplicationException(
+                    ErrorCode.MALFORMED_REQUEST, Map.of("reason", "reservationUnavailable"), exception);
+        }
+        order.markPaymentExpired();
+        return true;
     }
 
     @Override

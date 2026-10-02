@@ -1,5 +1,7 @@
 package com.xdpsx.ecommerce.order.persistence;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import jakarta.persistence.LockModeType;
@@ -27,6 +29,15 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
 
     @Query("SELECT o FROM Order o JOIN FETCH o.items WHERE o.user.id = :userId AND o.trackingNumber = :trackingNumber")
     Optional<Order> findByUserIdAndTrackingNumber(Long userId, String trackingNumber);
+
+    @Query("SELECT o.id FROM Order o "
+            + "WHERE o.status = com.xdpsx.ecommerce.order.domain.OrderStatus.PENDING_PAYMENT "
+            + "AND o.reservationExpiresAt < :cutoff "
+            + "AND o.id > :afterId ORDER BY o.id")
+    List<Long> findExpiredPendingIds(
+            @org.springframework.data.repository.query.Param("cutoff") Instant cutoff,
+            @org.springframework.data.repository.query.Param("afterId") Long afterId,
+            Pageable pageable);
 
     @Query("SELECT DISTINCT o FROM Order o LEFT JOIN FETCH o.items LEFT JOIN FETCH o.payment "
             + "WHERE o.user.id = :userId AND o.idempotencyKeyHash = :keyHash")

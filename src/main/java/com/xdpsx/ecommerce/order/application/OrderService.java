@@ -1,6 +1,7 @@
 package com.xdpsx.ecommerce.order.application;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.order.api.dto.*;
@@ -11,6 +12,8 @@ public interface OrderService {
     void payment(String userEmail, long orderId);
 
     PaymentCallbackResult processPaymentCallback(long orderId, BigDecimal amount, boolean successful);
+
+    boolean expirePendingOrder(long orderId, Instant cutoff);
 
     PageResponse<OrderDTO> getMyOrders(String userEmail, int pageNum, int pageSize);
 

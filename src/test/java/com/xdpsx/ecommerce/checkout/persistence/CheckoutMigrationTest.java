@@ -22,7 +22,10 @@ import com.xdpsx.ecommerce.testsupport.MySqlTestContainerFactory;
 
 @Testcontainers(disabledWithoutDocker = true)
 class CheckoutMigrationTest {
-    private static final Path CHANGESET = Path.of("src/main/resources/db/changelog/changesets/changeset-21.sql");
+    private static final Path CHECKOUT_CHANGESET =
+            Path.of("src/main/resources/db/changelog/changesets/changeset-21.sql");
+    private static final Path LEGACY_BOUNDARY_CHANGESET =
+            Path.of("src/main/resources/db/changelog/changesets/changeset-22.sql");
 
     @Container
     private static final MySQLContainer MYSQL = MySqlTestContainerFactory.create("checkout_migration");
@@ -39,27 +42,31 @@ class CheckoutMigrationTest {
                             + "status ENUM('PENDING','PROCESSING','SHIPPED','DELIVERED','CANCELLED') NOT NULL DEFAULT 'PENDING', "
                             + "address VARCHAR(255) NOT NULL, mobile_number VARCHAR(20) NOT NULL, description VARCHAR(500), "
                             + "total_amount DECIMAL(20,2), created_at DATETIME(6) NOT NULL, updated_at DATETIME(6), delivered_at DATETIME(6))");
+            statement.execute(
+                    "CREATE TABLE payments (id BIGINT PRIMARY KEY, order_id BIGINT, status ENUM('UNPAID','PAID') NOT NULL)");
             statement.execute("INSERT INTO users VALUES (7, 'Buyer')");
             statement.execute(
                     "INSERT INTO orders (id, user_id, tracking_number, status, address, mobile_number, created_at) "
-                            + "VALUES (1, 7, 'legacy-1', 'PENDING', 'Main Street', '0123456789', CURRENT_TIMESTAMP(6))");
+                            + "VALUES "
+                            + "(1, 7, 'legacy-1', 'PENDING', 'Main Street', '0123456789', CURRENT_TIMESTAMP(6)), "
+                            + "(2, 7, 'legacy-2', 'PENDING', 'Main Street', '0123456789', CURRENT_TIMESTAMP(6))");
 
-            String sql = Files.readString(CHANGESET, StandardCharsets.UTF_8);
-            String withoutComments = Arrays.stream(sql.split("\\n"))
-                    .filter(line -> !line.trim().startsWith("--"))
-                    .collect(Collectors.joining("\n"));
-            for (String command : withoutComments.split(";")) {
-                if (!command.trim().isEmpty()) statement.execute(command.trim());
-            }
+            statement.execute("INSERT INTO payments (id, order_id, status) VALUES (1, 1, 'PAID'), (2, 2, 'UNPAID')");
+            executeChangeset(statement, CHECKOUT_CHANGESET);
+            executeChangeset(statement, LEGACY_BOUNDARY_CHANGESET);
 
             try (ResultSet row = statement.executeQuery(
                     "SELECT status, recipient_name, phone_number, address_line, currency FROM orders WHERE id = 1")) {
                 assertThat(row.next()).isTrue();
-                assertThat(row.getString("status")).isEqualTo("PENDING_PAYMENT");
+                assertThat(row.getString("status")).isEqualTo("CONFIRMED");
                 assertThat(row.getString("recipient_name")).isEqualTo("Buyer");
                 assertThat(row.getString("phone_number")).isEqualTo("0123456789");
                 assertThat(row.getString("address_line")).isEqualTo("Main Street");
                 assertThat(row.getString("currency")).isEqualTo("VND");
+            }
+            try (ResultSet row = statement.executeQuery("SELECT status FROM orders WHERE id = 2")) {
+                assertThat(row.next()).isTrue();
+                assertThat(row.getString("status")).isEqualTo("PAYMENT_EXPIRED");
             }
             try (ResultSet columns = statement.executeQuery(
                     "SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'orders'")) {
@@ -79,6 +86,16 @@ class CheckoutMigrationTest {
                                 "checkout_request_hash",
                                 "reservation_expires_at");
             }
+        }
+    }
+
+    private static void executeChangeset(Statement statement, Path path) throws Exception {
+        String sql = Files.readString(path, StandardCharsets.UTF_8);
+        String withoutComments = Arrays.stream(sql.split("\\n"))
+                .filter(line -> !line.trim().startsWith("--"))
+                .collect(Collectors.joining("\n"));
+        for (String command : withoutComments.split(";")) {
+            if (!command.trim().isEmpty()) statement.execute(command.trim());
         }
     }
 }

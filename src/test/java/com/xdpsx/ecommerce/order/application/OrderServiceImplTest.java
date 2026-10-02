@@ -7,6 +7,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -14,8 +16,13 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.xdpsx.ecommerce.catalog.product.domain.ProductVariant;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.inventory.domain.InventoryBalance;
+import com.xdpsx.ecommerce.inventory.persistence.InventoryBalanceRepository;
 import com.xdpsx.ecommerce.order.domain.Order;
+import com.xdpsx.ecommerce.order.domain.OrderItem;
+import com.xdpsx.ecommerce.order.domain.OrderStatus;
 import com.xdpsx.ecommerce.order.persistence.OrderRepository;
 import com.xdpsx.ecommerce.payment.domain.Payment;
 import com.xdpsx.ecommerce.payment.domain.PaymentMethod;
@@ -37,18 +44,27 @@ class OrderServiceImplTest {
     @Mock
     private PaymentRepository paymentRepository;
 
+    @Mock
+    private InventoryBalanceRepository inventoryBalanceRepository;
+
     @InjectMocks
     private OrderServiceImpl orderService;
 
     @Test
     void processPaymentCallback_ShouldMarkUnpaidOrderPaidAfterAmountAndStatusValidation() {
         Order order = order(BigDecimal.TEN, PaymentStatus.UNPAID);
+        InventoryBalance balance = balance(1);
         when(orderRepository.findByIdForUpdate(42L)).thenReturn(java.util.Optional.of(order));
+        when(inventoryBalanceRepository.findAllByVariantIdsForUpdate(List.of(101L)))
+                .thenReturn(List.of(balance));
 
         orderService.processPaymentCallback(42L, new BigDecimal("10.00"), true);
 
         assertEquals(PaymentStatus.PAID, order.getPayment().getStatus());
         assertEquals(PaymentMethod.VNPAY, order.getPayment().getPaymentMethod());
+        assertEquals(OrderStatus.CONFIRMED, order.getStatus());
+        assertEquals(0, balance.getReserved());
+        assertEquals(0, balance.getOnHand());
         verify(paymentRepository).save(order.getPayment());
     }
 
@@ -60,6 +76,7 @@ class OrderServiceImplTest {
         orderService.processPaymentCallback(42L, BigDecimal.TEN, true);
 
         verify(paymentRepository, never()).save(order.getPayment());
+        verify(inventoryBalanceRepository, never()).findAllByVariantIdsForUpdate(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -75,9 +92,81 @@ class OrderServiceImplTest {
         verify(paymentRepository, never()).save(order.getPayment());
     }
 
+    @Test
+    void processPaymentCallback_ShouldLeavePendingOrderUnchangedForSignedFailure() {
+        Order order = order(BigDecimal.TEN, PaymentStatus.UNPAID);
+        when(orderRepository.findByIdForUpdate(42L)).thenReturn(java.util.Optional.of(order));
+
+        orderService.processPaymentCallback(42L, BigDecimal.TEN, false);
+
+        assertEquals(PaymentStatus.UNPAID, order.getPayment().getStatus());
+        assertEquals(OrderStatus.PENDING_PAYMENT, order.getStatus());
+        verify(inventoryBalanceRepository, never()).findAllByVariantIdsForUpdate(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void processPaymentCallback_ShouldRejectWhenReservationIsMissing() {
+        Order order = order(BigDecimal.TEN, PaymentStatus.UNPAID);
+        when(orderRepository.findByIdForUpdate(42L)).thenReturn(java.util.Optional.of(order));
+        when(inventoryBalanceRepository.findAllByVariantIdsForUpdate(List.of(101L)))
+                .thenReturn(List.of());
+
+        assertThrows(ApplicationException.class, () -> orderService.processPaymentCallback(42L, BigDecimal.TEN, true));
+
+        assertEquals(PaymentStatus.UNPAID, order.getPayment().getStatus());
+        assertEquals(OrderStatus.PENDING_PAYMENT, order.getStatus());
+        verify(paymentRepository, never()).save(order.getPayment());
+    }
+
+    @Test
+    void expirePendingOrder_ShouldReleaseReservationAndMarkOrderExpired() {
+        Order order = order(BigDecimal.TEN, PaymentStatus.UNPAID);
+        order.setReservationExpiresAt(Instant.parse("2026-01-01T00:00:00Z"));
+        InventoryBalance balance = balance(1);
+        when(orderRepository.findByIdForUpdate(42L)).thenReturn(java.util.Optional.of(order));
+        when(inventoryBalanceRepository.findAllByVariantIdsForUpdate(List.of(101L)))
+                .thenReturn(List.of(balance));
+
+        assertEquals(true, orderService.expirePendingOrder(42L, Instant.parse("2026-01-01T00:00:01Z")));
+
+        assertEquals(OrderStatus.PAYMENT_EXPIRED, order.getStatus());
+        assertEquals(0, balance.getReserved());
+        assertEquals(1, balance.getOnHand());
+    }
+
+    @Test
+    void expirePendingOrder_ShouldRecheckStateBeforeTouchingInventory() {
+        Order order = order(BigDecimal.TEN, PaymentStatus.UNPAID);
+        order.setReservationExpiresAt(Instant.parse("2026-01-01T00:00:00Z"));
+        order.setStatus(OrderStatus.CONFIRMED);
+        when(orderRepository.findByIdForUpdate(42L)).thenReturn(java.util.Optional.of(order));
+
+        assertEquals(false, orderService.expirePendingOrder(42L, Instant.parse("2026-01-01T00:00:01Z")));
+
+        verify(inventoryBalanceRepository, never()).findAllByVariantIdsForUpdate(org.mockito.ArgumentMatchers.any());
+    }
+
     private static Order order(BigDecimal amount, PaymentStatus status) {
-        Order order = Order.builder().id(42L).totalAmount(amount).build();
+        Order order = Order.builder()
+                .id(42L)
+                .totalAmount(amount)
+                .status(OrderStatus.PENDING_PAYMENT)
+                .build();
+        order.getItems()
+                .add(OrderItem.builder()
+                        .order(order)
+                        .variantId(101L)
+                        .quantity(1)
+                        .build());
         order.setPayment(Payment.builder().order(order).status(status).build());
         return order;
+    }
+
+    private static InventoryBalance balance(long reserved) {
+        ProductVariant variant = ProductVariant.builder().id(101L).build();
+        InventoryBalance balance = InventoryBalance.zero(variant);
+        balance.adjustOnHand(reserved);
+        balance.reserve(reserved);
+        return balance;
     }
 }

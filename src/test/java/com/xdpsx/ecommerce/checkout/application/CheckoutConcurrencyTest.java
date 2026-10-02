@@ -1,9 +1,11 @@
 package com.xdpsx.ecommerce.checkout.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -58,7 +60,11 @@ import com.xdpsx.ecommerce.config.CheckoutProperties;
 import com.xdpsx.ecommerce.config.StorePricingProperties;
 import com.xdpsx.ecommerce.inventory.domain.InventoryBalance;
 import com.xdpsx.ecommerce.inventory.persistence.InventoryBalanceRepository;
+import com.xdpsx.ecommerce.order.application.OrderMapper;
+import com.xdpsx.ecommerce.order.application.OrderService;
+import com.xdpsx.ecommerce.order.domain.OrderStatus;
 import com.xdpsx.ecommerce.order.persistence.OrderRepository;
+import com.xdpsx.ecommerce.payment.domain.PaymentStatus;
 import com.xdpsx.ecommerce.payment.persistence.PaymentRepository;
 import com.xdpsx.ecommerce.testsupport.MySqlTestContainerFactory;
 import com.xdpsx.ecommerce.user.domain.AuthProvider;
@@ -78,6 +84,9 @@ class CheckoutConcurrencyTest {
 
     @org.springframework.beans.factory.annotation.Autowired
     private CheckoutTransactionService checkoutService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private OrderService orderService;
 
     @org.springframework.beans.factory.annotation.Autowired
     private UserRepository userRepository;
@@ -153,6 +162,41 @@ class CheckoutConcurrencyTest {
     }
 
     @Test
+    void paymentCallbackFailure_ShouldRollbackEarlierInventoryConsumption() {
+        ProductVariant first = saveVariant("callback-rollback-first", 1);
+        ProductVariant second = saveVariant("callback-rollback-second", 1);
+        User user = saveCustomer("callback-rollback");
+        UserAddress address = saveAddress(user);
+        Cart cart = saveCart(user);
+        saveItem(cart, first, 1);
+        saveItem(cart, second, 1);
+
+        var checkout = checkoutService.execute(user.getEmail(), request(address.getId()), "callback-rollback-key");
+        Long orderId = checkout.order().getId();
+        Long paymentId = checkout.order().getPayment().getId();
+
+        InventoryBalance secondBalance =
+                inventoryRepository.findByVariantIdWithVariant(second.getId()).orElseThrow();
+        secondBalance.release(1);
+        inventoryRepository.saveAndFlush(secondBalance);
+
+        assertThatThrownBy(() -> orderService.processPaymentCallback(orderId, new BigDecimal("20.00"), true))
+                .isInstanceOf(ApplicationException.class);
+
+        InventoryBalance firstAfter =
+                inventoryRepository.findByVariantIdWithVariant(first.getId()).orElseThrow();
+        InventoryBalance secondAfter =
+                inventoryRepository.findByVariantIdWithVariant(second.getId()).orElseThrow();
+        assertThat(firstAfter.getOnHand()).isEqualTo(1);
+        assertThat(firstAfter.getReserved()).isEqualTo(1);
+        assertThat(secondAfter.getOnHand()).isEqualTo(1);
+        assertThat(secondAfter.getReserved()).isZero();
+        assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.UNPAID);
+    }
+
+    @Test
     void sameIdempotencyKey_ShouldCreateOneOrderAndOneReservation() throws Exception {
         ProductVariant variant = saveVariant("idempotent", 1);
         User user = saveCustomer("idempotent");
@@ -205,6 +249,52 @@ class CheckoutConcurrencyTest {
                         .orElseThrow()
                         .getReserved())
                 .isEqualTo(1);
+    }
+
+    @Test
+    void callbackAndExpiryRace_ShouldFinalizeReservationExactlyOnce() throws Exception {
+        ProductVariant variant = saveVariant("callback-expiry", 1);
+        User user = saveCustomer("callback-expiry");
+        UserAddress address = saveAddress(user);
+        Cart cart = saveCart(user);
+        saveItem(cart, variant, 1);
+        var checkout = checkoutService.execute(user.getEmail(), request(address.getId()), "callback-key");
+        Long orderId = checkout.order().getId();
+        CyclicBarrier start = new CyclicBarrier(2);
+
+        Future<String> callback = executor.submit(() -> {
+            await(start);
+            try {
+                return "callback:" + orderService.processPaymentCallback(orderId, BigDecimal.TEN, true);
+            } catch (ApplicationException exception) {
+                return "callback-error:" + exception.getCode();
+            }
+        });
+        Future<String> expiry = executor.submit(() -> {
+            await(start);
+            try {
+                return "expiry:" + orderService.expirePendingOrder(orderId, NOW.plus(Duration.ofMinutes(16)));
+            } catch (ApplicationException exception) {
+                return "expiry-error:" + exception.getCode();
+            }
+        });
+
+        callback.get(10, TimeUnit.SECONDS);
+        expiry.get(10, TimeUnit.SECONDS);
+
+        var persisted = orderRepository.findById(orderId).orElseThrow();
+        var balance =
+                inventoryRepository.findByVariantIdWithVariant(variant.getId()).orElseThrow();
+        assertThat(persisted.getStatus())
+                .isIn(
+                        com.xdpsx.ecommerce.order.domain.OrderStatus.CONFIRMED,
+                        com.xdpsx.ecommerce.order.domain.OrderStatus.PAYMENT_EXPIRED);
+        assertThat(balance.getReserved()).isZero();
+        if (persisted.getStatus() == com.xdpsx.ecommerce.order.domain.OrderStatus.CONFIRMED) {
+            assertThat(balance.getOnHand()).isZero();
+        } else {
+            assertThat(balance.getOnHand()).isEqualTo(1);
+        }
     }
 
     private Outcome invokeAfter(CyclicBarrier start, User user, UserAddress address, String key) {
@@ -377,6 +467,22 @@ class CheckoutConcurrencyTest {
                     checkoutProperties,
                     pricingProperties,
                     clock);
+        }
+
+        @Bean
+        OrderService orderService(
+                OrderMapper orderMapper,
+                OrderRepository orderRepository,
+                UserRepository userRepository,
+                PaymentRepository paymentRepository,
+                InventoryBalanceRepository inventoryBalanceRepository) {
+            return new com.xdpsx.ecommerce.order.application.OrderServiceImpl(
+                    orderMapper, orderRepository, userRepository, paymentRepository, inventoryBalanceRepository);
+        }
+
+        @Bean
+        OrderMapper orderMapper() {
+            return org.mockito.Mockito.mock(OrderMapper.class);
         }
 
         @Bean
