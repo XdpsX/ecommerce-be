@@ -166,7 +166,8 @@ class PaymentAttemptConcurrencyTest {
             factory.setPackagesToScan(
                     "com.xdpsx.ecommerce.user.domain",
                     "com.xdpsx.ecommerce.order.domain",
-                    "com.xdpsx.ecommerce.payment.domain");
+                    "com.xdpsx.ecommerce.payment.domain",
+                    "com.xdpsx.ecommerce.refund.domain");
             factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
             factory.getJpaPropertyMap().put("hibernate.hbm2ddl.auto", "create-drop");
             factory.getJpaPropertyMap().put("hibernate.jdbc.time_zone", "UTC");

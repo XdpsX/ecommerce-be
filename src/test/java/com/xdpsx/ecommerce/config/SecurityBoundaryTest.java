@@ -63,7 +63,9 @@ import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.config.security.SecurityConfig;
 import com.xdpsx.ecommerce.media.api.MediaController;
 import com.xdpsx.ecommerce.media.application.MediaService;
+import com.xdpsx.ecommerce.order.api.AdminOrderController;
 import com.xdpsx.ecommerce.order.api.OrderController;
+import com.xdpsx.ecommerce.order.application.OrderCancellationService;
 import com.xdpsx.ecommerce.order.application.OrderService;
 import com.xdpsx.ecommerce.payment.api.PaymentController;
 import com.xdpsx.ecommerce.payment.api.dto.VNPayIpnResponse;
@@ -86,6 +88,7 @@ import com.xdpsx.ecommerce.user.application.UserService;
             CartController.class,
             MediaController.class,
             OrderController.class,
+            AdminOrderController.class,
             PaymentController.class,
             UserController.class,
             UserAddressController.class
@@ -142,6 +145,9 @@ class SecurityBoundaryTest {
 
     @MockitoBean
     private OrderService orderService;
+
+    @MockitoBean
+    private OrderCancellationService orderCancellationService;
 
     @MockitoBean
     private PaymentAttemptService paymentAttemptService;
@@ -317,6 +323,38 @@ class SecurityBoundaryTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PROCESSING"));
         verify(orderService).updateOrderStatus(eq(42L), any());
+    }
+
+    @Test
+    void cancellationBoundaries_ShouldRequireCustomerAuthenticationAndAdminRole() throws Exception {
+        mockMvc.perform(post("/orders/42/cancellation")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Changed my mind\"}"))
+                .andExpect(status().isUnauthorized());
+
+        when(orderCancellationService.cancelForCustomer(eq("customer@example.test"), eq(42L), any()))
+                .thenReturn(com.xdpsx.ecommerce.order.api.dto.OrderDetailsDTO.builder()
+                        .build());
+        mockMvc.perform(post("/orders/42/cancellation")
+                        .with(user("customer@example.test").roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Changed my mind\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/admin/orders/42/cancellation")
+                        .with(user("customer@example.test").roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Fulfillment failed\"}"))
+                .andExpect(status().isForbidden());
+
+        when(orderCancellationService.cancelAsAdmin(eq(42L), any(), eq("admin@example.test")))
+                .thenReturn(com.xdpsx.ecommerce.order.api.dto.OrderDetailsDTO.builder()
+                        .build());
+        mockMvc.perform(post("/admin/orders/42/cancellation")
+                        .with(user("admin@example.test").roles("ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Fulfillment failed\"}"))
+                .andExpect(status().isOk());
     }
 
     @Test

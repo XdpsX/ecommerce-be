@@ -32,6 +32,9 @@ import com.xdpsx.ecommerce.payment.domain.PaymentAttemptStatus;
 import com.xdpsx.ecommerce.payment.domain.PaymentStatus;
 import com.xdpsx.ecommerce.payment.persistence.PaymentAttemptRepository;
 import com.xdpsx.ecommerce.payment.persistence.PaymentRepository;
+import com.xdpsx.ecommerce.refund.domain.Refund;
+import com.xdpsx.ecommerce.refund.domain.RefundStatus;
+import com.xdpsx.ecommerce.refund.persistence.RefundRepository;
 
 @ExtendWith(MockitoExtension.class)
 class PaymentAttemptCallbackServiceTest {
@@ -49,6 +52,9 @@ class PaymentAttemptCallbackServiceTest {
     @Mock
     private InventoryBalanceRepository inventoryBalanceRepository;
 
+    @Mock
+    private RefundRepository refundRepository;
+
     private PaymentAttemptCallbackService service;
     private PaymentAttempt attempt;
     private Order order;
@@ -61,6 +67,7 @@ class PaymentAttemptCallbackServiceTest {
                 orderRepository,
                 paymentRepository,
                 inventoryBalanceRepository,
+                refundRepository,
                 Clock.fixed(NOW, ZoneOffset.UTC));
         order = Order.builder()
                 .id(42L)
@@ -227,6 +234,29 @@ class PaymentAttemptCallbackServiceTest {
         assertThat(result).isEqualTo(PaymentCallbackResult.PROVIDER_SUCCESS_RECORDED);
         assertThat(attempt.getStatus()).isEqualTo(PaymentAttemptStatus.SUCCEEDED);
         assertThat(attempt.getProviderTransactionId()).isEqualTo("late-provider-transaction");
+        verify(inventoryBalanceRepository, org.mockito.Mockito.never())
+                .findAllByVariantIdsForUpdate(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void process_ShouldCreatePendingRefundAfterCancellationWithoutReopeningOrderOrConsumingInventory() {
+        order.cancel("customer request", "buyer@example.test", java.time.LocalDateTime.ofInstant(NOW, ZoneOffset.UTC));
+        payment.markCancelled();
+        attempt.markCancelled(NOW);
+        when(refundRepository.findByPaymentIdForUpdate(5L)).thenReturn(Optional.empty());
+
+        PaymentCallbackResult result =
+                service.process("attempt-uuid", new BigDecimal("100.00"), true, "late-provider-transaction", "00");
+
+        assertThat(result).isEqualTo(PaymentCallbackResult.PROVIDER_SUCCESS_RECORDED);
+        assertThat(attempt.getStatus()).isEqualTo(PaymentAttemptStatus.SUCCEEDED);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PAID);
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(payment.getRefund()).isNotNull();
+        assertThat(payment.getRefund().getStatus()).isEqualTo(RefundStatus.PENDING);
+        assertThat(payment.getRefund().getAmount()).isEqualByComparingTo("100.00");
+        assertThat(payment.getRefund().getRequestedBy()).isEqualTo("payment-callback");
+        verify(refundRepository).save(org.mockito.ArgumentMatchers.any(Refund.class));
         verify(inventoryBalanceRepository, org.mockito.Mockito.never())
                 .findAllByVariantIdsForUpdate(org.mockito.ArgumentMatchers.any());
     }

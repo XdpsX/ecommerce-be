@@ -43,6 +43,7 @@ import com.xdpsx.ecommerce.catalog.variantoption.application.VariantOptionServic
 import com.xdpsx.ecommerce.media.api.MediaController;
 import com.xdpsx.ecommerce.media.application.MediaService;
 import com.xdpsx.ecommerce.order.api.OrderController;
+import com.xdpsx.ecommerce.order.application.OrderCancellationService;
 import com.xdpsx.ecommerce.order.application.OrderService;
 import com.xdpsx.ecommerce.payment.application.PaymentAttemptService;
 import com.xdpsx.ecommerce.testsupport.SecurityConfigForControllerTests;
@@ -121,6 +122,9 @@ class OpenApiDocumentationTest {
 
     @MockitoBean
     private OrderService orderService;
+
+    @MockitoBean
+    private OrderCancellationService orderCancellationService;
 
     @MockitoBean
     private PaymentAttemptService paymentAttemptService;

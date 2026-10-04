@@ -65,6 +65,8 @@ import com.xdpsx.ecommerce.config.PaymentAttemptProperties;
 import com.xdpsx.ecommerce.config.StorePricingProperties;
 import com.xdpsx.ecommerce.inventory.domain.InventoryBalance;
 import com.xdpsx.ecommerce.inventory.persistence.InventoryBalanceRepository;
+import com.xdpsx.ecommerce.order.api.dto.CancellationRequest;
+import com.xdpsx.ecommerce.order.application.OrderCancellationService;
 import com.xdpsx.ecommerce.order.application.OrderMapper;
 import com.xdpsx.ecommerce.order.application.OrderService;
 import com.xdpsx.ecommerce.order.domain.OrderStatus;
@@ -75,6 +77,7 @@ import com.xdpsx.ecommerce.payment.application.PreparedPaymentAttempt;
 import com.xdpsx.ecommerce.payment.domain.PaymentStatus;
 import com.xdpsx.ecommerce.payment.persistence.PaymentAttemptRepository;
 import com.xdpsx.ecommerce.payment.persistence.PaymentRepository;
+import com.xdpsx.ecommerce.refund.persistence.RefundRepository;
 import com.xdpsx.ecommerce.testsupport.MySqlTestContainerFactory;
 import com.xdpsx.ecommerce.user.domain.AuthProvider;
 import com.xdpsx.ecommerce.user.domain.Role;
@@ -129,6 +132,12 @@ class CheckoutConcurrencyTest {
 
     @org.springframework.beans.factory.annotation.Autowired
     private PaymentRepository paymentRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private RefundRepository refundRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private OrderCancellationService orderCancellationService;
 
     @org.springframework.beans.factory.annotation.Autowired
     private CategoryRepository categoryRepository;
@@ -341,6 +350,44 @@ class CheckoutConcurrencyTest {
         }
     }
 
+    @Test
+    void simultaneousCancellation_ShouldReleaseReservationAndCreateNoRefundTwice() throws Exception {
+        ProductVariant variant = saveVariant("cancellation-race", 2);
+        User user = saveCustomer("cancellation-race");
+        UserAddress address = saveAddress(user);
+        Cart cart = saveCart(user);
+        saveItem(cart, variant, 1);
+
+        var checkout = checkoutService.execute(user.getEmail(), request(address.getId()), "cancellation-race-key");
+        Long orderId = checkout.order().getId();
+        CyclicBarrier start = new CyclicBarrier(2);
+
+        Future<Throwable> first = executor.submit(() -> cancelAfter(start, user.getEmail(), orderId));
+        Future<Throwable> second = executor.submit(() -> cancelAfter(start, user.getEmail(), orderId));
+
+        assertThat(first.get(10, TimeUnit.SECONDS)).isNull();
+        assertThat(second.get(10, TimeUnit.SECONDS)).isNull();
+
+        var persisted = orderRepository.findById(orderId).orElseThrow();
+        var balance =
+                inventoryRepository.findByVariantIdWithVariant(variant.getId()).orElseThrow();
+        assertThat(persisted.getStatus()).isEqualTo(com.xdpsx.ecommerce.order.domain.OrderStatus.CANCELLED);
+        assertThat(balance.getOnHand()).isEqualTo(2);
+        assertThat(balance.getReserved()).isZero();
+        assertThat(persisted.getPayment().getStatus()).isEqualTo(PaymentStatus.CANCELLED);
+        assertThat(refundRepository.count()).isZero();
+    }
+
+    private Throwable cancelAfter(CyclicBarrier start, String email, Long orderId) {
+        await(start);
+        try {
+            orderCancellationService.cancelForCustomer(email, orderId, new CancellationRequest("race cancellation"));
+            return null;
+        } catch (Throwable exception) {
+            return exception;
+        }
+    }
+
     private Outcome invokeAfter(CyclicBarrier start, User user, UserAddress address, String key) {
         await(start);
         return invoke(user, address, key);
@@ -448,7 +495,8 @@ class CheckoutConcurrencyTest {
                 InventoryBalanceRepository.class,
                 OrderRepository.class,
                 PaymentRepository.class,
-                PaymentAttemptRepository.class
+                PaymentAttemptRepository.class,
+                RefundRepository.class
             })
     static class PersistenceConfig {
         @Bean
@@ -475,7 +523,8 @@ class CheckoutConcurrencyTest {
                     "com.xdpsx.ecommerce.inventory.domain",
                     "com.xdpsx.ecommerce.media.domain",
                     "com.xdpsx.ecommerce.order.domain",
-                    "com.xdpsx.ecommerce.payment.domain");
+                    "com.xdpsx.ecommerce.payment.domain",
+                    "com.xdpsx.ecommerce.refund.domain");
             factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
             factory.getJpaPropertyMap().put("hibernate.hbm2ddl.auto", "create-drop");
             factory.getJpaPropertyMap().put("hibernate.jdbc.time_zone", "UTC");
@@ -555,9 +604,34 @@ class CheckoutConcurrencyTest {
                 OrderRepository orderRepository,
                 PaymentRepository paymentRepository,
                 InventoryBalanceRepository inventoryBalanceRepository,
+                RefundRepository refundRepository,
                 Clock clock) {
             return new PaymentAttemptCallbackService(
-                    paymentAttemptRepository, orderRepository, paymentRepository, inventoryBalanceRepository, clock);
+                    paymentAttemptRepository,
+                    orderRepository,
+                    paymentRepository,
+                    inventoryBalanceRepository,
+                    refundRepository,
+                    clock);
+        }
+
+        @Bean
+        OrderCancellationService orderCancellationService(
+                OrderRepository orderRepository,
+                UserRepository userRepository,
+                PaymentAttemptRepository paymentAttemptRepository,
+                RefundRepository refundRepository,
+                InventoryBalanceRepository inventoryBalanceRepository,
+                OrderMapper orderMapper,
+                Clock clock) {
+            return new OrderCancellationService(
+                    orderRepository,
+                    userRepository,
+                    paymentAttemptRepository,
+                    refundRepository,
+                    inventoryBalanceRepository,
+                    orderMapper,
+                    clock);
         }
 
         @Bean
