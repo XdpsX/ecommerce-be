@@ -78,11 +78,21 @@ public class PaymentAttempt {
         this.completedAt = completedAt;
     }
 
+    public void markCancelled(Instant completedAt) {
+        if (status == PaymentAttemptStatus.CANCELLED) return;
+        if (status != PaymentAttemptStatus.PENDING) {
+            throw new IllegalStateException("Only a pending PaymentAttempt can be cancelled");
+        }
+        status = PaymentAttemptStatus.CANCELLED;
+        this.completedAt = completedAt;
+    }
+
     public void markSucceeded(String providerTransactionId, String responseCode, Instant completedAt) {
         if (status == PaymentAttemptStatus.SUCCEEDED) return;
         if (status != PaymentAttemptStatus.PENDING
                 && status != PaymentAttemptStatus.FAILED
-                && status != PaymentAttemptStatus.EXPIRED) {
+                && status != PaymentAttemptStatus.EXPIRED
+                && status != PaymentAttemptStatus.CANCELLED) {
             throw new IllegalStateException("Only an unresolved PaymentAttempt can succeed");
         }
         if (providerTransactionId == null || providerTransactionId.isBlank() || providerTransactionId.length() > 32) {

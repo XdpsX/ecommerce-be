@@ -20,18 +20,21 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
             + "ORDER BY CASE WHEN o.updatedAt IS NOT NULL THEN o.updatedAt ELSE o.createdAt END DESC")
     Page<Order> findByUser(Long userId, Pageable pageable);
 
-    @Query("SELECT o FROM Order o JOIN FETCH o.items WHERE o.id = :id")
+    @Query(
+            "SELECT DISTINCT o FROM Order o JOIN FETCH o.items LEFT JOIN FETCH o.payment p LEFT JOIN FETCH p.refund WHERE o.id = :id")
     Optional<Order> findById(Long id);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT o FROM Order o LEFT JOIN FETCH o.payment WHERE o.id = :id")
+    @Query("SELECT o FROM Order o LEFT JOIN FETCH o.payment p LEFT JOIN FETCH p.refund WHERE o.id = :id")
     Optional<Order> findByIdForUpdate(Long id);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT o FROM Order o LEFT JOIN FETCH o.payment WHERE o.id = :orderId AND o.user.id = :userId")
+    @Query(
+            "SELECT o FROM Order o LEFT JOIN FETCH o.payment p LEFT JOIN FETCH p.refund WHERE o.id = :orderId AND o.user.id = :userId")
     Optional<Order> findByIdAndUserIdForUpdate(Long orderId, Long userId);
 
-    @Query("SELECT o FROM Order o JOIN FETCH o.items WHERE o.user.id = :userId AND o.trackingNumber = :trackingNumber")
+    @Query(
+            "SELECT DISTINCT o FROM Order o JOIN FETCH o.items LEFT JOIN FETCH o.payment p LEFT JOIN FETCH p.refund WHERE o.user.id = :userId AND o.trackingNumber = :trackingNumber")
     Optional<Order> findByUserIdAndTrackingNumber(Long userId, String trackingNumber);
 
     @Query("SELECT o.id FROM Order o "

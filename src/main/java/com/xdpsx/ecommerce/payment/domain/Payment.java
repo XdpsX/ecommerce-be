@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import jakarta.persistence.*;
 
 import com.xdpsx.ecommerce.order.domain.Order;
+import com.xdpsx.ecommerce.refund.domain.Refund;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -34,6 +35,13 @@ public class Payment {
 
     private LocalDateTime paymentDate;
 
+    @OneToOne(mappedBy = "payment", fetch = FetchType.LAZY)
+    private Refund refund;
+
+    public void setRefund(Refund value) {
+        refund = value;
+    }
+
     public void markPending() {
         if (status != PaymentStatus.PENDING) {
             throw new IllegalStateException("Only a pending Payment can remain pending");
@@ -51,11 +59,29 @@ public class Payment {
         paymentDate = paidAt;
     }
 
+    public void markPaidAfterCancellation(PaymentMethod method, LocalDateTime paidAt) {
+        if (status == PaymentStatus.PAID) return;
+        if (status != PaymentStatus.CANCELLED) {
+            throw new IllegalStateException("Only a cancelled Payment can become paid after cancellation");
+        }
+        status = PaymentStatus.PAID;
+        paymentMethod = method;
+        paymentDate = paidAt;
+    }
+
     public void markExpired() {
         if (status == PaymentStatus.EXPIRED) return;
         if (status != PaymentStatus.PENDING) {
             throw new IllegalStateException("Only a pending Payment can expire");
         }
         status = PaymentStatus.EXPIRED;
+    }
+
+    public void markCancelled() {
+        if (status == PaymentStatus.CANCELLED) return;
+        if (status != PaymentStatus.PENDING) {
+            throw new IllegalStateException("Only a pending Payment can be cancelled");
+        }
+        status = PaymentStatus.CANCELLED;
     }
 }

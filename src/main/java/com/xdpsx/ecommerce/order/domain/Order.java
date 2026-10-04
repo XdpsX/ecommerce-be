@@ -81,6 +81,14 @@ public class Order {
 
     private LocalDateTime deliveredAt;
 
+    @Column(name = "cancellation_reason", length = 500)
+    private String cancellationReason;
+
+    @Column(name = "cancelled_by", length = 320)
+    private String cancelledBy;
+
+    private LocalDateTime cancelledAt;
+
     @OneToOne(mappedBy = "order", cascade = CascadeType.PERSIST)
     private Payment payment;
 
@@ -109,6 +117,19 @@ public class Order {
 
     public void setReservationExpiresAt(Instant value) {
         reservationExpiresAt = value;
+    }
+
+    public void cancel(String reason, String actor, LocalDateTime cancelledAt) {
+        if (status == OrderStatus.CANCELLED) return;
+        if (status != OrderStatus.PENDING_PAYMENT
+                && status != OrderStatus.CONFIRMED
+                && status != OrderStatus.PROCESSING) {
+            throw new IllegalStateException("Only cancellable Orders can be cancelled");
+        }
+        status = OrderStatus.CANCELLED;
+        cancellationReason = reason;
+        cancelledBy = actor;
+        this.cancelledAt = cancelledAt;
     }
 
     public void confirmPayment() {

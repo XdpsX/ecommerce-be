@@ -77,6 +77,15 @@ public class InventoryBalance {
         onHand -= quantity;
     }
 
+    public void restockConsumed(long quantity) {
+        validatePositive(quantity);
+        try {
+            onHand = Math.addExact(onHand, quantity);
+        } catch (ArithmeticException exception) {
+            throw new InventoryBalanceAdjustmentException("onHand adjustment overflow", exception);
+        }
+    }
+
     public void adjustOnHand(long quantityDelta) {
         final long nextOnHand;
         try {

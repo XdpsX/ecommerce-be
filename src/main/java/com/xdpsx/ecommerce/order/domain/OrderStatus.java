@@ -10,7 +10,5 @@ public enum OrderStatus {
     /** @deprecated retained so historical rows remain readable after migration. */
     @Deprecated
     PENDING,
-    /** @deprecated cancellation is outside the renewed transition policy. */
-    @Deprecated
     CANCELLED
 }

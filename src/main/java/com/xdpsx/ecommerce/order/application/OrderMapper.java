@@ -7,7 +7,10 @@ import org.mapstruct.Mapping;
 
 import com.xdpsx.ecommerce.order.api.dto.OrderDetailsDTO;
 import com.xdpsx.ecommerce.order.api.dto.OrderItemResponse;
+import com.xdpsx.ecommerce.order.api.dto.RefundSummaryDTO;
 import com.xdpsx.ecommerce.order.domain.Order;
+import com.xdpsx.ecommerce.payment.domain.Payment;
+import com.xdpsx.ecommerce.refund.domain.Refund;
 
 @Mapper(componentModel = "spring")
 public abstract class OrderMapper {
@@ -16,6 +19,7 @@ public abstract class OrderMapper {
     @Mapping(target = "total", source = "entity.totalAmount")
     @Mapping(target = "username", source = "entity.user.name")
     @Mapping(target = "items", ignore = true)
+    @Mapping(target = "refund", ignore = true)
     abstract OrderDetailsDTO toDetails(Order entity);
 
     public OrderDetailsDTO fromEntityToDetails(Order entity) {
@@ -52,6 +56,25 @@ public abstract class OrderMapper {
             dto.setPostalCode(shipping.getPostalCode());
         }
         dto.setCurrency(entity.getCurrency());
+        dto.setRefund(toRefundSummary(entity.getPayment()));
+        return dto;
+    }
+
+    public OrderDetailsDTO fromEntityToCustomerDetails(Order entity) {
+        OrderDetailsDTO dto = fromEntityToDetails(entity);
+        dto.setCancelledBy(null);
+        return dto;
+    }
+
+    private static RefundSummaryDTO toRefundSummary(Payment payment) {
+        if (payment == null || payment.getRefund() == null) return null;
+        Refund refund = payment.getRefund();
+        RefundSummaryDTO dto = new RefundSummaryDTO();
+        dto.setStatus(refund.getStatus().name());
+        dto.setAmount(refund.getAmount());
+        dto.setCurrency(refund.getCurrency());
+        dto.setRequestedAt(refund.getRequestedAt());
+        dto.setCompletedAt(refund.getCompletedAt());
         return dto;
     }
 }

@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.order.api.dto.*;
+import com.xdpsx.ecommerce.order.application.OrderCancellationService;
 import com.xdpsx.ecommerce.order.application.OrderService;
 import com.xdpsx.ecommerce.order.domain.OrderStatus;
 import com.xdpsx.ecommerce.payment.api.dto.InitPaymentResponse;
@@ -24,6 +25,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class OrderController {
     private final OrderService orderService;
+    private final OrderCancellationService orderCancellationService;
     private final PaymentAttemptService paymentAttemptService;
 
     @PostMapping("/{orderId}/payment-attempts")
@@ -47,6 +49,15 @@ public class OrderController {
             Authentication authentication, @PathVariable String trackingNumber) {
         OrderDetailsDTO response = orderService.getOrderByTrackingNumber(authentication.getName(), trackingNumber);
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{orderId}/cancellation")
+    public ResponseEntity<OrderDetailsDTO> cancel(
+            Authentication authentication,
+            @PathVariable Long orderId,
+            @Valid @RequestBody CancellationRequest request) {
+        return ResponseEntity.ok(
+                orderCancellationService.cancelForCustomer(authentication.getName(), orderId, request));
     }
 
     @GetMapping("/{orderId}")

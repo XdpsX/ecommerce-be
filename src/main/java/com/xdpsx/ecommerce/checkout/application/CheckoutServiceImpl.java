@@ -57,6 +57,8 @@ public class CheckoutServiceImpl implements CheckoutService {
                                 : order.getPayment().getStatus().name())
                 .createdAt(order.getCreatedAt() == null ? null : order.getCreatedAt())
                 .deliveredAt(order.getDeliveredAt())
+                .cancellationReason(order.getCancellationReason())
+                .cancelledAt(order.getCancelledAt())
                 .build();
     }
 }

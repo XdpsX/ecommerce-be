@@ -26,4 +26,8 @@ public class OrderDTO {
     private String paymentStatus;
     private LocalDateTime createdAt;
     private LocalDateTime deliveredAt;
+    private String cancellationReason;
+    private String cancelledBy;
+    private LocalDateTime cancelledAt;
+    private RefundSummaryDTO refund;
 }

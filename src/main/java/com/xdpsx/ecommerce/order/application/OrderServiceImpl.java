@@ -94,8 +94,9 @@ public class OrderServiceImpl implements OrderService {
     public PageResponse<OrderDTO> getMyOrders(String userEmail, int pageNum, int pageSize) {
         User user = getUser(userEmail);
         Page<Order> orderPage = orderRepository.findByUser(user.getId(), PageRequest.of(pageNum - 1, pageSize));
-        List<OrderDTO> responses =
-                orderPage.getContent().stream().map(this::convertToDTO).toList();
+        List<OrderDTO> responses = orderPage.getContent().stream()
+                .map(order -> convertToDTO(order, false))
+                .toList();
         return PageResponse.of(
                 responses,
                 orderPage.getNumber() + 1,
@@ -120,8 +121,9 @@ public class OrderServiceImpl implements OrderService {
         Pageable pageable = PageRequest.of(pageNum - 1, pageSize);
         Specification<Order> spec = OrderSpecification.withStatusAndPaymentStatus(orderStatus, paymentStatus);
         Page<Order> orderPage = orderRepository.findAll(spec, pageable);
-        List<OrderDTO> responses =
-                orderPage.getContent().stream().map(this::convertToDTO).toList();
+        List<OrderDTO> responses = orderPage.getContent().stream()
+                .map(order -> convertToDTO(order, true))
+                .toList();
         return PageResponse.of(
                 responses,
                 orderPage.getNumber() + 1,
@@ -150,7 +152,7 @@ public class OrderServiceImpl implements OrderService {
                     exception);
         }
         Order savedOrder = orderRepository.save(order);
-        return convertToDTO(savedOrder);
+        return convertToDTO(savedOrder, true);
     }
 
     @Override
@@ -161,7 +163,7 @@ public class OrderServiceImpl implements OrderService {
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND,
                         Map.of("resourceType", "order", "trackingNumber", trackingNumber)));
-        return orderMapper.fromEntityToDetails(order);
+        return orderMapper.fromEntityToCustomerDetails(order);
     }
 
     private User getUser(String userEmail) {
@@ -171,7 +173,7 @@ public class OrderServiceImpl implements OrderService {
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "user", "email", userEmail)));
     }
 
-    private OrderDTO convertToDTO(Order savedOrder) {
+    private OrderDTO convertToDTO(Order savedOrder, boolean includeCancellationActor) {
         var shipping = savedOrder.getShippingAddress();
         return OrderDTO.builder()
                 .id(savedOrder.getId())
@@ -194,7 +196,25 @@ public class OrderServiceImpl implements OrderService {
                                 : savedOrder.getPayment().getStatus().name())
                 .createdAt(savedOrder.getCreatedAt())
                 .deliveredAt(savedOrder.getDeliveredAt())
+                .cancellationReason(savedOrder.getCancellationReason())
+                .cancelledBy(includeCancellationActor ? savedOrder.getCancelledBy() : null)
+                .cancelledAt(savedOrder.getCancelledAt())
+                .refund(
+                        savedOrder.getPayment() == null
+                                        || savedOrder.getPayment().getRefund() == null
+                                ? null
+                                : toRefundSummary(savedOrder.getPayment().getRefund()))
                 .build();
+    }
+
+    private static RefundSummaryDTO toRefundSummary(com.xdpsx.ecommerce.refund.domain.Refund refund) {
+        RefundSummaryDTO dto = new RefundSummaryDTO();
+        dto.setStatus(refund.getStatus().name());
+        dto.setAmount(refund.getAmount());
+        dto.setCurrency(refund.getCurrency());
+        dto.setRequestedAt(refund.getRequestedAt());
+        dto.setCompletedAt(refund.getCompletedAt());
+        return dto;
     }
 
     //    private OrderDetailsDTO convertToOrderDetails(Order order) {

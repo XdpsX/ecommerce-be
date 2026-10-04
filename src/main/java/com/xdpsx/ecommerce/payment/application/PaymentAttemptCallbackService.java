@@ -28,16 +28,23 @@ import com.xdpsx.ecommerce.payment.domain.PaymentMethod;
 import com.xdpsx.ecommerce.payment.domain.PaymentStatus;
 import com.xdpsx.ecommerce.payment.persistence.PaymentAttemptRepository;
 import com.xdpsx.ecommerce.payment.persistence.PaymentRepository;
+import com.xdpsx.ecommerce.refund.domain.Refund;
+import com.xdpsx.ecommerce.refund.domain.RefundStatus;
+import com.xdpsx.ecommerce.refund.persistence.RefundRepository;
 
 import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
 public class PaymentAttemptCallbackService {
+    private static final String LATE_PAYMENT_ACTOR = "payment-callback";
+    private static final String LATE_PAYMENT_REASON = "Payment received after order cancellation";
+
     private final PaymentAttemptRepository paymentAttemptRepository;
     private final OrderRepository orderRepository;
     private final PaymentRepository paymentRepository;
     private final InventoryBalanceRepository inventoryBalanceRepository;
+    private final RefundRepository refundRepository;
     private final Clock clock;
 
     @Transactional
@@ -91,6 +98,19 @@ public class PaymentAttemptCallbackService {
             paymentAttemptRepository.save(attempt);
             return PaymentCallbackResult.ALREADY_CONFIRMED;
         }
+        if (payment.getStatus() == PaymentStatus.CANCELLED || lockedOrder.getStatus() == OrderStatus.CANCELLED) {
+            if (payment.getStatus() != PaymentStatus.CANCELLED || lockedOrder.getStatus() != OrderStatus.CANCELLED) {
+                throw new ApplicationException(ErrorCode.CONCURRENT_MODIFICATION);
+            }
+            Instant completedAt = clock.instant();
+            LocalDateTime paidAt = LocalDateTime.ofInstant(completedAt, ZoneOffset.UTC);
+            payment.markPaidAfterCancellation(PaymentMethod.VNPAY, paidAt);
+            attempt.markSucceeded(providerTransactionId, responseCode, completedAt);
+            createLatePaymentRefund(payment, lockedOrder, paidAt);
+            paymentRepository.save(payment);
+            paymentAttemptRepository.save(attempt);
+            return PaymentCallbackResult.PROVIDER_SUCCESS_RECORDED;
+        }
         if (payment.getStatus() != PaymentStatus.PENDING || lockedOrder.getStatus() != OrderStatus.PENDING_PAYMENT) {
             attempt.markSucceeded(providerTransactionId, responseCode, clock.instant());
             paymentAttemptRepository.save(attempt);
@@ -127,6 +147,21 @@ public class PaymentAttemptCallbackService {
         paymentAttemptRepository.save(attempt);
         expireOtherPendingAttempts(payment.getId(), attempt.getId(), completedAt);
         return PaymentCallbackResult.CONFIRMED;
+    }
+
+    private void createLatePaymentRefund(Payment payment, Order order, LocalDateTime requestedAt) {
+        if (refundRepository.findByPaymentIdForUpdate(payment.getId()).isPresent()) return;
+        Refund refund = Refund.builder()
+                .payment(payment)
+                .status(RefundStatus.PENDING)
+                .amount(order.getTotalAmount())
+                .currency(order.getCurrency())
+                .reason(LATE_PAYMENT_REASON)
+                .requestedBy(LATE_PAYMENT_ACTOR)
+                .requestedAt(requestedAt)
+                .build();
+        refundRepository.save(refund);
+        payment.setRefund(refund);
     }
 
     private void expireOtherPendingAttempts(Long paymentId, Long succeededAttemptId, Instant completedAt) {
