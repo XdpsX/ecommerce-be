@@ -1,0 +1,581 @@
+package com.xdpsx.ecommerce.catalog.product.persistence;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.PersistenceContext;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
+import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.orm.jpa.JpaTransactionManager;
+import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
+import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
+import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
+import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
+import com.xdpsx.ecommerce.catalog.brand.persistence.BrandRepository;
+import com.xdpsx.ecommerce.catalog.category.domain.Category;
+import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
+import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
+import com.xdpsx.ecommerce.catalog.product.api.dto.UpdateProductVariantStatusRequest;
+import com.xdpsx.ecommerce.catalog.product.application.ProductVariantServiceImpl;
+import com.xdpsx.ecommerce.catalog.product.domain.*;
+import com.xdpsx.ecommerce.catalog.variantoption.api.dto.UpdateVariantOptionValueRequest;
+import com.xdpsx.ecommerce.catalog.variantoption.application.VariantOptionServiceImpl;
+import com.xdpsx.ecommerce.catalog.variantoption.domain.*;
+import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionRepository;
+import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionValueRepository;
+import com.xdpsx.ecommerce.config.StorePricingProperties;
+
+/** Verifies that SKU selections persist as one value per option and retain their value identity. */
+@SpringJUnitConfig(ProductVariantPersistenceTest.PersistenceConfig.class)
+class ProductVariantPersistenceTest {
+    @Configuration
+    @EnableTransactionManagement
+    @EnableJpaAuditing
+    @EnableJpaRepositories(
+            basePackageClasses = {
+                ProductRepository.class,
+                ProductVariantRepository.class,
+                VariantOptionRepository.class,
+                VariantOptionValueRepository.class,
+                CategoryRepository.class,
+                BrandRepository.class
+            })
+    static class PersistenceConfig {
+        @Bean
+        DriverManagerDataSource dataSource() {
+            DriverManagerDataSource dataSource = new DriverManagerDataSource();
+            dataSource.setDriverClassName("org.h2.Driver");
+            dataSource.setUrl("jdbc:h2:mem:product_variants;DB_CLOSE_DELAY=-1;MODE=MySQL;LOCK_TIMEOUT=10000");
+            dataSource.setUsername("sa");
+            dataSource.setPassword("");
+            return dataSource;
+        }
+
+        @Bean
+        LocalContainerEntityManagerFactoryBean entityManagerFactory(DriverManagerDataSource dataSource) {
+            LocalContainerEntityManagerFactoryBean factory = new LocalContainerEntityManagerFactoryBean();
+            factory.setDataSource(dataSource);
+            factory.setPackagesToScan(
+                    "com.xdpsx.ecommerce.catalog.product.domain",
+                    "com.xdpsx.ecommerce.catalog.variantoption.domain",
+                    "com.xdpsx.ecommerce.catalog.brand.domain",
+                    "com.xdpsx.ecommerce.catalog.category.domain",
+                    "com.xdpsx.ecommerce.media.domain");
+            factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
+            factory.getJpaPropertyMap().put("hibernate.hbm2ddl.auto", "create-drop");
+            factory.getJpaPropertyMap().put("hibernate.generate_statistics", "true");
+            return factory;
+        }
+
+        @Bean
+        PlatformTransactionManager transactionManager(EntityManagerFactory entityManagerFactory) {
+            return new JpaTransactionManager(entityManagerFactory);
+        }
+
+        @Bean
+        TransactionTemplate transactionTemplate(PlatformTransactionManager transactionManager) {
+            return new TransactionTemplate(transactionManager);
+        }
+    }
+
+    @Autowired
+    private ProductRepository productRepository;
+
+    @Autowired
+    private CategoryRepository categoryRepository;
+
+    @Autowired
+    private BrandRepository brandRepository;
+
+    @Autowired
+    private ProductVariantRepository variantRepository;
+
+    private final ProductSpecification productSpecification = new ProductSpecification();
+
+    @Autowired
+    private VariantOptionRepository optionRepository;
+
+    @Autowired
+    private VariantOptionValueRepository valueRepository;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    @BeforeEach
+    void clearData() {
+        transactionTemplate.executeWithoutResult(status -> {
+            variantRepository.deleteAll();
+            productRepository.deleteAll();
+            valueRepository.deleteAll();
+            optionRepository.deleteAll();
+            brandRepository.deleteAll();
+            categoryRepository.deleteAll();
+        });
+    }
+
+    @Test
+    void variantSelections_ShouldPersistOptionValueIdentityAndStableOrder() {
+        Long productId = transactionTemplate.execute(status -> {
+            VariantOption color = optionRepository.saveAndFlush(option("color", 0));
+            VariantOption size = optionRepository.saveAndFlush(option("size", 1));
+            VariantOptionValue black = valueRepository.save(value(color, "black", 0));
+            VariantOptionValue medium = valueRepository.saveAndFlush(value(size, "medium", 0));
+            Product product = productRepository.saveAndFlush(
+                    Product.builder().name("Shirt").slug("shirt").build());
+            ProductVariant variant = ProductVariant.builder()
+                    .product(product)
+                    .sku("SHIRT-BLACK-M")
+                    .basePrice(java.math.BigDecimal.TEN)
+                    .status(ProductVariantStatus.ACTIVE)
+                    .combinationKey(color.getId() + "=" + black.getId() + "|" + size.getId() + "=" + medium.getId())
+                    .build();
+            variant.getSelections().add(selection(variant, color, black));
+            variant.getSelections().add(selection(variant, size, medium));
+            variantRepository.saveAndFlush(variant);
+            return product.getId();
+        });
+
+        List<ProductVariant> variants =
+                transactionTemplate.execute(status -> variantRepository.findAllWithSelectionsByProductId(productId));
+        List<String> optionValueCodes = transactionTemplate.execute(
+                status -> variantRepository.findAllWithSelectionsByProductId(productId).get(0).getSelections().stream()
+                        .map(selection -> selection.getOptionValue().getCode())
+                        .toList());
+
+        assertThat(variants).hasSize(1);
+        assertThat(optionValueCodes).containsExactly("black", "medium");
+        assertThat(variants.get(0).getSelections())
+                .extracting(ProductVariantSelection::getOptionValueId)
+                .containsExactly(
+                        variants.get(0).getSelections().get(0).getOptionValueId(),
+                        variants.get(0).getSelections().get(1).getOptionValueId());
+    }
+
+    @Test
+    void variantPrices_ShouldRemainOnEachSkuIndependentOfSiblingState() {
+        Long productId = transactionTemplate.execute(status -> {
+            Product product = productRepository.saveAndFlush(product("pricing-projection"));
+            ProductVariant expensive = variant(product, "PRICING-EXPENSIVE", "pricing-expensive");
+            expensive.changeBasePrice(new BigDecimal("25.00"));
+            ProductVariant cheapest = variant(product, "PRICING-CHEAPEST", "pricing-cheapest");
+            cheapest.changeBasePrice(new BigDecimal("12.50"));
+            ProductVariant inactive = variant(product, "PRICING-INACTIVE", "pricing-inactive");
+            inactive.changeBasePrice(new BigDecimal("1.00"));
+            inactive.setStatus(ProductVariantStatus.INACTIVE);
+            variantRepository.saveAllAndFlush(List.of(expensive, cheapest, inactive));
+            return product.getId();
+        });
+
+        List<ProductVariant> variants = transactionTemplate.execute(status -> {
+            List<ProductVariant> active =
+                    variantRepository.findAllByProductIdAndStatus(productId, ProductVariantStatus.ACTIVE);
+            List<ProductVariant> inactive =
+                    variantRepository.findAllByProductIdAndStatus(productId, ProductVariantStatus.INACTIVE);
+            active.addAll(inactive);
+            return active;
+        });
+
+        assertThat(variants)
+                .extracting(ProductVariant::getBasePrice)
+                .containsExactlyInAnyOrder(new BigDecimal("25.00"), new BigDecimal("12.50"), new BigDecimal("1.00"));
+        assertThat(variants.stream()
+                        .filter(item -> item.getStatus() == ProductVariantStatus.INACTIVE)
+                        .findFirst()
+                        .orElseThrow()
+                        .getBasePrice())
+                .isEqualByComparingTo("1.00");
+    }
+
+    @Test
+    void duplicateCombination_ShouldRollBackTheWholeVariantBatch() {
+        Product product = transactionTemplate.execute(status -> productRepository.saveAndFlush(
+                Product.builder().name("Simple product").slug("simple-product").build()));
+
+        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
+                    variantRepository.save(variant(product, "SIMPLE-1"));
+                    variantRepository.saveAndFlush(variant(product, "SIMPLE-2"));
+                }))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+
+        assertThat(variantRepository.count()).isZero();
+    }
+
+    @Test
+    void concurrentDuplicateSku_ShouldRollBackTheLosingBatch() throws Exception {
+        Long productId = transactionTemplate.execute(status -> productRepository
+                .saveAndFlush(Product.builder()
+                        .name("Concurrent product")
+                        .slug("concurrent-product")
+                        .build())
+                .getId());
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            List<Future<Boolean>> outcomes = java.util.stream.IntStream.range(0, 2)
+                    .mapToObj(index -> executor.submit(() -> {
+                        try {
+                            transactionTemplate.executeWithoutResult(status -> {
+                                Product product =
+                                        productRepository.findById(productId).orElseThrow();
+                                await(barrier);
+                                variantRepository.saveAllAndFlush(List.of(
+                                        variant(product, "RACE-SKU", "race-shared-" + index),
+                                        variant(product, "RACE-UNIQUE-" + index, "race-unique-" + index)));
+                            });
+                            return true;
+                        } catch (RuntimeException exception) {
+                            return false;
+                        }
+                    }))
+                    .toList();
+
+            List<Boolean> results =
+                    outcomes.stream().map(outcome -> getOutcome(outcome)).toList();
+            assertThat(results).containsExactlyInAnyOrder(true, false);
+            assertThat(variantRepository.count()).isEqualTo(2);
+            List<String> skus = variantRepository.findAll().stream()
+                    .map(ProductVariant::getSku)
+                    .toList();
+            assertThat(skus).contains("RACE-SKU").anyMatch(sku -> sku.startsWith("RACE-UNIQUE-"));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void activation_ShouldSerializeWithOptionValueDeactivation() throws Exception {
+        Long[] ids = transactionTemplate.execute(status -> {
+            VariantOption color = optionRepository.saveAndFlush(option("concurrent-color", 0));
+            VariantOptionValue black = valueRepository.saveAndFlush(value(color, "concurrent-black", 0));
+            Product product = productRepository.saveAndFlush(Product.builder()
+                    .name("Activation product")
+                    .slug("activation-product")
+                    .build());
+            ProductVariant variant = ProductVariant.builder()
+                    .product(product)
+                    .sku("ACTIVATION-SKU")
+                    .basePrice(java.math.BigDecimal.TEN)
+                    .status(ProductVariantStatus.INACTIVE)
+                    .combinationKey(color.getId() + "=" + black.getId())
+                    .build();
+            variant.getSelections().add(selection(variant, color, black));
+            variantRepository.saveAndFlush(variant);
+            return new Long[] {product.getId(), variant.getId(), color.getId(), black.getId()};
+        });
+        ProductVariantServiceImpl variantService = new ProductVariantServiceImpl(
+                productRepository,
+                variantRepository,
+                optionRepository,
+                valueRepository,
+                entityManager,
+                variants -> {},
+                new StorePricingProperties());
+        VariantOptionServiceImpl optionService =
+                new VariantOptionServiceImpl(optionRepository, valueRepository, variantRepository);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch deactivationReady = new CountDownLatch(1);
+        CountDownLatch releaseDeactivation = new CountDownLatch(1);
+        try {
+            Future<?> deactivation = executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+                optionService.updateValue(
+                        ids[2], ids[3], new UpdateVariantOptionValueRequest("Black", 0, VariantOptionStatus.INACTIVE));
+                deactivationReady.countDown();
+                await(releaseDeactivation);
+            }));
+            assertThat(deactivationReady.await(20, TimeUnit.SECONDS)).isTrue();
+
+            Future<Object> activation = executor.submit(() -> {
+                try {
+                    return transactionTemplate.execute(status -> variantService.updateStatus(
+                            ids[0], ids[1], new UpdateProductVariantStatusRequest(ProductVariantStatus.ACTIVE)));
+                } catch (RuntimeException exception) {
+                    return exception;
+                }
+            });
+
+            assertThatThrownBy(() -> activation.get(1, TimeUnit.SECONDS)).isInstanceOf(TimeoutException.class);
+            releaseDeactivation.countDown();
+            deactivation.get(20, TimeUnit.SECONDS);
+            Object activationResult = activation.get(20, TimeUnit.SECONDS);
+            assertThat(activationResult).isInstanceOf(com.xdpsx.ecommerce.common.error.ApplicationException.class);
+            assertThat(((com.xdpsx.ecommerce.common.error.ApplicationException) activationResult).getCode())
+                    .isEqualTo(com.xdpsx.ecommerce.common.error.ErrorCode.VALIDATION_FAILED);
+            ProductVariantStatus persistedVariantStatus = transactionTemplate.execute(status -> variantRepository
+                    .findByIdAndProductIdWithSelections(ids[1], ids[0])
+                    .orElseThrow()
+                    .getStatus());
+            VariantOptionStatus persistedValueStatus = transactionTemplate.execute(
+                    status -> valueRepository.findById(ids[3]).orElseThrow().getStatus());
+            assertThat(persistedVariantStatus).isEqualTo(ProductVariantStatus.INACTIVE);
+            assertThat(persistedValueStatus).isEqualTo(VariantOptionStatus.INACTIVE);
+        } finally {
+            releaseDeactivation.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void storefrontVariantRead_ShouldFetchOnlyActiveVariantsAndDictionaryRowsInOneQuery() {
+        Long productId = transactionTemplate.execute(status -> {
+            VariantOption color = optionRepository.saveAndFlush(option("read-color", 1));
+            VariantOption size = optionRepository.saveAndFlush(option("read-size", 0));
+            VariantOptionValue black = valueRepository.save(value(color, "read-black", 0));
+            VariantOptionValue medium = valueRepository.saveAndFlush(value(size, "read-medium", 0));
+            Product product = productRepository.saveAndFlush(Product.builder()
+                    .name("Read product")
+                    .slug("read-product")
+                    .published(true)
+                    .build());
+            ProductVariant active = variant(product, "READ-ACTIVE", "read-active");
+            active.getSelections().add(selection(active, color, black));
+            active.getSelections().add(selection(active, size, medium));
+            ProductVariant inactive = variant(product, "READ-INACTIVE", "read-inactive");
+            inactive.setStatus(ProductVariantStatus.INACTIVE);
+            inactive.getSelections().add(selection(inactive, color, black));
+            variantRepository.save(active);
+            variantRepository.saveAndFlush(inactive);
+            return product.getId();
+        });
+
+        entityManager.clear();
+        entityManager
+                .getEntityManagerFactory()
+                .unwrap(org.hibernate.SessionFactory.class)
+                .getStatistics()
+                .clear();
+        List<ProductVariant> variants = transactionTemplate.execute(
+                status -> variantRepository.findActiveWithSelectionsAndOptionsByProductId(productId));
+
+        assertThat(variants).hasSize(1);
+        assertThat(variants.get(0).getStatus()).isEqualTo(ProductVariantStatus.ACTIVE);
+        assertThat(variants.get(0).getSelections())
+                .extracting(selection -> selection.getOptionValue().getCode())
+                .containsExactlyInAnyOrder("read-medium", "read-black");
+        assertThat(entityManager
+                        .getEntityManagerFactory()
+                        .unwrap(org.hibernate.SessionFactory.class)
+                        .getStatistics()
+                        .getPrepareStatementCount())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void optionFilter_ShouldRequireAllOptionGroupsOnTheSameActiveVariantAndKeepProductsDistinctAcrossPages() {
+        Long[] valueIds = transactionTemplate.execute(status -> {
+            VariantOption color = optionRepository.saveAndFlush(option("filter-color", 0));
+            VariantOption size = optionRepository.saveAndFlush(option("filter-size", 1));
+            VariantOptionValue black = valueRepository.save(value(color, "filter-black", 0));
+            VariantOptionValue white = valueRepository.save(value(color, "filter-white", 1));
+            VariantOptionValue medium = valueRepository.save(value(size, "filter-medium", 0));
+            VariantOptionValue large = valueRepository.saveAndFlush(value(size, "filter-large", 1));
+
+            Product split = productRepository.save(product("split-filter"));
+            ProductVariant blackMedium = variant(split, "SPLIT-BLACK-M", "split-black-medium");
+            blackMedium.getSelections().add(selection(blackMedium, color, black));
+            blackMedium.getSelections().add(selection(blackMedium, size, medium));
+            ProductVariant whiteLarge = variant(split, "SPLIT-WHITE-L", "split-white-large");
+            whiteLarge.getSelections().add(selection(whiteLarge, color, white));
+            whiteLarge.getSelections().add(selection(whiteLarge, size, large));
+            variantRepository.save(blackMedium);
+            variantRepository.saveAndFlush(whiteLarge);
+
+            Product repeated = productRepository.saveAndFlush(product("repeated-filter"));
+            ProductVariant repeatedBlackMedium = variant(repeated, "REPEATED-BLACK-M", "repeated-black-medium");
+            repeatedBlackMedium.getSelections().add(selection(repeatedBlackMedium, color, black));
+            repeatedBlackMedium.getSelections().add(selection(repeatedBlackMedium, size, medium));
+            ProductVariant repeatedWhiteMedium = variant(repeated, "REPEATED-WHITE-M", "repeated-white-medium");
+            repeatedWhiteMedium.getSelections().add(selection(repeatedWhiteMedium, color, white));
+            repeatedWhiteMedium.getSelections().add(selection(repeatedWhiteMedium, size, medium));
+            variantRepository.save(repeatedBlackMedium);
+            variantRepository.saveAndFlush(repeatedWhiteMedium);
+
+            Product matching = productRepository.saveAndFlush(product("matching-filter"));
+            ProductVariant blackLarge = variant(matching, "MATCH-BLACK-L", "matching-black-large");
+            blackLarge.getSelections().add(selection(blackLarge, color, black));
+            blackLarge.getSelections().add(selection(blackLarge, size, large));
+            variantRepository.saveAndFlush(blackLarge);
+            return new Long[] {color.getId(), size.getId(), black.getId(), white.getId(), medium.getId(), large.getId()
+            };
+        });
+
+        Page<Product> sameVariantResult = productRepository.findAll(
+                productSpecification.hasMatchingActiveVariant(
+                        Map.of(valueIds[0], List.of(valueIds[2]), valueIds[1], List.of(valueIds[5]))),
+                PageRequest.of(0, 10));
+        var optionFilter = productSpecification.hasMatchingActiveVariant(
+                Map.of(valueIds[0], List.of(valueIds[2], valueIds[3]), valueIds[1], List.of(valueIds[4])));
+        Page<Product> firstPage =
+                productRepository.findAll(optionFilter, PageRequest.of(0, 1, Sort.by(Sort.Direction.ASC, "id")));
+        Page<Product> secondPage =
+                productRepository.findAll(optionFilter, PageRequest.of(1, 1, Sort.by(Sort.Direction.ASC, "id")));
+
+        assertThat(sameVariantResult.getContent()).extracting(Product::getSlug).containsExactly("matching-filter");
+        assertThat(firstPage.getContent()).hasSize(1);
+        assertThat(secondPage.getContent()).hasSize(1);
+        assertThat(firstPage.getTotalElements()).isEqualTo(2);
+        assertThat(secondPage.getTotalElements()).isEqualTo(2);
+        assertThat(firstPage.hasNext()).isTrue();
+        assertThat(secondPage.hasNext()).isFalse();
+        assertThat(List.of(
+                        firstPage.getContent().get(0).getSlug(),
+                        secondPage.getContent().get(0).getSlug()))
+                .containsExactlyInAnyOrder("split-filter", "repeated-filter");
+    }
+
+    @Test
+    void filterFacet_ShouldReturnOnlyValuesFromPublishedProductsWithActiveVariants() {
+        transactionTemplate.executeWithoutResult(status -> {
+            Category category = categoryRepository.save(Category.builder()
+                    .name("Facet category")
+                    .slug("facet-category")
+                    .status(CategoryStatus.ACTIVE)
+                    .displayOrder(0)
+                    .build());
+            Brand brand = brandRepository.save(Brand.builder()
+                    .name("Facet brand")
+                    .status(BrandStatus.ACTIVE)
+                    .version(0L)
+                    .build());
+            VariantOption color = optionRepository.saveAndFlush(option("facet-color", 0));
+            VariantOptionValue black = valueRepository.save(value(color, "facet-black", 0));
+            VariantOptionValue green = valueRepository.save(value(color, "facet-green", 1));
+            VariantOptionValue white = valueRepository.saveAndFlush(value(color, "facet-white", 2));
+            VariantOption size = optionRepository.saveAndFlush(option("facet-size", 1));
+            VariantOptionValue large = valueRepository.saveAndFlush(value(size, "facet-large", 1));
+
+            Product published = productRepository.saveAndFlush(product("published-facet"));
+            published.setCategory(category);
+            published.setBrand(brand);
+            productRepository.saveAndFlush(published);
+            ProductVariant active = variant(published, "FACET-ACTIVE", "facet-active");
+            active.getSelections().add(selection(active, color, green));
+            variantRepository.saveAndFlush(active);
+            ProductVariant partiallyInactive = variant(published, "FACET-PARTIAL", "facet-partial");
+            partiallyInactive.getSelections().add(selection(partiallyInactive, color, black));
+            partiallyInactive.getSelections().add(selection(partiallyInactive, size, large));
+            variantRepository.saveAndFlush(partiallyInactive);
+            large.setStatus(VariantOptionStatus.INACTIVE);
+            valueRepository.saveAndFlush(large);
+
+            Product unpublished = product("unpublished-facet");
+            unpublished.setPublished(false);
+            unpublished.setCategory(category);
+            unpublished.setBrand(brand);
+            ProductVariant unpublishedVariant = variant(unpublished, "FACET-HIDDEN", "facet-hidden");
+            unpublishedVariant.getSelections().add(selection(unpublishedVariant, color, white));
+            productRepository.save(unpublished);
+            variantRepository.saveAndFlush(unpublishedVariant);
+        });
+
+        List<ProductVariantRepository.FilterOptionValueView> views =
+                variantRepository.findActiveFilterOptionValues(null, null);
+
+        assertThat(views)
+                .extracting(ProductVariantRepository.FilterOptionValueView::getValueCode)
+                .containsExactly("facet-green")
+                .doesNotContain("facet-black");
+    }
+
+    private static void await(CyclicBarrier barrier) {
+        try {
+            barrier.await(20, TimeUnit.SECONDS);
+        } catch (Exception exception) {
+            throw new IllegalStateException("Concurrent test participants did not rendezvous", exception);
+        }
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await(20, TimeUnit.SECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Concurrent test participant was interrupted", exception);
+        }
+    }
+
+    private static boolean getOutcome(Future<Boolean> outcome) {
+        try {
+            return outcome.get(20, TimeUnit.SECONDS);
+        } catch (Exception exception) {
+            throw new IllegalStateException("Concurrent test participant did not finish", exception);
+        }
+    }
+
+    private static VariantOption option(String code, int order) {
+        return VariantOption.builder()
+                .code(code)
+                .name(code)
+                .displayOrder(order)
+                .status(VariantOptionStatus.ACTIVE)
+                .build();
+    }
+
+    private static VariantOptionValue value(VariantOption option, String code, int order) {
+        return VariantOptionValue.builder()
+                .option(option)
+                .code(code)
+                .name(code)
+                .displayOrder(order)
+                .status(VariantOptionStatus.ACTIVE)
+                .build();
+    }
+
+    private static ProductVariantSelection selection(
+            ProductVariant variant, VariantOption option, VariantOptionValue value) {
+        return ProductVariantSelection.builder()
+                .id(new ProductVariantSelectionId(null, option.getId()))
+                .variant(variant)
+                .optionValueId(value.getId())
+                .optionValue(value)
+                .build();
+    }
+
+    private static ProductVariant variant(Product product, String sku) {
+        return variant(product, sku, "");
+    }
+
+    private static ProductVariant variant(Product product, String sku, String combinationKey) {
+        return ProductVariant.builder()
+                .product(product)
+                .sku(sku)
+                .basePrice(java.math.BigDecimal.TEN)
+                .status(ProductVariantStatus.ACTIVE)
+                .combinationKey(combinationKey)
+                .build();
+    }
+
+    private static Product product(String slug) {
+        return Product.builder().name(slug).slug(slug).published(true).build();
+    }
+}

@@ -1,0 +1,24 @@
+services:
+  mysql:
+    container_name: mysql
+    image: mysql:8.4
+#    env_file:
+#      - .env
+    environment:
+      MYSQL_USER: ${DB_USER:-xdpsx}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-xdpsxpass}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpass}
+    volumes:
+      - mysql:/var/lib/mysql
+      - ./docker/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    networks:
+      - ecommerce-network
+
+networks:
+  ecommerce-network:
+    driver: bridge
+
+volumes:
+  mysql:

@@ -1,0 +1,51 @@
+name: Change request
+description: Define one reviewable change within a milestone
+title: "[CR] "
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why is this change needed, what is the current problem, and how does it relate to the current phase?
+    validations:
+      required: true
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: What should be true when this CR is complete?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What changes belong in this CR?
+      placeholder: |
+        - ...
+        - ...
+    validations:
+      required: true
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of Scope
+      description: What is intentionally not addressed?
+      placeholder: |
+        - ...
+        - ...
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance Criteria
+      description: List only the main observable outcomes needed to consider the CR complete; avoid implementation checklists.
+      placeholder: |
+        - [ ] Main outcome...
+        - [ ] Important boundary or failure, if relevant...
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Optional constraints, references, or considerations.

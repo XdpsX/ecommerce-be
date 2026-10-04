@@ -5,23 +5,24 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>3.2.9</version>
+		<version>4.1.1</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.xdpsx</groupId>
-	<artifactId>onlineshop-api</artifactId>
+	<artifactId>ecommerce-api</artifactId>
 	<version>${revision}</version>
-	<name>onlineshop</name>
-	<description>Backend system for Online Shop</description>
+	<name>ecommerce</name>
+	<description>Backend system for Ecommerce</description>
 	<properties>
 		<revision>0.0.1-SNAPSHOT</revision>
-		<java.version>17</java.version>
-		<springdoc-openapi.version>2.5.0</springdoc-openapi.version>
-		<mapstruct.version>1.5.5.Final</mapstruct.version>
-		<cloudinary.version>1.39.0</cloudinary.version>
+		<java.version>25</java.version>
+		<springdoc-openapi.version>3.1.1</springdoc-openapi.version>
+		<mapstruct.version>1.6.3</mapstruct.version>
+		<cloudinary.version>2.4.0</cloudinary.version>
 		<lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
-		<jacoco.version>0.8.12</jacoco.version>
-		<spotless.version>2.43.0</spotless.version>
+		<jacoco.version>0.8.15</jacoco.version>
+		<spotless.version>3.10.2</spotless.version>
+		<testcontainers.version>2.0.5</testcontainers.version>
 	</properties>
 	<dependencies>
 		<!-- Spring	-->
@@ -35,15 +36,15 @@
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-web</artifactId>
+			<artifactId>spring-boot-starter-webmvc</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-oauth2-client</artifactId>
+			<artifactId>spring-boot-starter-security-oauth2-client</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+			<artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springdoc</groupId>
@@ -60,8 +61,8 @@
 
 		<!-- Liquibase -->
 		<dependency>
-			<groupId>org.liquibase</groupId>
-			<artifactId>liquibase-core</artifactId>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-liquibase</artifactId>
 		</dependency>
 
 		<!-- Lombok	-->
@@ -77,39 +78,46 @@
 			<artifactId>mapstruct</artifactId>
 			<version>${mapstruct.version}</version>
 		</dependency>
-		<dependency>
-			<groupId>org.mapstruct</groupId>
-			<artifactId>mapstruct-processor</artifactId>
-			<version>${mapstruct.version}</version>
-		</dependency>
 
 		<!-- Cloudinary	-->
 		<dependency>
 			<groupId>com.cloudinary</groupId>
-			<artifactId>cloudinary-core</artifactId>
+			<artifactId>cloudinary-http5</artifactId>
 			<version>${cloudinary.version}</version>
-		</dependency>
-		<dependency>
-			<groupId>com.cloudinary</groupId>
-			<artifactId>cloudinary-http45</artifactId>
-			<version>${cloudinary.version}</version>
-			<exclusions>
-				<exclusion>
-					<groupId>commons-logging</groupId>
-					<artifactId>commons-logging</artifactId>
-				</exclusion>
-			</exclusions>
 		</dependency>
 
 		<!-- Testing -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-test</artifactId>
+			<artifactId>spring-boot-starter-webmvc-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<!-- Needed to assert the admin authorization boundary with @WithMockUser. -->
 		<dependency>
 			<groupId>org.springframework.security</groupId>
 			<artifactId>spring-security-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!--
+			Lets the Category specification tests execute real Hibernate queries. Comparing an association to a
+			raw value only fails once the query is built by Hibernate, which a mocked Criteria API cannot detect.
+		-->
+		<dependency>
+			<groupId>com.h2database</groupId>
+			<artifactId>h2</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- Executes the MySQL-specific Category migration in an isolated, disposable database. -->
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-mysql</artifactId>
+			<version>${testcontainers.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-junit-jupiter</artifactId>
+			<version>${testcontainers.version}</version>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>
@@ -133,8 +141,7 @@
 				<artifactId>maven-compiler-plugin</artifactId>
 				<version>${maven-compiler-plugin.version}</version>
 				<configuration>
-					<source>${java.version}</source>
-					<target>${java.version}</target>
+					<release>${java.version}</release>
 					<annotationProcessorPaths>
 						<path>
 							<groupId>org.projectlombok</groupId>
@@ -177,18 +184,46 @@
 							<goal>report</goal>
 						</goals>
 					</execution>
+					<execution>
+						<id>coverage-check</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>check</goal>
+						</goals>
+						<configuration>
+							<rules>
+								<rule>
+									<element>BUNDLE</element>
+									<limits>
+										<limit>
+											<counter>LINE</counter>
+											<value>COVEREDRATIO</value>
+											<minimum>0.10</minimum>
+										</limit>
+									</limits>
+								</rule>
+							</rules>
+						</configuration>
+					</execution>
 				</executions>
 				<configuration>
 					<includes>
-						<include>com/xdpsx/onlineshop/controllers/**</include>
-						<include>com/xdpsx/onlineshop/services/impl/**</include>
-						<include>com/xdpsx/onlineshop/repositories/specs/**</include>
-						<include>com/xdpsx/onlineshop/validations/validators/**</include>
-						<include>com/xdpsx/onlineshop/utils/**</include>
-						<include>com/xdpsx/onlineshop/scheduled/**</include>
+						<include>com/xdpsx/ecommerce/**/*Controller*</include>
+						<include>com/xdpsx/ecommerce/**/*ServiceImpl*</include>
+						<include>com/xdpsx/ecommerce/**/AbstractImageUpdatableService*</include>
+						<include>com/xdpsx/ecommerce/**/CryptoService*</include>
+						<include>com/xdpsx/ecommerce/**/VNPayIpnHandler*</include>
+						<include>com/xdpsx/ecommerce/**/VNPayService*</include>
+						<include>com/xdpsx/ecommerce/**/*Specification*</include>
+						<include>com/xdpsx/ecommerce/**/FileTypeValidator*</include>
+						<include>com/xdpsx/ecommerce/**/CloudinaryUploader*</include>
+						<include>com/xdpsx/ecommerce/**/DateUtil*</include>
+						<include>com/xdpsx/ecommerce/**/EncodingUtil*</include>
+						<include>com/xdpsx/ecommerce/**/RequestUtil*</include>
+						<include>com/xdpsx/ecommerce/**/MediaCleanUpScheduler*</include>
 					</includes>
 					<excludes>
-						<exclude>com/xdpsx/onlineshop/controllers/docs/**</exclude>
+						<exclude>com/xdpsx/ecommerce/**/*ControllerApi*</exclude>
 					</excludes>
 				</configuration>
 			</plugin>
@@ -199,28 +234,17 @@
 				<configuration>
 					<java>
 						<removeUnusedImports />
-						<toggleOffOn/>
-						<trimTrailingWhitespace/>
-						<endWithNewline/>
-						<indent>
-							<tabs>true</tabs>
-							<spacesPerTab>4</spacesPerTab>
-						</indent>
-						<palantirJavaFormat/>
+						<toggleOffOn />
+						<trimTrailingWhitespace />
+						<endWithNewline />
+
+						<palantirJavaFormat />
+
 						<importOrder>
-							<!-- Specify either order or file, but not both -->
 							<order>java,jakarta,org,com,com.diffplug,</order>
 						</importOrder>
 					</java>
 				</configuration>
-				<executions>
-					<execution>
-						<phase>compile</phase>
-						<goals>
-							<goal>apply</goal>
-						</goals>
-					</execution>
-				</executions>
 			</plugin>
 		</plugins>
 	</build>

@@ -1,12 +1,48 @@
 server:
-  port: 8080
+  port: ${SERVER_PORT:8080}
 #  compression: # Using GZIP to compress API data
 #    enabled: true
 #    mime-types: application/json
 
 spring:
   application:
-    name: onlineshop
+    name: ecommerce
+  config:
+    import: optional:file:.env[.properties]
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
 
+logging:
+  pattern:
+    # Renders the MDC value published by CorrelationIdFilter; empty when no request context is bound.
+    correlation: "[correlationId=%X{correlationId:-}] "
+
+app:
+  store:
+    currency: ${APP_STORE_CURRENCY:VND}
+  auth-session:
+    expected-issuer: ${APP_AUTH_EXPECTED_ISSUER:xdpsx.com}
+    local-access-token-lifetime: ${APP_LOCAL_ACCESS_TOKEN_LIFETIME:15m}
+    refresh-session-lifetime: ${APP_REFRESH_SESSION_LIFETIME:30d}
+    refresh-cookie-name: ${APP_REFRESH_COOKIE_NAME:refresh_session}
+    refresh-cookie-path: ${APP_REFRESH_COOKIE_PATH:/auth}
+    refresh-cookie-secure: ${APP_REFRESH_COOKIE_SECURE:true}
+    refresh-cookie-same-site: ${APP_REFRESH_COOKIE_SAME_SITE:Strict}
+    guard-header-name: ${APP_SESSION_REQUEST_HEADER:X-Session-Request}
+    guard-header-value: ${APP_SESSION_REQUEST_HEADER_VALUE:1}
+  cart:
+    guest-lifetime: ${APP_CART_GUEST_LIFETIME:30d}
+    guest-cookie-name: ${APP_CART_GUEST_COOKIE_NAME:guest_cart}
+    guest-cookie-path: ${APP_CART_GUEST_COOKIE_PATH:/cart}
+    guest-cookie-secure: ${APP_CART_GUEST_COOKIE_SECURE:true}
+    guest-cookie-same-site: ${APP_CART_GUEST_COOKIE_SAME_SITE:Lax}
+    guard-header-name: ${APP_CART_REQUEST_HEADER:X-Cart-Request}
+    guard-header-value: ${APP_CART_REQUEST_HEADER_VALUE:1}
+    cleanup-batch-size: ${APP_CART_CLEANUP_BATCH_SIZE:100}
+    cleanup-fixed-delay-ms: ${APP_CART_CLEANUP_FIXED_DELAY_MS:3600000}
+  checkout:
+    reservation-lifetime: ${APP_CHECKOUT_RESERVATION_LIFETIME:15m}
+    cleanup-batch-size: ${APP_CHECKOUT_CLEANUP_BATCH_SIZE:100}
+    cleanup-fixed-delay-ms: ${APP_CHECKOUT_CLEANUP_FIXED_DELAY_MS:60000}
+  payment-attempt:
+    lifetime: ${APP_PAYMENT_ATTEMPT_LIFETIME:15m}
