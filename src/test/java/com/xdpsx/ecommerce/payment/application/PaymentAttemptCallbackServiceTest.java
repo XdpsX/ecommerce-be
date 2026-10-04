@@ -1,7 +1,7 @@
 package com.xdpsx.ecommerce.payment.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -17,7 +18,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import com.xdpsx.ecommerce.order.application.OrderService;
+import com.xdpsx.ecommerce.catalog.product.domain.ProductVariant;
+import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.inventory.domain.InventoryBalance;
+import com.xdpsx.ecommerce.inventory.persistence.InventoryBalanceRepository;
 import com.xdpsx.ecommerce.order.application.PaymentCallbackResult;
 import com.xdpsx.ecommerce.order.domain.Order;
 import com.xdpsx.ecommerce.order.domain.OrderStatus;
@@ -27,6 +31,7 @@ import com.xdpsx.ecommerce.payment.domain.PaymentAttempt;
 import com.xdpsx.ecommerce.payment.domain.PaymentAttemptStatus;
 import com.xdpsx.ecommerce.payment.domain.PaymentStatus;
 import com.xdpsx.ecommerce.payment.persistence.PaymentAttemptRepository;
+import com.xdpsx.ecommerce.payment.persistence.PaymentRepository;
 
 @ExtendWith(MockitoExtension.class)
 class PaymentAttemptCallbackServiceTest {
@@ -39,23 +44,41 @@ class PaymentAttemptCallbackServiceTest {
     private OrderRepository orderRepository;
 
     @Mock
-    private OrderService orderService;
+    private PaymentRepository paymentRepository;
+
+    @Mock
+    private InventoryBalanceRepository inventoryBalanceRepository;
 
     private PaymentAttemptCallbackService service;
     private PaymentAttempt attempt;
     private Order order;
+    private Payment payment;
 
     @BeforeEach
     void setUp() {
         service = new PaymentAttemptCallbackService(
-                paymentAttemptRepository, orderRepository, orderService, Clock.fixed(NOW, ZoneOffset.UTC));
-        order = Order.builder().id(42L).status(OrderStatus.PENDING_PAYMENT).build();
-        Payment payment = Payment.builder()
+                paymentAttemptRepository,
+                orderRepository,
+                paymentRepository,
+                inventoryBalanceRepository,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        order = Order.builder()
+                .id(42L)
+                .status(OrderStatus.PENDING_PAYMENT)
+                .totalAmount(new BigDecimal("100.00"))
+                .build();
+        payment = Payment.builder()
                 .id(5L)
                 .order(order)
                 .status(PaymentStatus.PENDING)
                 .build();
         order.setPayment(payment);
+        order.getItems()
+                .add(com.xdpsx.ecommerce.order.domain.OrderItem.builder()
+                        .order(order)
+                        .variantId(101L)
+                        .quantity(1)
+                        .build());
         attempt = PaymentAttempt.builder()
                 .id(7L)
                 .payment(payment)
@@ -80,16 +103,24 @@ class PaymentAttemptCallbackServiceTest {
         assertThat(result).isEqualTo(PaymentCallbackResult.CONFIRMED);
         assertThat(attempt.getStatus()).isEqualTo(PaymentAttemptStatus.FAILED);
         assertThat(attempt.getResponseCode()).isEqualTo("24");
-        verify(orderService, org.mockito.Mockito.never())
-                .processPaymentCallback(
-                        org.mockito.ArgumentMatchers.anyLong(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+        verify(inventoryBalanceRepository, org.mockito.Mockito.never())
+                .findAllByVariantIdsForUpdate(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
     void process_ShouldConfirmOrderAndPersistExactAttemptOnSuccess() {
-        when(orderService.processPaymentCallback(42L, new BigDecimal("100.00"), true))
-                .thenReturn(PaymentCallbackResult.CONFIRMED);
-
+        stubSuccessfulCallback();
+        PaymentAttempt otherAttempt = PaymentAttempt.builder()
+                .id(8L)
+                .payment(payment)
+                .providerReference("other-attempt")
+                .status(PaymentAttemptStatus.PENDING)
+                .expectedAmount(new BigDecimal("100.00"))
+                .currency("VND")
+                .createdAt(NOW)
+                .expiresAt(NOW.plusSeconds(600))
+                .build();
+        when(paymentAttemptRepository.findPendingByPaymentIdForUpdate(5L)).thenReturn(List.of(otherAttempt));
         PaymentCallbackResult result =
                 service.process("attempt-uuid", new BigDecimal("100.00"), true, "provider-transaction", "00");
 
@@ -97,23 +128,40 @@ class PaymentAttemptCallbackServiceTest {
         assertThat(attempt.getStatus()).isEqualTo(PaymentAttemptStatus.SUCCEEDED);
         assertThat(attempt.getProviderTransactionId()).isEqualTo("provider-transaction");
         assertThat(attempt.getCompletedAt()).isEqualTo(NOW);
-        verify(orderService).processPaymentCallback(42L, new BigDecimal("100.00"), true);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PAID);
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CONFIRMED);
+        assertThat(otherAttempt.getStatus()).isEqualTo(PaymentAttemptStatus.EXPIRED);
+        verify(paymentRepository).save(payment);
         verify(paymentAttemptRepository).save(attempt);
     }
 
     @Test
-    void process_ShouldReconcileSuccessAfterFailureWhileOrderRemainsPending() {
-        service.process("attempt-uuid", new BigDecimal("100.00"), false, null, "24");
-        when(orderService.processPaymentCallback(42L, new BigDecimal("100.00"), true))
-                .thenReturn(PaymentCallbackResult.CONFIRMED);
+    void process_ShouldRollbackWhenInventoryBalanceIsMissing() {
+        when(inventoryBalanceRepository.findAllByVariantIdsForUpdate(List.of(101L)))
+                .thenReturn(List.of());
 
+        assertThatThrownBy(() ->
+                        service.process("attempt-uuid", new BigDecimal("100.00"), true, "provider-transaction", "00"))
+                .isInstanceOf(ApplicationException.class)
+                .extracting(exception -> ((ApplicationException) exception).getCode())
+                .isEqualTo(com.xdpsx.ecommerce.common.error.ErrorCode.INTERNAL_ERROR);
+
+        assertThat(attempt.getStatus()).isEqualTo(PaymentAttemptStatus.PENDING);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+    }
+
+    @Test
+    void process_ShouldReconcileSuccessAfterFailureWhileOrderRemainsPending() {
+        stubSuccessfulCallback();
+        service.process("attempt-uuid", new BigDecimal("100.00"), false, null, "24");
         PaymentCallbackResult result =
                 service.process("attempt-uuid", new BigDecimal("100.00"), true, "late-provider-transaction", "00");
 
         assertThat(result).isEqualTo(PaymentCallbackResult.CONFIRMED);
         assertThat(attempt.getStatus()).isEqualTo(PaymentAttemptStatus.SUCCEEDED);
         assertThat(attempt.getProviderTransactionId()).isEqualTo("late-provider-transaction");
-        verify(orderService).processPaymentCallback(42L, new BigDecimal("100.00"), true);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PAID);
     }
 
     @Test
@@ -125,30 +173,31 @@ class PaymentAttemptCallbackServiceTest {
         assertThat(result).isEqualTo(PaymentCallbackResult.CONFIRMED);
         assertThat(attempt.getStatus()).isEqualTo(PaymentAttemptStatus.FAILED);
         assertThat(attempt.getResponseCode()).isEqualTo("24");
-        verify(orderService, org.mockito.Mockito.never())
-                .processPaymentCallback(
-                        org.mockito.ArgumentMatchers.anyLong(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+        verify(inventoryBalanceRepository, org.mockito.Mockito.never())
+                .findAllByVariantIdsForUpdate(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
     void process_ShouldReconcileSuccessAfterExpiryWhileOrderRemainsPending() {
+        stubSuccessfulCallback();
         attempt.markExpired(NOW);
-        when(orderService.processPaymentCallback(42L, new BigDecimal("100.00"), true))
-                .thenReturn(PaymentCallbackResult.CONFIRMED);
-
         PaymentCallbackResult result =
                 service.process("attempt-uuid", new BigDecimal("100.00"), true, "late-provider-transaction", "00");
 
         assertThat(result).isEqualTo(PaymentCallbackResult.CONFIRMED);
         assertThat(attempt.getStatus()).isEqualTo(PaymentAttemptStatus.SUCCEEDED);
         assertThat(attempt.getProviderTransactionId()).isEqualTo("late-provider-transaction");
-        verify(orderService).processPaymentCallback(42L, new BigDecimal("100.00"), true);
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CONFIRMED);
     }
 
     @Test
     void process_ShouldRecordSuccessAfterExpiryWithoutReopeningTerminalOrder() {
         attempt.markExpired(NOW);
-        order = Order.builder().id(42L).status(OrderStatus.PAYMENT_EXPIRED).build();
+        order = Order.builder()
+                .id(42L)
+                .status(OrderStatus.PAYMENT_EXPIRED)
+                .totalAmount(new BigDecimal("100.00"))
+                .build();
         Payment payment = Payment.builder()
                 .id(5L)
                 .order(order)
@@ -178,8 +227,21 @@ class PaymentAttemptCallbackServiceTest {
         assertThat(result).isEqualTo(PaymentCallbackResult.PROVIDER_SUCCESS_RECORDED);
         assertThat(attempt.getStatus()).isEqualTo(PaymentAttemptStatus.SUCCEEDED);
         assertThat(attempt.getProviderTransactionId()).isEqualTo("late-provider-transaction");
-        verify(orderService, org.mockito.Mockito.never())
-                .processPaymentCallback(
-                        org.mockito.ArgumentMatchers.anyLong(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+        verify(inventoryBalanceRepository, org.mockito.Mockito.never())
+                .findAllByVariantIdsForUpdate(org.mockito.ArgumentMatchers.any());
+    }
+
+    private static InventoryBalance balance(long reserved) {
+        InventoryBalance balance =
+                InventoryBalance.zero(ProductVariant.builder().id(101L).build());
+        balance.adjustOnHand(reserved);
+        balance.reserve(reserved);
+        return balance;
+    }
+
+    private void stubSuccessfulCallback() {
+        when(inventoryBalanceRepository.findAllByVariantIdsForUpdate(List.of(101L)))
+                .thenReturn(List.of(balance(1)));
+        when(paymentAttemptRepository.findPendingByPaymentIdForUpdate(5L)).thenReturn(List.of());
     }
 }

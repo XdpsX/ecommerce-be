@@ -19,7 +19,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
-import com.xdpsx.ecommerce.order.application.OrderService;
 import com.xdpsx.ecommerce.order.application.PaymentCallbackResult;
 import com.xdpsx.ecommerce.payment.api.dto.VNPayIpnResponse;
 import com.xdpsx.ecommerce.payment.application.PaymentAttemptCallbackService;
@@ -30,40 +29,28 @@ class VNPayIpnHandlerTest {
     private VNPayService vnPayService;
 
     @Mock
-    private OrderService orderService;
-
-    @Mock
     private PaymentAttemptCallbackService paymentAttemptCallbackService;
 
     @InjectMocks
     private VNPayIpnHandler handler;
 
     @Test
-    void process_ShouldApplySignedSuccessfulCallbackWithoutHttpIdentity() {
-        Map<String, String> params = callback("42", "10000", "00", "00");
-        when(vnPayService.verifyIpn(params)).thenReturn(true);
-        when(orderService.processPaymentCallback(eq(42L), org.mockito.ArgumentMatchers.any(), eq(true)))
-                .thenReturn(PaymentCallbackResult.CONFIRMED);
-
-        assertEquals(new VNPayIpnResponse("00", "Confirm Success"), handler.process(params));
-
-        verify(orderService)
-                .processPaymentCallback(
-                        eq(42L), argThat(amount -> amount.compareTo(new BigDecimal("100.00")) == 0), eq(true));
-    }
-
-    @Test
     void process_ShouldKeepPaymentUnpaidForSignedFailedProviderResult() {
-        Map<String, String> params = callback("42", "10000", "24", "02");
+        Map<String, String> params = callback("attempt-uuid", "10000", "24", "02");
         when(vnPayService.verifyIpn(params)).thenReturn(true);
-        when(orderService.processPaymentCallback(eq(42L), org.mockito.ArgumentMatchers.any(), eq(false)))
+        when(paymentAttemptCallbackService.process(
+                        eq("attempt-uuid"), org.mockito.ArgumentMatchers.any(), eq(false), eq(null), eq("24")))
                 .thenReturn(PaymentCallbackResult.CONFIRMED);
 
         assertEquals(new VNPayIpnResponse("00", "Confirm Success"), handler.process(params));
 
-        verify(orderService)
-                .processPaymentCallback(
-                        eq(42L), argThat(amount -> amount.compareTo(new BigDecimal("100.00")) == 0), eq(false));
+        verify(paymentAttemptCallbackService)
+                .process(
+                        eq("attempt-uuid"),
+                        argThat(amount -> amount.compareTo(new BigDecimal("100.00")) == 0),
+                        eq(false),
+                        eq(null),
+                        eq("24"));
     }
 
     @Test
@@ -73,19 +60,22 @@ class VNPayIpnHandlerTest {
 
         assertEquals(new VNPayIpnResponse("97", "Invalid signature"), handler.process(params));
 
-        verify(orderService, never())
-                .processPaymentCallback(
-                        org.mockito.ArgumentMatchers.anyLong(),
+        verify(paymentAttemptCallbackService, never())
+                .process(
                         org.mockito.ArgumentMatchers.any(),
-                        org.mockito.ArgumentMatchers.anyBoolean());
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.anyBoolean(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any());
     }
 
     @Test
-    void process_ShouldRejectMalformedOrderReference() {
-        Map<String, String> params = callback("not-an-order", "10000", "00", "00");
+    void process_ShouldRejectUnknownAttemptReference() {
+        Map<String, String> params = callback("not-an-attempt", "10000", "00", "00");
+        params.put(VNPayParams.TRANSACTION_NO, "provider-transaction");
         when(vnPayService.verifyIpn(params)).thenReturn(true);
         when(paymentAttemptCallbackService.process(
-                        eq("not-an-order"),
+                        eq("not-an-attempt"),
                         org.mockito.ArgumentMatchers.any(),
                         eq(true),
                         org.mockito.ArgumentMatchers.any(),
@@ -93,12 +83,6 @@ class VNPayIpnHandlerTest {
                 .thenThrow(new ApplicationException(ErrorCode.RESOURCE_NOT_FOUND));
 
         assertEquals(new VNPayIpnResponse("01", "Order not found"), handler.process(params));
-
-        verify(orderService, never())
-                .processPaymentCallback(
-                        org.mockito.ArgumentMatchers.anyLong(),
-                        org.mockito.ArgumentMatchers.any(),
-                        org.mockito.ArgumentMatchers.anyBoolean());
     }
 
     @Test
@@ -123,29 +107,89 @@ class VNPayIpnHandlerTest {
                         eq(true),
                         eq("provider-transaction"),
                         eq("00"));
-        verify(orderService, never())
-                .processPaymentCallback(
-                        org.mockito.ArgumentMatchers.anyLong(),
-                        org.mockito.ArgumentMatchers.any(),
-                        org.mockito.ArgumentMatchers.anyBoolean());
     }
 
     @Test
     void process_ShouldMapOrderValidationResultsToVnPayCodes() {
-        Map<String, String> params = callback("42", "10000", "00", "00");
+        Map<String, String> params = callback("attempt-uuid", "10000", "00", "00");
+        params.put(VNPayParams.TRANSACTION_NO, "provider-transaction");
         when(vnPayService.verifyIpn(params)).thenReturn(true);
-        when(orderService.processPaymentCallback(eq(42L), org.mockito.ArgumentMatchers.any(), eq(true)))
+        when(paymentAttemptCallbackService.process(
+                        eq("attempt-uuid"),
+                        org.mockito.ArgumentMatchers.any(),
+                        eq(true),
+                        eq("provider-transaction"),
+                        eq("00")))
                 .thenThrow(new ApplicationException(ErrorCode.RESOURCE_NOT_FOUND));
 
         assertEquals(new VNPayIpnResponse("01", "Order not found"), handler.process(params));
 
-        when(orderService.processPaymentCallback(eq(42L), org.mockito.ArgumentMatchers.any(), eq(true)))
-                .thenThrow(new ApplicationException(ErrorCode.MALFORMED_REQUEST));
+        when(paymentAttemptCallbackService.process(
+                        eq("attempt-uuid"),
+                        org.mockito.ArgumentMatchers.any(),
+                        eq(true),
+                        eq("provider-transaction"),
+                        eq("00")))
+                .thenThrow(new ApplicationException(ErrorCode.MALFORMED_REQUEST, Map.of("reason", "amountMismatch")));
         assertEquals(new VNPayIpnResponse("04", "invalid amount"), handler.process(params));
 
-        when(orderService.processPaymentCallback(eq(42L), org.mockito.ArgumentMatchers.any(), eq(true)))
+        when(paymentAttemptCallbackService.process(
+                        eq("attempt-uuid"),
+                        org.mockito.ArgumentMatchers.any(),
+                        eq(true),
+                        eq("provider-transaction"),
+                        eq("00")))
                 .thenReturn(PaymentCallbackResult.ALREADY_CONFIRMED);
         assertEquals(new VNPayIpnResponse("02", "Order already confirmed"), handler.process(params));
+    }
+
+    @Test
+    void process_ShouldRejectSuccessfulCallbackWithoutProviderTransaction() {
+        Map<String, String> params = callback("attempt-uuid", "10000", "00", "00");
+        when(vnPayService.verifyIpn(params)).thenReturn(true);
+
+        assertEquals(new VNPayIpnResponse("99", "Invalid request"), handler.process(params));
+
+        verify(paymentAttemptCallbackService, never())
+                .process(
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.anyBoolean(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void process_ShouldMapMalformedProviderAmountToInvalidAmount() {
+        Map<String, String> params = callback("attempt-uuid", "not-a-number", "00", "00");
+        when(vnPayService.verifyIpn(params)).thenReturn(true);
+
+        assertEquals(new VNPayIpnResponse("04", "invalid amount"), handler.process(params));
+
+        verify(paymentAttemptCallbackService, never())
+                .process(
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.anyBoolean(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void process_ShouldMapInternalCallbackFailureToUnknownError() {
+        Map<String, String> params = callback("attempt-uuid", "10000", "00", "00");
+        params.put(VNPayParams.TRANSACTION_NO, "provider-transaction");
+        when(vnPayService.verifyIpn(params)).thenReturn(true);
+        when(paymentAttemptCallbackService.process(
+                        eq("attempt-uuid"),
+                        org.mockito.ArgumentMatchers.any(),
+                        eq(true),
+                        eq("provider-transaction"),
+                        eq("00")))
+                .thenThrow(new ApplicationException(
+                        ErrorCode.INTERNAL_ERROR, Map.of("reason", "missingInventoryBalance")));
+
+        assertEquals(new VNPayIpnResponse("99", "Unknow error"), handler.process(params));
     }
 
     private static Map<String, String> callback(String txnRef, String amount, String responseCode, String status) {

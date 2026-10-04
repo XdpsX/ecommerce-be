@@ -30,8 +30,10 @@ import com.xdpsx.ecommerce.order.domain.OrderStatus;
 import com.xdpsx.ecommerce.order.domain.ShippingAddressSnapshot;
 import com.xdpsx.ecommerce.order.persistence.OrderRepository;
 import com.xdpsx.ecommerce.payment.domain.Payment;
-import com.xdpsx.ecommerce.payment.domain.PaymentMethod;
+import com.xdpsx.ecommerce.payment.domain.PaymentAttempt;
+import com.xdpsx.ecommerce.payment.domain.PaymentAttemptStatus;
 import com.xdpsx.ecommerce.payment.domain.PaymentStatus;
+import com.xdpsx.ecommerce.payment.persistence.PaymentAttemptRepository;
 import com.xdpsx.ecommerce.payment.persistence.PaymentRepository;
 import com.xdpsx.ecommerce.user.persistence.UserRepository;
 
@@ -52,76 +54,11 @@ class OrderServiceImplTest {
     @Mock
     private InventoryBalanceRepository inventoryBalanceRepository;
 
+    @Mock
+    private PaymentAttemptRepository paymentAttemptRepository;
+
     @InjectMocks
     private OrderServiceImpl orderService;
-
-    @Test
-    void processPaymentCallback_ShouldMarkUnpaidOrderPaidAfterAmountAndStatusValidation() {
-        Order order = order(BigDecimal.TEN, PaymentStatus.PENDING);
-        InventoryBalance balance = balance(1);
-        when(orderRepository.findByIdForUpdate(42L)).thenReturn(java.util.Optional.of(order));
-        when(inventoryBalanceRepository.findAllByVariantIdsForUpdate(List.of(101L)))
-                .thenReturn(List.of(balance));
-
-        orderService.processPaymentCallback(42L, new BigDecimal("10.00"), true);
-
-        assertEquals(PaymentStatus.PAID, order.getPayment().getStatus());
-        assertEquals(PaymentMethod.VNPAY, order.getPayment().getPaymentMethod());
-        assertEquals(OrderStatus.CONFIRMED, order.getStatus());
-        assertEquals(0, balance.getReserved());
-        assertEquals(0, balance.getOnHand());
-        verify(paymentRepository).save(order.getPayment());
-    }
-
-    @Test
-    void processPaymentCallback_ShouldBeIdempotentForAlreadyPaidOrder() {
-        Order order = order(BigDecimal.TEN, PaymentStatus.PAID);
-        when(orderRepository.findByIdForUpdate(42L)).thenReturn(java.util.Optional.of(order));
-
-        orderService.processPaymentCallback(42L, BigDecimal.TEN, true);
-
-        verify(paymentRepository, never()).save(order.getPayment());
-        verify(inventoryBalanceRepository, never()).findAllByVariantIdsForUpdate(org.mockito.ArgumentMatchers.any());
-    }
-
-    @Test
-    void processPaymentCallback_ShouldRejectAmountMismatchWithoutChangingPayment() {
-        Order order = order(BigDecimal.TEN, PaymentStatus.PENDING);
-        when(orderRepository.findByIdForUpdate(42L)).thenReturn(java.util.Optional.of(order));
-
-        assertThrows(
-                ApplicationException.class,
-                () -> orderService.processPaymentCallback(42L, new BigDecimal("11.00"), true));
-
-        assertEquals(PaymentStatus.PENDING, order.getPayment().getStatus());
-        verify(paymentRepository, never()).save(order.getPayment());
-    }
-
-    @Test
-    void processPaymentCallback_ShouldLeavePendingOrderUnchangedForSignedFailure() {
-        Order order = order(BigDecimal.TEN, PaymentStatus.PENDING);
-        when(orderRepository.findByIdForUpdate(42L)).thenReturn(java.util.Optional.of(order));
-
-        orderService.processPaymentCallback(42L, BigDecimal.TEN, false);
-
-        assertEquals(PaymentStatus.PENDING, order.getPayment().getStatus());
-        assertEquals(OrderStatus.PENDING_PAYMENT, order.getStatus());
-        verify(inventoryBalanceRepository, never()).findAllByVariantIdsForUpdate(org.mockito.ArgumentMatchers.any());
-    }
-
-    @Test
-    void processPaymentCallback_ShouldRejectWhenReservationIsMissing() {
-        Order order = order(BigDecimal.TEN, PaymentStatus.PENDING);
-        when(orderRepository.findByIdForUpdate(42L)).thenReturn(java.util.Optional.of(order));
-        when(inventoryBalanceRepository.findAllByVariantIdsForUpdate(List.of(101L)))
-                .thenReturn(List.of());
-
-        assertThrows(ApplicationException.class, () -> orderService.processPaymentCallback(42L, BigDecimal.TEN, true));
-
-        assertEquals(PaymentStatus.PENDING, order.getPayment().getStatus());
-        assertEquals(OrderStatus.PENDING_PAYMENT, order.getStatus());
-        verify(paymentRepository, never()).save(order.getPayment());
-    }
 
     @Test
     void expirePendingOrder_ShouldReleaseReservationAndMarkOrderExpired() {
@@ -131,10 +68,22 @@ class OrderServiceImplTest {
         when(orderRepository.findByIdForUpdate(42L)).thenReturn(java.util.Optional.of(order));
         when(inventoryBalanceRepository.findAllByVariantIdsForUpdate(List.of(101L)))
                 .thenReturn(List.of(balance));
+        PaymentAttempt attempt = PaymentAttempt.builder()
+                .payment(order.getPayment())
+                .providerReference("attempt")
+                .status(PaymentAttemptStatus.PENDING)
+                .expectedAmount(BigDecimal.TEN)
+                .currency("VND")
+                .createdAt(Instant.parse("2026-01-01T00:00:00Z"))
+                .expiresAt(Instant.parse("2026-01-01T00:15:00Z"))
+                .build();
+        when(paymentAttemptRepository.findPendingByPaymentIdForUpdate(null)).thenReturn(List.of(attempt));
 
         assertEquals(true, orderService.expirePendingOrder(42L, Instant.parse("2026-01-01T00:00:01Z")));
 
         assertEquals(OrderStatus.PAYMENT_EXPIRED, order.getStatus());
+        assertEquals(PaymentStatus.EXPIRED, order.getPayment().getStatus());
+        assertEquals(PaymentAttemptStatus.EXPIRED, attempt.getStatus());
         assertEquals(0, balance.getReserved());
         assertEquals(1, balance.getOnHand());
     }
@@ -238,8 +187,8 @@ class OrderServiceImplTest {
     }
 
     private static InventoryBalance balance(long reserved) {
-        ProductVariant variant = ProductVariant.builder().id(101L).build();
-        InventoryBalance balance = InventoryBalance.zero(variant);
+        InventoryBalance balance =
+                InventoryBalance.zero(ProductVariant.builder().id(101L).build());
         balance.adjustOnHand(reserved);
         balance.reserve(reserved);
         return balance;

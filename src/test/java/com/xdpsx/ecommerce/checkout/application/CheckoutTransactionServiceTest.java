@@ -148,8 +148,7 @@ class CheckoutTransactionServiceTest {
                 .status(OrderStatus.PENDING_PAYMENT)
                 .build();
         existing.setCheckoutRequestHash(CheckoutIdempotency.requestHash(request));
-        when(userRepository.findByEmail(user.getEmail())).thenReturn(Optional.of(user));
-        when(userRepository.findByIdForUpdate(user.getId())).thenReturn(Optional.of(user));
+        when(userRepository.findByEmailForUpdate(user.getEmail())).thenReturn(Optional.of(user));
         when(orderRepository.findByUserIdAndIdempotencyKeyHash(user.getId(), CheckoutIdempotency.keyHash("key-1")))
                 .thenReturn(Optional.of(existing));
 
@@ -196,8 +195,7 @@ class CheckoutTransactionServiceTest {
             CartItem item,
             ProductVariant variant,
             InventoryBalance balance) {
-        when(userRepository.findByEmail(user.getEmail())).thenReturn(Optional.of(user));
-        when(userRepository.findByIdForUpdate(user.getId())).thenReturn(Optional.of(user));
+        when(userRepository.findByEmailForUpdate(user.getEmail())).thenReturn(Optional.of(user));
         when(orderRepository.findByUserIdAndIdempotencyKeyHash(any(), any())).thenReturn(Optional.empty());
         when(userAddressRepository.findByIdAndUserId(10L, user.getId())).thenReturn(Optional.of(address));
         when(cartRepository.findByUserIdForUpdate(user.getId())).thenReturn(Optional.of(cart));

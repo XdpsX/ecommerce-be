@@ -4,10 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CyclicBarrier;
@@ -57,6 +61,7 @@ import com.xdpsx.ecommerce.checkout.api.dto.CheckoutRequest;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.config.CheckoutProperties;
+import com.xdpsx.ecommerce.config.PaymentAttemptProperties;
 import com.xdpsx.ecommerce.config.StorePricingProperties;
 import com.xdpsx.ecommerce.inventory.domain.InventoryBalance;
 import com.xdpsx.ecommerce.inventory.persistence.InventoryBalanceRepository;
@@ -64,7 +69,11 @@ import com.xdpsx.ecommerce.order.application.OrderMapper;
 import com.xdpsx.ecommerce.order.application.OrderService;
 import com.xdpsx.ecommerce.order.domain.OrderStatus;
 import com.xdpsx.ecommerce.order.persistence.OrderRepository;
+import com.xdpsx.ecommerce.payment.application.PaymentAttemptCallbackService;
+import com.xdpsx.ecommerce.payment.application.PaymentAttemptPreparationService;
+import com.xdpsx.ecommerce.payment.application.PreparedPaymentAttempt;
 import com.xdpsx.ecommerce.payment.domain.PaymentStatus;
+import com.xdpsx.ecommerce.payment.persistence.PaymentAttemptRepository;
 import com.xdpsx.ecommerce.payment.persistence.PaymentRepository;
 import com.xdpsx.ecommerce.testsupport.MySqlTestContainerFactory;
 import com.xdpsx.ecommerce.user.domain.AuthProvider;
@@ -87,6 +96,12 @@ class CheckoutConcurrencyTest {
 
     @org.springframework.beans.factory.annotation.Autowired
     private OrderService orderService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private PaymentAttemptPreparationService paymentAttemptPreparationService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private PaymentAttemptCallbackService paymentAttemptCallbackService;
 
     @org.springframework.beans.factory.annotation.Autowired
     private UserRepository userRepository;
@@ -121,10 +136,14 @@ class CheckoutConcurrencyTest {
     @org.springframework.beans.factory.annotation.Autowired
     private BrandRepository brandRepository;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private DataSource dataSource;
+
     private ExecutorService executor;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
+        clearDatabase();
         executor = Executors.newFixedThreadPool(2);
     }
 
@@ -132,6 +151,26 @@ class CheckoutConcurrencyTest {
     void tearDown() throws Exception {
         executor.shutdownNow();
         executor.awaitTermination(5, TimeUnit.SECONDS);
+    }
+
+    private void clearDatabase() throws Exception {
+        try (Connection connection = dataSource.getConnection();
+                Statement statement = connection.createStatement()) {
+            statement.execute("SET FOREIGN_KEY_CHECKS = 0");
+            try {
+                List<String> tables = new ArrayList<>();
+                try (ResultSet resultSet = statement.executeQuery("SHOW TABLES")) {
+                    while (resultSet.next()) {
+                        tables.add(resultSet.getString(1));
+                    }
+                }
+                for (String table : tables) {
+                    statement.execute("TRUNCATE TABLE `" + table.replace("`", "``") + "`");
+                }
+            } finally {
+                statement.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        }
     }
 
     @Test
@@ -180,7 +219,9 @@ class CheckoutConcurrencyTest {
         secondBalance.release(1);
         inventoryRepository.saveAndFlush(secondBalance);
 
-        assertThatThrownBy(() -> orderService.processPaymentCallback(orderId, new BigDecimal("20.00"), true))
+        PreparedPaymentAttempt prepared = paymentAttemptPreparationService.prepare(user.getEmail(), orderId);
+        assertThatThrownBy(() -> paymentAttemptCallbackService.process(
+                        prepared.providerReference(), new BigDecimal("20.00"), true, "rollback-tx", "00"))
                 .isInstanceOf(ApplicationException.class);
 
         InventoryBalance firstAfter =
@@ -260,12 +301,15 @@ class CheckoutConcurrencyTest {
         saveItem(cart, variant, 1);
         var checkout = checkoutService.execute(user.getEmail(), request(address.getId()), "callback-key");
         Long orderId = checkout.order().getId();
+        PreparedPaymentAttempt prepared = paymentAttemptPreparationService.prepare(user.getEmail(), orderId);
         CyclicBarrier start = new CyclicBarrier(2);
 
         Future<String> callback = executor.submit(() -> {
             await(start);
             try {
-                return "callback:" + orderService.processPaymentCallback(orderId, BigDecimal.TEN, true);
+                return "callback:"
+                        + paymentAttemptCallbackService.process(
+                                prepared.providerReference(), BigDecimal.TEN, true, "race-tx", "00");
             } catch (ApplicationException exception) {
                 return "callback-error:" + exception.getCode();
             }
@@ -346,7 +390,7 @@ class CheckoutConcurrencyTest {
     private User saveCustomer(String suffix) {
         return userRepository.saveAndFlush(User.builder()
                 .name("Customer " + suffix)
-                .email(suffix + "." + UUID.randomUUID() + "@example.test")
+                .email("u" + UUID.randomUUID() + "@e.test")
                 .password("encoded")
                 .role(Role.USER)
                 .authProvider(AuthProvider.LOCAL)
@@ -403,7 +447,8 @@ class CheckoutConcurrencyTest {
                 BrandRepository.class,
                 InventoryBalanceRepository.class,
                 OrderRepository.class,
-                PaymentRepository.class
+                PaymentRepository.class,
+                PaymentAttemptRepository.class
             })
     static class PersistenceConfig {
         @Bean
@@ -475,9 +520,44 @@ class CheckoutConcurrencyTest {
                 OrderRepository orderRepository,
                 UserRepository userRepository,
                 PaymentRepository paymentRepository,
-                InventoryBalanceRepository inventoryBalanceRepository) {
+                InventoryBalanceRepository inventoryBalanceRepository,
+                PaymentAttemptRepository paymentAttemptRepository) {
             return new com.xdpsx.ecommerce.order.application.OrderServiceImpl(
-                    orderMapper, orderRepository, userRepository, paymentRepository, inventoryBalanceRepository);
+                    orderMapper,
+                    orderRepository,
+                    userRepository,
+                    paymentRepository,
+                    inventoryBalanceRepository,
+                    paymentAttemptRepository);
+        }
+
+        @Bean
+        PaymentAttemptProperties paymentAttemptProperties() {
+            PaymentAttemptProperties properties = new PaymentAttemptProperties();
+            properties.setLifetime(Duration.ofMinutes(15));
+            return properties;
+        }
+
+        @Bean
+        PaymentAttemptPreparationService paymentAttemptPreparationService(
+                UserRepository userRepository,
+                OrderRepository orderRepository,
+                PaymentAttemptRepository paymentAttemptRepository,
+                PaymentAttemptProperties properties,
+                Clock clock) {
+            return new PaymentAttemptPreparationService(
+                    userRepository, orderRepository, paymentAttemptRepository, properties, clock);
+        }
+
+        @Bean
+        PaymentAttemptCallbackService paymentAttemptCallbackService(
+                PaymentAttemptRepository paymentAttemptRepository,
+                OrderRepository orderRepository,
+                PaymentRepository paymentRepository,
+                InventoryBalanceRepository inventoryBalanceRepository,
+                Clock clock) {
+            return new PaymentAttemptCallbackService(
+                    paymentAttemptRepository, orderRepository, paymentRepository, inventoryBalanceRepository, clock);
         }
 
         @Bean
