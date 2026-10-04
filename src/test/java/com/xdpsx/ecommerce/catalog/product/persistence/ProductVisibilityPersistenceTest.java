@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 
 import jakarta.persistence.EntityManagerFactory;
 
@@ -238,15 +239,136 @@ class ProductVisibilityPersistenceTest {
         });
 
         Page<Product> available = transactionTemplate.execute(status -> productRepository.findAll(
-                productSpecification.storefrontVisibility().and(productSpecification.isInStock(true)),
+                productSpecification.getStorefrontFiltersSpec(null, null, null, null, true, null, null, null, NOW),
                 PageRequest.of(0, 10, Sort.by("id"))));
         Page<Product> unavailable = transactionTemplate.execute(status -> productRepository.findAll(
-                productSpecification.storefrontVisibility().and(productSpecification.isInStock(false)),
+                productSpecification.getStorefrontFiltersSpec(null, null, null, null, false, null, null, null, NOW),
                 PageRequest.of(0, 10, Sort.by("id"))));
 
         assertThat(available.getContent()).extracting(Product::getId).containsExactly(seed.visibleProductId());
         assertThat(unavailable.getContent()).extracting(Product::getId).containsExactly(seed.secondVisibleProductId());
         assertThat(unavailable.getTotalElements()).isEqualTo(1);
+    }
+
+    @Test
+    void combinedStorefrontFilters_ShouldMatchAvailabilityPriceAndOptionsOnTheSameVariant() {
+        Seed seed = seedProducts();
+        Long[] filterIds = transactionTemplate.execute(status -> {
+            VariantOption color = variantOptionRepository.findAll().get(0);
+            VariantOptionValue black = variantOptionValueRepository.findAll().stream()
+                    .filter(value -> value.getCode().equals("black"))
+                    .findFirst()
+                    .orElseThrow();
+            VariantOptionValue white = variantOptionValueRepository.findAll().stream()
+                    .filter(value -> value.getCode().equals("white"))
+                    .findFirst()
+                    .orElseThrow();
+
+            ProductVariant visibleBlack = findVariant(seed.visibleProductId(), "VISIBLE-BLACK");
+            visibleBlack.changeBasePrice(new java.math.BigDecimal("200.00"));
+            InventoryBalance blackBalance = InventoryBalance.zero(visibleBlack);
+            blackBalance.adjustOnHand(5);
+            inventoryBalanceRepository.saveAndFlush(blackBalance);
+
+            ProductVariant visibleWhite = findVariant(seed.visibleProductId(), "VISIBLE-WHITE");
+            visibleWhite.changeBasePrice(new java.math.BigDecimal("100.00"));
+            inventoryBalanceRepository.saveAndFlush(InventoryBalance.zero(visibleWhite));
+            productVariantRepository.saveAllAndFlush(List.of(visibleBlack, visibleWhite));
+
+            ProductVariant matchingBlack = findVariant(seed.secondVisibleProductId(), "SECOND-BLACK");
+            matchingBlack.changeBasePrice(new java.math.BigDecimal("100.00"));
+            InventoryBalance matchingBalance = InventoryBalance.zero(matchingBlack);
+            matchingBalance.adjustOnHand(2);
+            inventoryBalanceRepository.saveAndFlush(matchingBalance);
+            productVariantRepository.saveAndFlush(matchingBlack);
+            return new Long[] {color.getId(), black.getId(), white.getId()};
+        });
+
+        var blackInStockFilter = productSpecification.getStorefrontFiltersSpec(
+                null,
+                null,
+                null,
+                new java.math.BigDecimal("150.00"),
+                true,
+                null,
+                null,
+                Map.of(filterIds[0], List.of(filterIds[1])),
+                NOW);
+        Page<Product> firstPage = transactionTemplate.execute(
+                status -> productRepository.findAll(blackInStockFilter, PageRequest.of(0, 1, Sort.by("id"))));
+        Page<Product> secondPage = transactionTemplate.execute(
+                status -> productRepository.findAll(blackInStockFilter, PageRequest.of(1, 1, Sort.by("id"))));
+
+        var whiteOutOfStockFilter = productSpecification.getStorefrontFiltersSpec(
+                null,
+                null,
+                null,
+                new java.math.BigDecimal("150.00"),
+                false,
+                null,
+                null,
+                Map.of(filterIds[0], List.of(filterIds[2])),
+                NOW);
+        Page<Product> whiteOutOfStock = transactionTemplate.execute(
+                status -> productRepository.findAll(whiteOutOfStockFilter, PageRequest.of(0, 10, Sort.by("id"))));
+
+        assertThat(firstPage.getContent()).extracting(Product::getId).containsExactly(seed.secondVisibleProductId());
+        assertThat(firstPage.getTotalElements()).isEqualTo(1);
+        assertThat(secondPage).isEmpty();
+        assertThat(whiteOutOfStock.getContent()).extracting(Product::getId).containsExactly(seed.visibleProductId());
+    }
+
+    @Test
+    void adminProductProjection_ShouldAggregateActiveVariantPriceAndInventoryForTheCurrentPage() {
+        Seed seed = seedProducts();
+        transactionTemplate.executeWithoutResult(status -> {
+            ProductVariant black = findVariant(seed.visibleProductId(), "VISIBLE-BLACK");
+            black.changeBasePrice(new java.math.BigDecimal("20.00"));
+            InventoryBalance blackBalance = InventoryBalance.zero(black);
+            blackBalance.adjustOnHand(5);
+            blackBalance.reserve(2);
+            inventoryBalanceRepository.saveAndFlush(blackBalance);
+
+            ProductVariant white = findVariant(seed.visibleProductId(), "VISIBLE-WHITE");
+            white.changeBasePrice(new java.math.BigDecimal("10.00"));
+            InventoryBalance whiteBalance = InventoryBalance.zero(white);
+            whiteBalance.adjustOnHand(4);
+            whiteBalance.reserve(1);
+            inventoryBalanceRepository.saveAndFlush(whiteBalance);
+
+            Product product =
+                    productRepository.findById(seed.visibleProductId()).orElseThrow();
+            ProductVariant inactive = ProductVariant.builder()
+                    .product(product)
+                    .sku("VISIBLE-INACTIVE")
+                    .basePrice(new java.math.BigDecimal("1.00"))
+                    .status(ProductVariantStatus.INACTIVE)
+                    .combinationKey("inactive")
+                    .build();
+            productVariantRepository.saveAndFlush(inactive);
+            InventoryBalance inactiveBalance = InventoryBalance.zero(inactive);
+            inactiveBalance.adjustOnHand(100);
+            inventoryBalanceRepository.saveAndFlush(inactiveBalance);
+            productVariantRepository.saveAllAndFlush(List.of(black, white));
+        });
+
+        Page<Product> firstPage = transactionTemplate.execute(status -> productRepository.findAll(
+                productSpecification.getAdminFiltersSpec(null, null, null), PageRequest.of(0, 1, Sort.by("id"))));
+        Long productId = firstPage.getContent().get(0).getId();
+        List<ProductVariantRepository.PriceRangeView> prices = transactionTemplate.execute(
+                status -> productVariantRepository.findAdminPriceRanges(List.of(productId), NOW));
+        List<InventoryBalanceRepository.ProductInventoryTotals> totals = transactionTemplate.execute(
+                status -> inventoryBalanceRepository.findActiveProductInventoryTotals(List.of(productId)));
+
+        assertThat(firstPage.getTotalElements()).isGreaterThan(1);
+        assertThat(productId).isEqualTo(seed.visibleProductId());
+        assertThat(prices).hasSize(1);
+        assertThat(prices.get(0).getMinimumPrice()).isEqualByComparingTo("10.00");
+        assertThat(prices.get(0).getMaximumPrice()).isEqualByComparingTo("20.00");
+        assertThat(totals).hasSize(1);
+        assertThat(totals.get(0).getOnHand()).isEqualTo(9L);
+        assertThat(totals.get(0).getReserved()).isEqualTo(3L);
+        assertThat(totals.get(0).getAvailable()).isEqualTo(6L);
     }
 
     @Test
@@ -459,6 +581,13 @@ class ProductVisibilityPersistenceTest {
             saveVariant(unpublished, "UNPUBLISHED", black, color);
             return new Seed(visible.getId(), secondVisible.getId());
         });
+    }
+
+    private ProductVariant findVariant(Long productId, String sku) {
+        return productVariantRepository.findByProductIdAndStatus(productId, ProductVariantStatus.ACTIVE).stream()
+                .filter(variant -> variant.getSku().equals(sku))
+                .findFirst()
+                .orElseThrow();
     }
 
     private ProductVariant saveVariant(Product product, String sku, VariantOptionValue value, VariantOption option) {

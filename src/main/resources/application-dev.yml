@@ -58,6 +58,9 @@ cloudinary:
     name: ${CLOUDINARY_CLOUD_NAME}
 
 app:
+  bootstrap-admin:
+    enabled: ${APP_BOOTSTRAP_ADMIN_ENABLED:false}
+    email: ${APP_BOOTSTRAP_ADMIN_EMAIL:}
   auth-session:
     refresh-cookie-secure: ${APP_REFRESH_COOKIE_SECURE:false}
   cart:

@@ -65,6 +65,8 @@ interface AdminProductApiDocs {
 
     @Operation(
             summary = "Check product slug availability",
+            description =
+                    "Checks availability using the canonical product slug (trimmed, lowercase ASCII, dash-separated).",
             security = @SecurityRequirement(name = "Bearer Authorization"))
     Map<String, Boolean> getSlugAvailability(String slug);
 }

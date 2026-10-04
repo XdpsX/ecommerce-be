@@ -95,6 +95,61 @@ class ProductServiceImplTest {
     }
 
     @Test
+    void createProduct_ShouldNormalizeSlugBeforeCheckingAndSavingIt() {
+        Category category = activeCategory(7);
+        Brand brand = activeBrand(5);
+        Product product = new Product();
+        ProductCreateRequest request = createRequest(7);
+        request.setSlug(" MÁy Keyboard ");
+        when(productRepository.existsBySlug("may-keyboard")).thenReturn(false);
+        when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(category));
+        when(brandRepository.findById(5)).thenReturn(Optional.of(brand));
+        when(productMapper.fromCreateRequestToEntity(request)).thenReturn(product);
+        when(productRepository.save(product)).thenReturn(product);
+
+        productService.createProduct(request);
+
+        assertThat(product.getSlug()).isEqualTo("may-keyboard");
+        verify(productRepository).existsBySlug("may-keyboard");
+    }
+
+    @Test
+    void createProduct_ShouldRejectAnEmptyCanonicalSlug() {
+        ProductCreateRequest request = createRequest(7);
+        request.setSlug("!!!");
+
+        ApplicationException exception =
+                assertThrows(ApplicationException.class, () -> productService.createProduct(request));
+
+        assertThat(exception.getCode()).isEqualTo(ErrorCode.INVALID_PRODUCT_SLUG);
+        verifyNoInteractions(productRepository, categoryRepository, brandRepository);
+    }
+
+    @Test
+    void getSlugAvailability_ShouldCheckTheCanonicalSlug() {
+        when(productRepository.existsBySlug("may-keyboard")).thenReturn(false);
+
+        assertThat(productService.getSlugAvailability(" MÁy Keyboard ")).containsEntry("slugExists", false);
+
+        verify(productRepository).existsBySlug("may-keyboard");
+    }
+
+    @Test
+    void updateProduct_ShouldPreserveAnExistingLegacySlugWhenResubmittedUnchanged() {
+        Product product = product(1L, activeCategory(7), activeBrand(5));
+        product.setSlug("Legacy Product URL");
+        ProductUpdateRequest request = updateRequest();
+        request.setSlug("Legacy Product URL");
+        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
+        when(productRepository.save(product)).thenReturn(product);
+
+        productService.updateProduct(1L, request);
+
+        assertThat(product.getSlug()).isEqualTo("Legacy Product URL");
+        verify(productRepository, never()).existsBySlug(any());
+    }
+
+    @Test
     void createProduct_ShouldRejectInactiveAncestorCategory() {
         Category parent =
                 Category.builder().id(1).status(CategoryStatus.INACTIVE).build();
@@ -120,12 +175,15 @@ class ProductServiceImplTest {
         ProductUpdateRequest request = updateRequest();
         when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
         when(productRepository.save(product)).thenReturn(product);
+        when(productVariantRepository.findAdminPriceRanges(eq(List.of(1L)), any(Instant.class)))
+                .thenReturn(List.of());
+        when(inventoryBalanceRepository.findActiveProductInventoryTotals(List.of(1L)))
+                .thenReturn(List.of());
 
         productService.updateProduct(1L, request);
 
         assertThat(product.isPublished()).isTrue();
         verify(productRepository).save(product);
-        verifyNoInteractions(productVariantRepository);
     }
 
     @Test
@@ -221,17 +279,77 @@ class ProductServiceImplTest {
     @Test
     void getAdminProducts_ShouldUsePublicationFilterWithoutStorefrontVisibility() {
         Product draft = product(1L, activeCategory(7), activeBrand(5));
+        ProductVariantRepository.PriceRangeView priceRange = new ProductVariantRepository.PriceRangeView() {
+            @Override
+            public Long getProductId() {
+                return 1L;
+            }
+
+            @Override
+            public BigDecimal getMinimumPrice() {
+                return new BigDecimal("10.00");
+            }
+
+            @Override
+            public BigDecimal getMaximumPrice() {
+                return new BigDecimal("30.00");
+            }
+        };
+        InventoryBalanceRepository.ProductInventoryTotals totals =
+                new InventoryBalanceRepository.ProductInventoryTotals() {
+                    @Override
+                    public Long getProductId() {
+                        return 1L;
+                    }
+
+                    @Override
+                    public Long getOnHand() {
+                        return 15L;
+                    }
+
+                    @Override
+                    public Long getReserved() {
+                        return 4L;
+                    }
+
+                    @Override
+                    public Long getAvailable() {
+                        return 11L;
+                    }
+                };
         @SuppressWarnings("unchecked")
         Page<Product> page = mock(Page.class);
-        when(productSpecification.getAdminFiltersSpec("draft", "name", false))
+        when(productSpecification.getAdminFiltersSpec(eq("draft"), eq("name"), eq(false), any(Instant.class)))
                 .thenReturn((root, query, criteriaBuilder) -> criteriaBuilder.conjunction());
         when(productRepository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(page);
         when(page.getContent()).thenReturn(List.of(draft));
-        when(inventoryBalanceRepository.findAvailableAdminProductIdsByProductIds(List.of(1L)))
-                .thenReturn(List.of(1L));
-        when(productMapper.toAdminSummary(eq(draft), eq(true)))
-                .thenReturn(new AdminProductSummaryResponse(1L, "Draft", "draft", true, false, null, null, null));
+        when(productVariantRepository.findAdminPriceRanges(eq(List.of(1L)), any(Instant.class)))
+                .thenReturn(List.of(priceRange));
+        when(inventoryBalanceRepository.findActiveProductInventoryTotals(List.of(1L)))
+                .thenReturn(List.of(totals));
+        when(productMapper.toAdminSummary(
+                        eq(draft),
+                        eq(true),
+                        eq(new BigDecimal("10.00")),
+                        eq(new BigDecimal("30.00")),
+                        eq(15L),
+                        eq(4L),
+                        eq(11L)))
+                .thenReturn(new AdminProductSummaryResponse(
+                        1L,
+                        "Draft",
+                        "draft",
+                        true,
+                        false,
+                        null,
+                        null,
+                        null,
+                        new BigDecimal("10.00"),
+                        new BigDecimal("30.00"),
+                        15L,
+                        4L,
+                        11L));
 
         productService.getAdminProducts(AdminProductFilter.builder()
                 .search("draft")
@@ -239,10 +357,12 @@ class ProductServiceImplTest {
                 .hasPublished(false)
                 .build());
 
-        verify(productSpecification).getAdminFiltersSpec("draft", "name", false);
+        verify(productSpecification).getAdminFiltersSpec(eq("draft"), eq("name"), eq(false), any(Instant.class));
         verify(productSpecification, never()).storefrontVisibility();
-        verify(inventoryBalanceRepository).findAvailableAdminProductIdsByProductIds(List.of(1L));
-        verify(productMapper).toAdminSummary(draft, true);
+        verify(productVariantRepository).findAdminPriceRanges(eq(List.of(1L)), any(Instant.class));
+        verify(inventoryBalanceRepository).findActiveProductInventoryTotals(List.of(1L));
+        verify(productMapper)
+                .toAdminSummary(draft, true, new BigDecimal("10.00"), new BigDecimal("30.00"), 15L, 4L, 11L);
     }
 
     @Test

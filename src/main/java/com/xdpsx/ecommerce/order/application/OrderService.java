@@ -17,7 +17,7 @@ public interface OrderService {
     OrderDetailsDTO getOrderById(Long orderId);
 
     PageResponse<OrderDTO> getAllOrders(
-            int pageNum, int pageSize, OrderStatus orderStatus, PaymentStatus paymentStatus);
+            int pageNum, int pageSize, OrderStatus orderStatus, PaymentStatus paymentStatus, String trackingNumber);
 
     OrderDTO updateOrderStatus(Long id, OrderStatusUpdate request);
 }

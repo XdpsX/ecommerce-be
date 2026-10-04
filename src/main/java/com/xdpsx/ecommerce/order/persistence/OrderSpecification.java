@@ -12,7 +12,7 @@ import com.xdpsx.ecommerce.payment.domain.PaymentStatus;
 
 public class OrderSpecification {
     public static Specification<Order> withStatusAndPaymentStatus(
-            OrderStatus orderStatus, PaymentStatus paymentStatus) {
+            OrderStatus orderStatus, PaymentStatus paymentStatus, String trackingNumber) {
         return (root, query, criteriaBuilder) -> {
             Predicate predicate = criteriaBuilder.conjunction();
 
@@ -24,6 +24,11 @@ public class OrderSpecification {
                 Join<Order, Payment> paymentJoin = root.join("payment");
                 predicate =
                         criteriaBuilder.and(predicate, criteriaBuilder.equal(paymentJoin.get("status"), paymentStatus));
+            }
+
+            if (trackingNumber != null && !trackingNumber.isBlank()) {
+                predicate = criteriaBuilder.and(
+                        predicate, criteriaBuilder.equal(root.get("trackingNumber"), trackingNumber.trim()));
             }
 
             return predicate;

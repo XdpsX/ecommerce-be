@@ -30,7 +30,7 @@ class CheckoutServiceImplTest {
     private PaymentAttemptService paymentAttemptService;
 
     @Test
-    void checkout_ShouldTranslatePaymentFailureAfterTransactionCommits() {
+    void checkout_ShouldReturnCommittedOrderWhenPaymentInitializationFails() {
         Order order = pendingOrder();
         when(transactionService.execute("buyer@example.test", request(), "checkout-1"))
                 .thenReturn(new CheckoutTransactionResult(order, false));
@@ -39,10 +39,47 @@ class CheckoutServiceImplTest {
 
         CheckoutService service = new CheckoutServiceImpl(transactionService, paymentAttemptService);
 
+        var response = service.checkout("buyer@example.test", request(), "checkout-1", "127.0.0.1");
+
+        assertThat(response.getOrder().getId()).isEqualTo(42L);
+        assertThat(response.getPayment()).isNull();
+        assertThat(response.isReplayed()).isFalse();
+        verify(transactionService).execute("buyer@example.test", request(), "checkout-1");
+    }
+
+    @Test
+    void checkout_ShouldKeepTheCommittedOrderAndRetryPaymentOnIdempotentReplay() {
+        Order order = pendingOrder();
+        when(transactionService.execute("buyer@example.test", request(), "checkout-1"))
+                .thenReturn(new CheckoutTransactionResult(order, false))
+                .thenReturn(new CheckoutTransactionResult(order, true));
+        when(paymentAttemptService.initialize("buyer@example.test", 42L, "127.0.0.1"))
+                .thenThrow(new ApplicationException(ErrorCode.PAYMENT_INITIALIZATION_FAILED))
+                .thenReturn(InitPaymentResponse.builder().vnpUrl("payment-url").build());
+
+        CheckoutService service = new CheckoutServiceImpl(transactionService, paymentAttemptService);
+
+        var initial = service.checkout("buyer@example.test", request(), "checkout-1", "127.0.0.1");
+        var replay = service.checkout("buyer@example.test", request(), "checkout-1", "127.0.0.1");
+
+        assertThat(initial.getOrder().getId()).isEqualTo(replay.getOrder().getId());
+        assertThat(initial.getPayment()).isNull();
+        assertThat(replay.getPayment().getVnpUrl()).isEqualTo("payment-url");
+        assertThat(replay.isReplayed()).isTrue();
+        verify(transactionService, org.mockito.Mockito.times(2)).execute("buyer@example.test", request(), "checkout-1");
+    }
+
+    @Test
+    void checkout_ShouldKeepFailuresBeforeOrderCommitAsFailures() {
+        when(transactionService.execute("buyer@example.test", request(), "checkout-1"))
+                .thenThrow(new ApplicationException(ErrorCode.CART_EMPTY));
+
+        CheckoutService service = new CheckoutServiceImpl(transactionService, paymentAttemptService);
+
         assertThatThrownBy(() -> service.checkout("buyer@example.test", request(), "checkout-1", "127.0.0.1"))
                 .isInstanceOfSatisfying(ApplicationException.class, exception -> assertThat(exception.getCode())
-                        .isEqualTo(ErrorCode.PAYMENT_INITIALIZATION_FAILED));
-        verify(transactionService).execute("buyer@example.test", request(), "checkout-1");
+                        .isEqualTo(ErrorCode.CART_EMPTY));
+        org.mockito.Mockito.verifyNoInteractions(paymentAttemptService);
     }
 
     @Test

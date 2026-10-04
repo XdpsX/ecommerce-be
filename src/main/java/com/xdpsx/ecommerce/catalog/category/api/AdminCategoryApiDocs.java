@@ -6,7 +6,6 @@ import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.http.ResponseEntity;
 
 import com.xdpsx.ecommerce.catalog.category.api.dto.*;
-import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
 import com.xdpsx.ecommerce.common.error.ApiProblemSchema;
 import com.xdpsx.ecommerce.common.error.ValidationProblemSchema;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
@@ -100,7 +99,8 @@ interface AdminCategoryApiDocs {
             summary = "Update a category",
             description =
                     "Update name, status, slug and image. Renaming does not change the slug; send slug explicitly "
-                            + "to change it. The parent and the sibling order are not touched by this operation.",
+                            + "to change it. The parent and the sibling order are not touched by this operation. "
+                            + "The version must match the current category version; a stale version returns 409.",
             security = @SecurityRequirement(name = "Bearer Authorization"),
             responses = {
                 @ApiResponse(responseCode = "200", description = "OK"),
@@ -125,7 +125,7 @@ interface AdminCategoryApiDocs {
                                         schema = @Schema(implementation = ApiProblemSchema.class))),
                 @ApiResponse(
                         responseCode = "409",
-                        description = "Category name or slug already exists / Concurrent modification",
+                        description = "Category name or slug already exists / Stale version / Concurrent modification",
                         content =
                                 @Content(
                                         mediaType = "application/json",
@@ -210,7 +210,8 @@ interface AdminCategoryApiDocs {
 
     @Operation(
             summary = "Delete a category",
-            description = "Hard delete. Rejected while the category still has children, products or brands",
+            description = "Hard delete. The request version must match the current category version. Rejected while "
+                    + "the category still has children, products or brands.",
             security = @SecurityRequirement(name = "Bearer Authorization"),
             responses = {
                 @ApiResponse(responseCode = "204", description = "No Content"),
@@ -225,11 +226,11 @@ interface AdminCategoryApiDocs {
                                         schema = @Schema(implementation = ApiProblemSchema.class))),
                 @ApiResponse(
                         responseCode = "409",
-                        description = "Category still in use / Concurrent modification",
+                        description = "Category still in use / Stale version / Concurrent modification",
                         content =
                                 @Content(
                                         mediaType = "application/json",
                                         schema = @Schema(implementation = ApiProblemSchema.class)))
             })
-    void deleteCategory(Integer id, @Valid ModifyExclusiveDTO request);
+    void deleteCategory(Integer id, @Valid DeleteCategoryRequest request);
 }

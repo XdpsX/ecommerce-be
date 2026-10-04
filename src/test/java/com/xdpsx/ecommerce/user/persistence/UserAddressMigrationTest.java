@@ -62,11 +62,12 @@ class UserAddressMigrationTest {
                                     + "WHERE table_schema = DATABASE() AND table_name = 'user_addresses' "
                                     + "AND index_name = 'ix_user_addresses_user_id'"))
                     .isEqualTo(1);
+            // MySQL exposes primary keys as PRIMARY, ignoring the name supplied in the DDL.
             assertThat(count(
                             statement,
                             "SELECT COUNT(*) FROM information_schema.table_constraints "
                                     + "WHERE constraint_schema = DATABASE() AND table_name = 'user_addresses' "
-                                    + "AND constraint_name = 'pk_user_addresses' AND constraint_type = 'PRIMARY KEY'"))
+                                    + "AND constraint_name = 'PRIMARY' AND constraint_type = 'PRIMARY KEY'"))
                     .isEqualTo(1);
             assertThat(count(
                             statement,

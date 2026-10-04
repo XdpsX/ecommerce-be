@@ -9,6 +9,7 @@ import java.util.Set;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
@@ -117,9 +118,11 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public PageResponse<OrderDTO> getAllOrders(
-            int pageNum, int pageSize, OrderStatus orderStatus, PaymentStatus paymentStatus) {
-        Pageable pageable = PageRequest.of(pageNum - 1, pageSize);
-        Specification<Order> spec = OrderSpecification.withStatusAndPaymentStatus(orderStatus, paymentStatus);
+            int pageNum, int pageSize, OrderStatus orderStatus, PaymentStatus paymentStatus, String trackingNumber) {
+        Pageable pageable =
+                PageRequest.of(pageNum - 1, pageSize, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
+        Specification<Order> spec =
+                OrderSpecification.withStatusAndPaymentStatus(orderStatus, paymentStatus, trackingNumber);
         Page<Order> orderPage = orderRepository.findAll(spec, pageable);
         List<OrderDTO> responses = orderPage.getContent().stream()
                 .map(order -> convertToDTO(order, true))

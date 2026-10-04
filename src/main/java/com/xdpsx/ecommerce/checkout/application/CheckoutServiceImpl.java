@@ -1,9 +1,14 @@
 package com.xdpsx.ecommerce.checkout.application;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import org.springframework.stereotype.Service;
 
 import com.xdpsx.ecommerce.checkout.api.dto.CheckoutRequest;
 import com.xdpsx.ecommerce.checkout.api.dto.CheckoutResponse;
+import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.order.api.dto.OrderDTO;
 import com.xdpsx.ecommerce.order.domain.Order;
 import com.xdpsx.ecommerce.order.domain.OrderStatus;
@@ -25,13 +30,27 @@ public class CheckoutServiceImpl implements CheckoutService {
         Order order = result.order();
         InitPaymentResponse payment = null;
         if (order.getStatus() == OrderStatus.PENDING_PAYMENT) {
-            payment = paymentAttemptService.initialize(userEmail, order.getId(), ipAddress);
+            try {
+                payment = paymentAttemptService.initialize(userEmail, order.getId(), ipAddress);
+            } catch (ApplicationException exception) {
+                if (exception.getCode() != ErrorCode.PAYMENT_INITIALIZATION_FAILED) {
+                    throw withOrderId(exception, order.getId());
+                }
+            } catch (RuntimeException exception) {
+                throw new ApplicationException(ErrorCode.INTERNAL_ERROR, Map.of("orderId", order.getId()), exception);
+            }
         }
         return CheckoutResponse.builder()
                 .order(toDto(order))
                 .payment(payment)
                 .replayed(result.replayed())
                 .build();
+    }
+
+    private static ApplicationException withOrderId(ApplicationException exception, Long orderId) {
+        Map<String, Object> parameters = new HashMap<>(exception.getParameters());
+        parameters.putIfAbsent("orderId", orderId);
+        return new ApplicationException(exception.getCode(), parameters, exception.getCause());
     }
 
     private static OrderDTO toDto(Order order) {

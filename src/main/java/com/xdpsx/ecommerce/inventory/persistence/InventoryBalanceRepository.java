@@ -14,6 +14,23 @@ import org.springframework.data.repository.query.Param;
 import com.xdpsx.ecommerce.inventory.domain.InventoryBalance;
 
 public interface InventoryBalanceRepository extends JpaRepository<InventoryBalance, Long> {
+    interface ProductInventoryTotals {
+        Long getProductId();
+
+        Long getOnHand();
+
+        Long getReserved();
+
+        Long getAvailable();
+    }
+
+    @Query("SELECT b.variant.product.id AS productId, SUM(b.onHand) AS onHand, "
+            + "SUM(b.reserved) AS reserved, SUM(b.onHand - b.reserved) AS available "
+            + "FROM InventoryBalance b WHERE b.variant.product.id IN :productIds "
+            + "AND b.variant.status = com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus.ACTIVE "
+            + "GROUP BY b.variant.product.id")
+    List<ProductInventoryTotals> findActiveProductInventoryTotals(@Param("productIds") Collection<Long> productIds);
+
     @Query("SELECT DISTINCT b.variant.product.id FROM InventoryBalance b "
             + "WHERE b.variant.product.id IN :productIds "
             + "AND b.variant.status = com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus.ACTIVE "

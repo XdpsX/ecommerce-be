@@ -35,6 +35,7 @@ public enum ErrorCode {
     INVALID_CATEGORY_SLUG("Invalid category slug", "The category slug is empty or malformed after normalization"),
     INVALID_PRODUCT_IMAGE_COUNT(
             "Invalid product image count", "The number of product images exceeds the maximum allowed"),
+    INVALID_PRODUCT_SLUG("Invalid product slug", "The product slug is empty or malformed after normalization"),
     INVALID_MEDIA_RESOURCE_TYPE(
             "Invalid media resource type", "The media resource type does not match the requested resource"),
     INVALID_IMAGE_WIDTH("Invalid image width", "The image width is below the required minimum"),

@@ -35,6 +35,11 @@ public class Category extends AuditEntity {
     @Column(length = 160, nullable = false, unique = true)
     private String slug;
 
+    /** JPA optimistic-lock token exposed to the admin API for update and delete. */
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     /**
      * Zero-based position inside the sibling group. Root categories (no parent)
      * form their own group.

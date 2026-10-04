@@ -60,6 +60,7 @@ import com.xdpsx.ecommerce.catalog.product.application.ProductVariantService;
 import com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
+import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.config.security.SecurityConfig;
 import com.xdpsx.ecommerce.media.api.MediaController;
 import com.xdpsx.ecommerce.media.application.MediaService;
@@ -72,7 +73,9 @@ import com.xdpsx.ecommerce.payment.api.dto.VNPayIpnResponse;
 import com.xdpsx.ecommerce.payment.application.PaymentAttemptService;
 import com.xdpsx.ecommerce.payment.infrastructure.vnpay.IpnHandler;
 import com.xdpsx.ecommerce.refund.api.AdminRefundController;
+import com.xdpsx.ecommerce.refund.api.dto.RefundQueueItemResponse;
 import com.xdpsx.ecommerce.refund.application.RefundService;
+import com.xdpsx.ecommerce.refund.domain.RefundStatus;
 import com.xdpsx.ecommerce.user.api.UserAddressController;
 import com.xdpsx.ecommerce.user.api.UserController;
 import com.xdpsx.ecommerce.user.api.dto.UserAddressRequest;
@@ -266,7 +269,8 @@ class SecurityBoundaryTest {
     @Test
     void productWrite_ShouldRequireAdmin() throws Exception {
         when(productService.createProduct(any(ProductCreateRequest.class)))
-                .thenReturn(new AdminProductSummaryResponse(1L, "Keyboard", "keyboard", true, false, null, null, null));
+                .thenReturn(new AdminProductSummaryResponse(
+                        1L, "Keyboard", "keyboard", true, false, null, null, null, null, null, 0, 0, 0));
         mockMvc.perform(post("/admin/products")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(CREATE_PRODUCT))
@@ -310,7 +314,13 @@ class SecurityBoundaryTest {
 
         mockMvc.perform(get("/orders").with(user("admin@example.test").roles("ADMIN")))
                 .andExpect(status().isOk());
-        verify(orderService).getAllOrders(1, 5, null, null);
+        verify(orderService).getAllOrders(1, 5, null, null, null);
+
+        mockMvc.perform(get("/orders")
+                        .param("trackingNumber", " TRK-42 ")
+                        .with(user("admin@example.test").roles("ADMIN")))
+                .andExpect(status().isOk());
+        verify(orderService).getAllOrders(1, 5, null, null, " TRK-42 ");
 
         when(orderService.updateOrderStatus(eq(42L), any()))
                 .thenReturn(com.xdpsx.ecommerce.order.api.dto.OrderDTO.builder()
@@ -329,6 +339,38 @@ class SecurityBoundaryTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PROCESSING"));
         verify(orderService).updateOrderStatus(eq(42L), any());
+    }
+
+    @Test
+    void orderLists_ShouldRejectInvalidPaginationBeforeCallingTheService() throws Exception {
+        mockMvc.perform(get("/orders?pageNum=0&pageSize=5")
+                        .with(user("admin@example.test").roles("ADMIN")))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/orders?pageNum=1&pageSize=21")
+                        .with(user("admin@example.test").roles("ADMIN")))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/orders/me?pageNum=1&pageSize=0")
+                        .with(user("buyer@example.test").roles("USER")))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(orderService);
+    }
+
+    @Test
+    void refundQueue_ShouldBeAdminOnlyAndReturnPagedItems() throws Exception {
+        when(refundService.getQueue(RefundStatus.PENDING, 1, 5))
+                .thenReturn(PageResponse.of(List.<RefundQueueItemResponse>of(), 1, 5, 0, 0));
+
+        mockMvc.perform(get("/admin/refunds?status=PENDING&pageNum=1&pageSize=5")
+                        .with(user("customer@example.test").roles("USER")))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(refundService);
+
+        mockMvc.perform(get("/admin/refunds?status=PENDING&pageNum=1&pageSize=5")
+                        .with(user("admin@example.test").roles("ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.page").value(1))
+                .andExpect(jsonPath("$.data").isArray());
+        verify(refundService).getQueue(RefundStatus.PENDING, 1, 5);
     }
 
     @Test

@@ -15,9 +15,15 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 
 import com.xdpsx.ecommerce.catalog.product.domain.ProductVariant;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
@@ -59,6 +65,22 @@ class OrderServiceImplTest {
 
     @InjectMocks
     private OrderServiceImpl orderService;
+
+    @Test
+    void getAllOrders_ShouldUseStableCreatedAtAndIdSort() {
+        when(orderRepository.findAll(
+                        org.mockito.ArgumentMatchers.<Specification<Order>>any(),
+                        org.mockito.ArgumentMatchers.<Pageable>any()))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 5), 0));
+
+        orderService.getAllOrders(1, 5, null, null, null);
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(orderRepository).findAll(org.mockito.ArgumentMatchers.<Specification<Order>>any(), pageable.capture());
+        assertEquals(
+                Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")),
+                pageable.getValue().getSort());
+    }
 
     @Test
     void expirePendingOrder_ShouldReleaseReservationAndMarkOrderExpired() {

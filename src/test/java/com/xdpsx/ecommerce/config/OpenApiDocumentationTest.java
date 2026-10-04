@@ -46,6 +46,8 @@ import com.xdpsx.ecommerce.order.api.OrderController;
 import com.xdpsx.ecommerce.order.application.OrderCancellationService;
 import com.xdpsx.ecommerce.order.application.OrderService;
 import com.xdpsx.ecommerce.payment.application.PaymentAttemptService;
+import com.xdpsx.ecommerce.refund.api.AdminRefundController;
+import com.xdpsx.ecommerce.refund.application.RefundService;
 import com.xdpsx.ecommerce.testsupport.SecurityConfigForControllerTests;
 
 import tools.jackson.databind.JsonNode;
@@ -76,7 +78,8 @@ import tools.jackson.databind.ObjectMapper;
             MediaController.class,
             CartController.class,
             OrderController.class,
-            AuthController.class
+            AuthController.class,
+            AdminRefundController.class
         })
 @Import(SecurityConfigForControllerTests.class)
 @ImportAutoConfiguration({
@@ -128,6 +131,9 @@ class OpenApiDocumentationTest {
 
     @MockitoBean
     private PaymentAttemptService paymentAttemptService;
+
+    @MockitoBean
+    private RefundService refundService;
 
     @MockitoBean
     private AuthService authService;
@@ -226,6 +232,38 @@ class OpenApiDocumentationTest {
         assertThat(properties.has("status")).isFalse();
         assertThat(properties.has("version")).isFalse();
         assertThat(properties.has("categories")).isFalse();
+    }
+
+    @Test
+    void adminProductList_shouldDocumentPriceAndInventoryTotals() {
+        JsonNode properties = openApi.at("/components/schemas/AdminProductSummaryResponse/properties");
+
+        assertThat(properties.has("minimumPrice")).isTrue();
+        assertThat(properties.has("maximumPrice")).isTrue();
+        assertThat(properties.has("onHand")).isTrue();
+        assertThat(properties.has("reserved")).isTrue();
+        assertThat(properties.has("available")).isTrue();
+    }
+
+    @Test
+    void adminOrderAndRefundQueues_shouldDocumentTrackingAndPagedRefundFields() {
+        JsonNode orderParameters = openApi.at("/paths/~1orders/get/parameters");
+        assertThat(orderParameters.findValuesAsString("name")).contains("trackingNumber");
+
+        JsonNode refundOperation = openApi.at("/paths/~1admin~1refunds/get");
+        assertThat(refundOperation.isMissingNode()).isFalse();
+        assertThat(refundOperation.path("parameters").findValuesAsString("name"))
+                .contains("status", "pageNum", "pageSize");
+        assertThat(refundOperation.at("/responses/200/content/*~1*/schema/$ref").asString())
+                .isEqualTo("#/components/schemas/PageResponseRefundQueueItemResponse");
+
+        JsonNode refundProperties = openApi.at("/components/schemas/RefundQueueItemResponse/properties");
+        assertThat(refundProperties.has("trackingNumber")).isTrue();
+        assertThat(refundProperties.has("status")).isTrue();
+        assertThat(refundProperties.has("amount")).isTrue();
+        assertThat(refundProperties.has("currency")).isTrue();
+        assertThat(refundProperties.has("reason")).isTrue();
+        assertThat(refundProperties.has("requestedAt")).isTrue();
     }
 
     @Test
@@ -428,7 +466,15 @@ class OpenApiDocumentationTest {
         JsonNode properties = openApi.at("/components/schemas/AdminCategoryResponse/properties");
 
         assertThat(properties.has("status")).isTrue();
+        assertThat(properties.has("version")).isTrue();
         assertThat(properties.has("effectivelyActive")).isTrue();
+
+        JsonNode updateProperties = openApi.at("/components/schemas/UpdateCategoryRequest/properties");
+        assertThat(updateProperties.has("version")).isTrue();
+        assertThat(updateProperties.has("lastRetrievedAt")).isFalse();
+
+        JsonNode deleteProperties = openApi.at("/components/schemas/DeleteCategoryRequest/properties");
+        assertThat(deleteProperties.has("version")).isTrue();
     }
 
     @Test

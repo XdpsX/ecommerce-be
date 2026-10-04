@@ -29,7 +29,11 @@ import com.xdpsx.ecommerce.inventory.domain.InventoryBalance;
 public class ProductSpecification extends BasicSpecification<Product> {
 
     public Specification<Product> getAdminFiltersSpec(String search, String sort, Boolean hasPublished) {
-        return hasName(search).and(getSortSpec(sort)).and(hasPublished(hasPublished));
+        return getAdminFiltersSpec(search, sort, hasPublished, Instant.now());
+    }
+
+    public Specification<Product> getAdminFiltersSpec(String search, String sort, Boolean hasPublished, Instant now) {
+        return hasName(search).and(getSortSpec(sort, now)).and(hasPublished(hasPublished));
     }
 
     public Specification<Product> getStorefrontFiltersSpec(
@@ -58,11 +62,9 @@ public class ProductSpecification extends BasicSpecification<Product> {
         return storefrontVisibility()
                 .and(hasName(search))
                 .and(getSortSpec(sort, now))
-                .and(hasPriceInRange(minPrice, maxPrice, now))
-                .and(isInStock(inStock))
                 .and(belongsToCategory(categoryId))
                 .and(belongsToBrand(brandId))
-                .and(hasMatchingActiveVariant(optionValueIdsByOption));
+                .and(hasSkuFilter(minPrice, maxPrice, inStock, optionValueIdsByOption, now));
     }
 
     public Specification<Product> storefrontVisibility() {
@@ -166,6 +168,72 @@ public class ProductSpecification extends BasicSpecification<Product> {
 
     public Specification<Product> hasPriceInRange(BigDecimal minPrice, BigDecimal maxPrice, Instant now) {
         return (root, query, cb) -> eligibleVariantExists(root, query, cb, minPrice, maxPrice, now);
+    }
+
+    private Specification<Product> hasSkuFilter(
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            Boolean inStock,
+            Map<Long, List<Long>> optionValueIdsByOption,
+            Instant now) {
+        boolean hasVariantFilter = minPrice != null
+                || maxPrice != null
+                || (optionValueIdsByOption != null && !optionValueIdsByOption.isEmpty());
+        if (!hasVariantFilter) {
+            return hasPriceInRange(minPrice, maxPrice, now)
+                    .and(isInStock(inStock))
+                    .and(hasMatchingActiveVariant(optionValueIdsByOption));
+        }
+
+        return (root, query, cb) -> {
+            var subquery = query.subquery(Long.class);
+            var variant = subquery.from(ProductVariant.class);
+            List<jakarta.persistence.criteria.Predicate> predicates = new java.util.ArrayList<>();
+            predicates.add(cb.equal(variant.get("product").get("id"), root.get("id")));
+            predicates.add(cb.equal(variant.get("status"), ProductVariantStatus.ACTIVE));
+            predicates.add(eligibleVariantSelections(cb, query, variant));
+
+            jakarta.persistence.criteria.Expression<BigDecimal> effectivePrice = effectivePrice(cb, variant, now);
+            if (minPrice != null) predicates.add(cb.greaterThanOrEqualTo(effectivePrice, minPrice));
+            if (maxPrice != null) predicates.add(cb.lessThanOrEqualTo(effectivePrice, maxPrice));
+
+            if (optionValueIdsByOption != null && !optionValueIdsByOption.isEmpty()) {
+                predicates.add(hasMatchingSelections(cb, query, variant, optionValueIdsByOption));
+            }
+
+            if (inStock != null) {
+                var balanceQuery = query.subquery(Long.class);
+                var balance = balanceQuery.from(InventoryBalance.class);
+                balanceQuery.select(balance.get("variantId"));
+                balanceQuery.where(
+                        cb.equal(balance.get("variantId"), variant.get("id")),
+                        cb.greaterThan(balance.get("onHand"), balance.get("reserved")));
+                jakarta.persistence.criteria.Predicate available = cb.exists(balanceQuery);
+                predicates.add(inStock ? available : cb.not(available));
+            }
+
+            subquery.select(variant.get("id")).where(predicates.toArray(jakarta.persistence.criteria.Predicate[]::new));
+            return cb.exists(subquery);
+        };
+    }
+
+    private jakarta.persistence.criteria.Predicate hasMatchingSelections(
+            CriteriaBuilder cb,
+            jakarta.persistence.criteria.CriteriaQuery<?> query,
+            jakarta.persistence.criteria.From<?, ProductVariant> variant,
+            Map<Long, List<Long>> optionValueIdsByOption) {
+        List<Long> selectedValueIds =
+                optionValueIdsByOption.values().stream().flatMap(List::stream).toList();
+        var selections = query.subquery(Long.class);
+        var selection = selections.from(ProductVariantSelection.class);
+        selections.select(selection.get("variant").get("id"));
+        selections.where(
+                cb.equal(selection.get("variant").get("id"), variant.get("id")),
+                selection.get("optionValueId").in(selectedValueIds));
+        selections.groupBy(selection.get("variant").get("id"));
+        selections.having(
+                cb.equal(cb.countDistinct(selection.get("id").get("optionId")), (long) optionValueIdsByOption.size()));
+        return cb.exists(selections);
     }
 
     private jakarta.persistence.criteria.Predicate eligibleVariantExists(

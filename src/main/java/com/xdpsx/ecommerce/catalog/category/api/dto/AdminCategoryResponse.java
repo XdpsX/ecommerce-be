@@ -7,13 +7,15 @@ import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
  * {@code status} and the derived
  * {@code effectivelyActive} flag (node and every ancestor stored
  * {@code ACTIVE}), so an admin can see when a
- * stored-active node is hidden from the storefront by an inactive ancestor.
+ * stored-active node is hidden from the storefront by an inactive ancestor. The {@code version} is the token to send
+ * back when updating or deleting this Category.
  */
 public record AdminCategoryResponse(
         Integer id,
         String name,
         String slug,
         CategoryStatus status,
+        Long version,
         boolean effectivelyActive,
         Integer displayOrder,
         String image,

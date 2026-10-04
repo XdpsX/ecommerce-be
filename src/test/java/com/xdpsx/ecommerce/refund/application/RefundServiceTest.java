@@ -3,12 +3,14 @@ package com.xdpsx.ecommerce.refund.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 
 import jakarta.persistence.EntityManager;
@@ -18,6 +20,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.order.domain.Order;
@@ -28,6 +32,7 @@ import com.xdpsx.ecommerce.payment.domain.PaymentStatus;
 import com.xdpsx.ecommerce.payment.persistence.PaymentRepository;
 import com.xdpsx.ecommerce.refund.api.dto.RefundCompleteRequest;
 import com.xdpsx.ecommerce.refund.api.dto.RefundFailRequest;
+import com.xdpsx.ecommerce.refund.api.dto.RefundQueueItemResponse;
 import com.xdpsx.ecommerce.refund.domain.Refund;
 import com.xdpsx.ecommerce.refund.domain.RefundStatus;
 import com.xdpsx.ecommerce.refund.persistence.RefundLockTarget;
@@ -79,17 +84,11 @@ class RefundServiceTest {
                 .requestedBy("customer@example.test")
                 .requestedAt(NOW.atOffset(ZoneOffset.UTC).toLocalDateTime())
                 .build();
-        when(refundRepository.findLockTargetById(9L)).thenReturn(Optional.of(refundLockTarget));
-        when(refundLockTarget.getPaymentId()).thenReturn(5L);
-        when(refundLockTarget.getOrderId()).thenReturn(42L);
-        when(orderRepository.findByIdForUpdateRoot(42L)).thenReturn(Optional.of(order));
-        when(paymentRepository.findByIdForUpdate(5L)).thenReturn(Optional.of(payment));
-        when(refundRepository.findByIdForUpdate(9L)).thenReturn(Optional.of(refund));
-        when(refundRepository.save(any(Refund.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
     void complete_ShouldRecordOutcomeWithoutChangingOriginalPaymentOrAmount() {
+        stubRefundLookup();
         var response = service.complete(9L, new RefundCompleteRequest("  vnp-refund-1  "), "admin@example.test");
 
         assertThat(response.status()).isEqualTo("SUCCEEDED");
@@ -100,7 +99,29 @@ class RefundServiceTest {
     }
 
     @Test
+    void getQueue_ShouldReturnRequestedStatusPageWithOrderContext() {
+        RefundQueueItemResponse item = new RefundQueueItemResponse(
+                9L,
+                42L,
+                "TRK-42",
+                RefundStatus.PENDING,
+                new BigDecimal("100.00"),
+                "VND",
+                "Customer cancellation",
+                NOW.atOffset(ZoneOffset.UTC).toLocalDateTime());
+        when(refundRepository.findQueue(eq(RefundStatus.PENDING), any()))
+                .thenReturn(new PageImpl<>(List.of(item), PageRequest.of(0, 5), 1));
+
+        var page = service.getQueue(RefundStatus.PENDING, 1, 5);
+
+        assertThat(page.data()).containsExactly(item);
+        assertThat(page.meta().totalElements()).isEqualTo(1);
+        assertThat(page.data().get(0).trackingNumber()).isEqualTo("TRK-42");
+    }
+
+    @Test
     void failedRefund_ShouldBeRetryableAndSucceededRefundCannotUseDifferentEvidence() {
+        stubRefundLookup();
         service.fail(9L, new RefundFailRequest("Provider unavailable"), "admin@example.test");
         assertThat(refund.getStatus()).isEqualTo(RefundStatus.FAILED);
 
@@ -114,5 +135,15 @@ class RefundServiceTest {
                 .extracting(exception ->
                         ((ApplicationException) exception).getCode().name())
                 .isEqualTo("MALFORMED_REQUEST");
+    }
+
+    private void stubRefundLookup() {
+        when(refundRepository.findLockTargetById(9L)).thenReturn(Optional.of(refundLockTarget));
+        when(refundLockTarget.getPaymentId()).thenReturn(5L);
+        when(refundLockTarget.getOrderId()).thenReturn(42L);
+        when(orderRepository.findByIdForUpdateRoot(42L)).thenReturn(Optional.of(order));
+        when(paymentRepository.findByIdForUpdate(5L)).thenReturn(Optional.of(payment));
+        when(refundRepository.findByIdForUpdate(9L)).thenReturn(Optional.of(refund));
+        when(refundRepository.save(any(Refund.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 }

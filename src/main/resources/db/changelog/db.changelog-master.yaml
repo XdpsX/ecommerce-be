@@ -47,3 +47,5 @@ databaseChangeLog:
       file: db/changelog/changesets/changeset-23.sql
   - include:
       file: db/changelog/changesets/changeset-24.sql
+  - include:
+      file: db/changelog/changesets/changeset-25.sql

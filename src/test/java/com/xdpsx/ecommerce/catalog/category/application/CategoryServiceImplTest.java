@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -24,6 +23,7 @@ import org.springframework.transaction.support.TransactionOperations;
 import com.xdpsx.ecommerce.catalog.category.api.dto.AdminCategoryResponse;
 import com.xdpsx.ecommerce.catalog.category.api.dto.CategoryTreeResponse;
 import com.xdpsx.ecommerce.catalog.category.api.dto.CreateCategoryRequest;
+import com.xdpsx.ecommerce.catalog.category.api.dto.DeleteCategoryRequest;
 import com.xdpsx.ecommerce.catalog.category.api.dto.MoveCategoryRequest;
 import com.xdpsx.ecommerce.catalog.category.api.dto.ReorderCategoriesRequest;
 import com.xdpsx.ecommerce.catalog.category.api.dto.StorefrontCategoryResponse;
@@ -31,7 +31,6 @@ import com.xdpsx.ecommerce.catalog.category.api.dto.UpdateCategoryRequest;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
-import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.domain.Media;
@@ -85,6 +84,7 @@ class CategoryServiceImplTest {
                 .slug(slug)
                 .status(CategoryStatus.INACTIVE)
                 .displayOrder(displayOrder)
+                .version(0L)
                 .build();
     }
 
@@ -285,15 +285,12 @@ class CategoryServiceImplTest {
     void updateCategory_ShouldKeepSlug_WhenNameChangesWithoutExplicitSlug() {
         // Arrange
         int categoryId = 1;
-        LocalDateTime updatedAt = LocalDateTime.now().minusDays(1);
         Category category = category(categoryId, "Shoes", "shoes", 0);
-        category.setUpdatedAt(updatedAt);
-        UpdateCategoryRequest request =
-                new UpdateCategoryRequest("Sneakers", CategoryStatus.ACTIVE, null, null, updatedAt.plusMinutes(1));
+        UpdateCategoryRequest request = new UpdateCategoryRequest("Sneakers", CategoryStatus.ACTIVE, null, null, 0L);
 
         when(categoryRepository.findByIdForUpdate(categoryId)).thenReturn(Optional.of(category));
         when(categoryRepository.existsByName("Sneakers")).thenReturn(false);
-        when(categoryRepository.save(any(Category.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(categoryRepository.saveAndFlush(any(Category.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // Act
         AdminCategoryResponse response = categoryService.updateCategory(categoryId, request);
@@ -306,18 +303,33 @@ class CategoryServiceImplTest {
     }
 
     @Test
+    void updateCategory_ShouldRejectStaleVersionBeforeChangingCategory() {
+        int categoryId = 1;
+        Category category = category(categoryId, "Shoes", "shoes", 0);
+        category.setVersion(2L);
+        when(categoryRepository.findByIdForUpdate(categoryId)).thenReturn(Optional.of(category));
+
+        ApplicationException exception = assertThrows(
+                ApplicationException.class,
+                () -> categoryService.updateCategory(
+                        categoryId, new UpdateCategoryRequest("Sneakers", CategoryStatus.ACTIVE, null, null, 1L)));
+
+        assertEquals(ErrorCode.CONCURRENT_MODIFICATION, exception.getCode());
+        assertEquals("Shoes", category.getName());
+        verify(categoryRepository, never()).saveAndFlush(any(Category.class));
+    }
+
+    @Test
     void updateCategory_ShouldChangeSlug_WhenExplicitSlugIsValidAndUnique() {
         // Arrange
         int categoryId = 1;
-        LocalDateTime updatedAt = LocalDateTime.now().minusDays(1);
         Category category = category(categoryId, "Shoes", "shoes", 0);
-        category.setUpdatedAt(updatedAt);
-        UpdateCategoryRequest request = new UpdateCategoryRequest(
-                "Shoes", CategoryStatus.ACTIVE, "giay-the-thao", null, updatedAt.plusMinutes(1));
+        UpdateCategoryRequest request =
+                new UpdateCategoryRequest("Shoes", CategoryStatus.ACTIVE, "giay-the-thao", null, 0L);
 
         when(categoryRepository.findByIdForUpdate(categoryId)).thenReturn(Optional.of(category));
         when(categoryRepository.existsBySlug("giay-the-thao")).thenReturn(false);
-        when(categoryRepository.save(any(Category.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(categoryRepository.saveAndFlush(any(Category.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // Act
         AdminCategoryResponse response = categoryService.updateCategory(categoryId, request);
@@ -331,7 +343,6 @@ class CategoryServiceImplTest {
         // Arrange: the category already has a parent and an order that the metadata
         // update must preserve.
         int categoryId = 5;
-        LocalDateTime updatedAt = LocalDateTime.now().minusDays(1);
         Category parent = Category.builder()
                 .id(9)
                 .name("Retired")
@@ -339,19 +350,17 @@ class CategoryServiceImplTest {
                 .build();
         Category category = category(categoryId, "Shoes", "shoes", 4);
         category.setParent(parent);
-        category.setUpdatedAt(updatedAt);
-        UpdateCategoryRequest request =
-                new UpdateCategoryRequest("Shoes", CategoryStatus.ACTIVE, null, null, updatedAt.plusMinutes(1));
+        UpdateCategoryRequest request = new UpdateCategoryRequest("Shoes", CategoryStatus.ACTIVE, null, null, 0L);
 
         when(categoryRepository.findByIdForUpdate(categoryId)).thenReturn(Optional.of(category));
-        when(categoryRepository.save(any(Category.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(categoryRepository.saveAndFlush(any(Category.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // Act
         categoryService.updateCategory(categoryId, request);
 
         // Assert
         ArgumentCaptor<Category> captor = ArgumentCaptor.forClass(Category.class);
-        verify(categoryRepository).save(captor.capture());
+        verify(categoryRepository).saveAndFlush(captor.capture());
         assertSame(parent, captor.getValue().getParent());
         assertEquals(4, captor.getValue().getDisplayOrder());
         // Moving a node requires the dedicated operation, so update never locks or
@@ -366,8 +375,6 @@ class CategoryServiceImplTest {
         int categoryId = 1;
         String oldImageId = "old-media";
         String newImageId = "new-media";
-        LocalDateTime updatedAt = LocalDateTime.now().minusDays(1);
-
         Media oldImage = Media.builder()
                 .id(oldImageId)
                 .purpose(MediaPurpose.CATEGORY_IMAGE)
@@ -380,15 +387,13 @@ class CategoryServiceImplTest {
                 .build();
         Category category = category(categoryId, "Shoes", "shoes", 0);
         category.setImage(oldImage);
-        category.setUpdatedAt(updatedAt);
 
-        UpdateCategoryRequest request =
-                new UpdateCategoryRequest("Shoes", CategoryStatus.ACTIVE, null, newImageId, updatedAt.plusMinutes(1));
+        UpdateCategoryRequest request = new UpdateCategoryRequest("Shoes", CategoryStatus.ACTIVE, null, newImageId, 0L);
 
         when(categoryRepository.findByIdForUpdate(categoryId)).thenReturn(Optional.of(category));
         when(mediaRepository.findAttachableById(newImageId, MediaPurpose.CATEGORY_IMAGE))
                 .thenReturn(Optional.of(newImage));
-        when(categoryRepository.save(any(Category.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(categoryRepository.saveAndFlush(any(Category.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // Act
         categoryService.updateCategory(categoryId, request);
@@ -398,7 +403,7 @@ class CategoryServiceImplTest {
         assertEquals(MediaStatus.ACTIVE, newImage.getStatus());
 
         ArgumentCaptor<Category> captor = ArgumentCaptor.forClass(Category.class);
-        verify(categoryRepository).save(captor.capture());
+        verify(categoryRepository).saveAndFlush(captor.capture());
         assertSame(newImage, captor.getValue().getImage());
         verify(mediaRepository, times(2)).save(any(Media.class));
     }
@@ -632,9 +637,7 @@ class CategoryServiceImplTest {
     void deleteCategory_ShouldReject_WhenCategoryStillHasChildren() {
         // Arrange
         int categoryId = 1;
-        LocalDateTime updatedAt = LocalDateTime.now().minusDays(1);
         Category category = category(categoryId, "Shoes", "shoes", 0);
-        category.setUpdatedAt(updatedAt);
 
         when(categoryRepository.findByIdForUpdate(categoryId)).thenReturn(Optional.of(category));
         when(categoryRepository.existsByParentId(categoryId)).thenReturn(true);
@@ -642,7 +645,7 @@ class CategoryServiceImplTest {
         // Act & Assert
         ApplicationException exception = assertThrows(
                 ApplicationException.class,
-                () -> categoryService.deleteCategory(categoryId, new ModifyExclusiveDTO(updatedAt.plusMinutes(1))));
+                () -> categoryService.deleteCategory(categoryId, new DeleteCategoryRequest(0L)));
 
         assertEquals(ErrorCode.RESOURCE_IN_USE, exception.getCode());
         verify(categoryRepository, never()).countCategoriesInOtherTables(any());
@@ -650,15 +653,29 @@ class CategoryServiceImplTest {
     }
 
     @Test
+    void deleteCategory_ShouldRejectStaleVersionBeforeCheckingReferences() {
+        int categoryId = 1;
+        Category category = category(categoryId, "Shoes", "shoes", 0);
+        category.setVersion(2L);
+        when(categoryRepository.findByIdForUpdate(categoryId)).thenReturn(Optional.of(category));
+
+        ApplicationException exception = assertThrows(
+                ApplicationException.class,
+                () -> categoryService.deleteCategory(categoryId, new DeleteCategoryRequest(1L)));
+
+        assertEquals(ErrorCode.CONCURRENT_MODIFICATION, exception.getCode());
+        verify(categoryRepository, never()).existsByParentId(any());
+        verify(categoryRepository, never()).delete(any(Category.class));
+    }
+
+    @Test
     void deleteCategory_ShouldCloseTheGapInTheSiblingOrder() {
         // Arrange: deleting the middle node leaves orders 0 and 2 in the group.
         int categoryId = 2;
-        LocalDateTime updatedAt = LocalDateTime.now().minusDays(1);
         Category parent = Category.builder().id(10).name("Electronics").build();
         Category first = category(1, "A", "a", 0);
         Category middle = category(categoryId, "B", "b", 1);
         middle.setParent(parent);
-        middle.setUpdatedAt(updatedAt);
         Category last = category(3, "C", "c", 2);
 
         when(categoryRepository.findByIdForUpdate(categoryId)).thenReturn(Optional.of(middle));
@@ -667,7 +684,7 @@ class CategoryServiceImplTest {
         when(categoryRepository.findChildrenForUpdate(10)).thenReturn(new ArrayList<>(List.of(first, middle, last)));
 
         // Act
-        categoryService.deleteCategory(categoryId, new ModifyExclusiveDTO(updatedAt.plusMinutes(1)));
+        categoryService.deleteCategory(categoryId, new DeleteCategoryRequest(0L));
 
         // Assert
         assertEquals(List.of(0, 1), orders(List.of(first, last)));
@@ -678,7 +695,6 @@ class CategoryServiceImplTest {
     void deleteCategory_ShouldMarkImagePendingDeletionAndDelete() {
         // Arrange
         int categoryId = 1;
-        LocalDateTime updatedAt = LocalDateTime.now().minusDays(1);
         Media image = Media.builder()
                 .id("media-id")
                 .purpose(MediaPurpose.CATEGORY_IMAGE)
@@ -686,7 +702,6 @@ class CategoryServiceImplTest {
                 .build();
         Category category = category(categoryId, "Shoes", "shoes", 0);
         category.setImage(image);
-        category.setUpdatedAt(updatedAt);
 
         when(categoryRepository.findByIdForUpdate(categoryId)).thenReturn(Optional.of(category));
         when(categoryRepository.existsByParentId(categoryId)).thenReturn(false);
@@ -694,7 +709,7 @@ class CategoryServiceImplTest {
         when(categoryRepository.findRootsForUpdate()).thenReturn(new ArrayList<>(List.of(category)));
 
         // Act
-        categoryService.deleteCategory(categoryId, new ModifyExclusiveDTO(updatedAt.plusMinutes(1)));
+        categoryService.deleteCategory(categoryId, new DeleteCategoryRequest(0L));
 
         // Assert
         assertEquals(MediaStatus.PENDING_DELETE, image.getStatus());

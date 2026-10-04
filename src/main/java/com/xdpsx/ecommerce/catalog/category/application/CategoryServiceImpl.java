@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import org.hibernate.Hibernate;
@@ -20,7 +21,6 @@ import com.xdpsx.ecommerce.catalog.category.domain.CategorySlug;
 import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategorySpecification;
-import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
 import com.xdpsx.ecommerce.catalog.shared.application.PageMapper;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
@@ -333,9 +333,7 @@ public class CategoryServiceImpl implements CategoryService {
         // entity, so an update that read
         // the
         // row before a concurrent move would write the old parent/displayOrder back
-        // over it. lastRetrievedAt is a
-        // pre-mutation check, not atomic optimistic locking. The hierarchy anchor is
-        // what serializes update against
+        // over it. The hierarchy anchor serializes update against
         // move; locking the row as well keeps this operation correct on its own if the
         // anchor strategy ever changes.
         categoryHierarchy.lockHierarchy();
@@ -344,7 +342,7 @@ public class CategoryServiceImpl implements CategoryService {
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", id)));
 
-        if (category.getUpdatedAt() != null && !request.lastRetrievedAt().isAfter(category.getUpdatedAt())) {
+        if (!Objects.equals(category.getVersion(), request.version())) {
             throw new ApplicationException(
                     ErrorCode.CONCURRENT_MODIFICATION, Map.of("resourceType", "category", "resourceId", id));
         }
@@ -377,26 +375,27 @@ public class CategoryServiceImpl implements CategoryService {
 
         updateCategoryImage(category, request.imageId());
 
-        Category savedCategory = categoryRepository.save(category);
+        // Flush before mapping so the response carries the version incremented by Hibernate.
+        Category savedCategory = categoryRepository.saveAndFlush(category);
         return CategoryMapper.INSTANCE.toAdminCategoryResponse(savedCategory);
     }
 
     @Override
-    public void deleteCategory(Integer id, ModifyExclusiveDTO request) {
+    public void deleteCategory(Integer id, DeleteCategoryRequest request) {
         categoryHierarchy.executeWithRetry(() -> transactionOperations.execute(status -> {
             deleteCategoryAttempt(id, request);
             return null;
         }));
     }
 
-    private void deleteCategoryAttempt(Integer id, ModifyExclusiveDTO request) {
+    private void deleteCategoryAttempt(Integer id, DeleteCategoryRequest request) {
         categoryHierarchy.lockHierarchy();
 
         Category category = categoryRepository
                 .findByIdForUpdate(id)
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", id)));
-        if (!request.lastRetrievedAt().isAfter(category.getUpdatedAt())) {
+        if (!Objects.equals(category.getVersion(), request.version())) {
             throw new ApplicationException(
                     ErrorCode.CONCURRENT_MODIFICATION, Map.of("resourceType", "category", "resourceId", id));
         }

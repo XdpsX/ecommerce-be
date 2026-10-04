@@ -11,7 +11,6 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -27,7 +26,6 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import com.xdpsx.ecommerce.catalog.category.api.dto.*;
 import com.xdpsx.ecommerce.catalog.category.application.CategoryService;
 import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
-import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.testsupport.SecurityConfigForControllerTests;
 
@@ -78,11 +76,11 @@ class CategoryAdminSecurityTest {
 
     private String updateBody() throws Exception {
         return objectMapper.writeValueAsString(
-                new UpdateCategoryRequest("Laptops", CategoryStatus.ACTIVE, null, null, LocalDateTime.now()));
+                new UpdateCategoryRequest("Laptops", CategoryStatus.ACTIVE, null, null, 0L));
     }
 
     private String deleteBody() throws Exception {
-        return objectMapper.writeValueAsString(new ModifyExclusiveDTO(LocalDateTime.now()));
+        return objectMapper.writeValueAsString(new DeleteCategoryRequest(0L));
     }
 
     private String moveBody() throws Exception {
@@ -236,6 +234,7 @@ class CategoryAdminSecurityTest {
                 "Laptops",
                 "laptops",
                 CategoryStatus.ACTIVE,
+                4L,
                 true,
                 2,
                 null,
@@ -248,6 +247,7 @@ class CategoryAdminSecurityTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(moveBody()))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.version").value(4))
                 .andExpect(jsonPath("$.displayOrder").value(2))
                 .andExpect(jsonPath("$.parent.id").value(7));
     }
@@ -319,7 +319,7 @@ class CategoryAdminSecurityTest {
     @Test
     void createCategory_ShouldReturnCreated_WithLocationHeader() throws Exception {
         AdminCategoryResponse response =
-                new AdminCategoryResponse(3, "Laptops", "laptops", CategoryStatus.ACTIVE, true, 2, null, null);
+                new AdminCategoryResponse(3, "Laptops", "laptops", CategoryStatus.ACTIVE, 0L, true, 2, null, null);
         when(categoryService.createCategory(any(CreateCategoryRequest.class))).thenReturn(response);
 
         mockMvc.perform(post("/admin/categories")
@@ -329,13 +329,14 @@ class CategoryAdminSecurityTest {
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", "/admin/categories/3"))
                 .andExpect(jsonPath("$.slug").value("laptops"))
-                .andExpect(jsonPath("$.status").value("ACTIVE"));
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.version").value(0));
     }
 
     @Test
     void updateCategory_ShouldReturnUpdatedCategory() throws Exception {
         AdminCategoryResponse response =
-                new AdminCategoryResponse(3, "Laptops", "laptops", CategoryStatus.INACTIVE, false, 2, null, null);
+                new AdminCategoryResponse(3, "Laptops", "laptops", CategoryStatus.INACTIVE, 1L, false, 2, null, null);
         when(categoryService.updateCategory(anyInt(), any(UpdateCategoryRequest.class)))
                 .thenReturn(response);
 
@@ -344,7 +345,8 @@ class CategoryAdminSecurityTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("INACTIVE"));
+                .andExpect(jsonPath("$.status").value("INACTIVE"))
+                .andExpect(jsonPath("$.version").value(1));
     }
 
     @Test
@@ -359,7 +361,7 @@ class CategoryAdminSecurityTest {
     @Test
     void updateCategory_ShouldRejectMalformedExplicitSlug() throws Exception {
         String body = """
-					{"name":"Laptops","status":"ACTIVE","slug":"Not Normalized","lastRetrievedAt":"2026-01-01T00:00:00"}
+					{"name":"Laptops","status":"ACTIVE","slug":"Not Normalized","version":0}
 				""";
 
         mockMvc.perform(put("/admin/categories/3")
@@ -376,11 +378,11 @@ class CategoryAdminSecurityTest {
         // The parent is no longer part of the update contract; an old client payload
         // must not change the hierarchy.
         AdminCategoryResponse response =
-                new AdminCategoryResponse(3, "Laptops", "laptops", CategoryStatus.ACTIVE, true, 2, null, null);
+                new AdminCategoryResponse(3, "Laptops", "laptops", CategoryStatus.ACTIVE, 0L, true, 2, null, null);
         when(categoryService.updateCategory(anyInt(), any(UpdateCategoryRequest.class)))
                 .thenReturn(response);
         String body = """
-					{"name":"Laptops","status":"ACTIVE","parentId":99,"lastRetrievedAt":"2026-01-01T00:00:00"}
+					{"name":"Laptops","status":"ACTIVE","parentId":99,"version":0}
 				""";
 
         mockMvc.perform(put("/admin/categories/3")
@@ -390,13 +392,6 @@ class CategoryAdminSecurityTest {
                 .andExpect(status().isOk());
 
         verify(categoryService)
-                .updateCategory(
-                        eq(3),
-                        eq(new UpdateCategoryRequest(
-                                "Laptops",
-                                CategoryStatus.ACTIVE,
-                                null,
-                                null,
-                                LocalDateTime.parse("2026-01-01T00:00:00"))));
+                .updateCategory(eq(3), eq(new UpdateCategoryRequest("Laptops", CategoryStatus.ACTIVE, null, null, 0L)));
     }
 }

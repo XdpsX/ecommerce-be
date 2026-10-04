@@ -45,6 +45,17 @@ public abstract class ProductMapper {
     }
 
     public AdminProductSummaryResponse toAdminSummary(Product entity, boolean inStock) {
+        return toAdminSummary(entity, inStock, null, null, 0, 0, 0);
+    }
+
+    public AdminProductSummaryResponse toAdminSummary(
+            Product entity,
+            boolean inStock,
+            java.math.BigDecimal minimumPrice,
+            java.math.BigDecimal maximumPrice,
+            long onHand,
+            long reserved,
+            long available) {
         return new AdminProductSummaryResponse(
                 entity.getId(),
                 entity.getName(),
@@ -53,7 +64,12 @@ public abstract class ProductMapper {
                 entity.isPublished(),
                 mainImage(entity),
                 adminCategory(entity),
-                adminBrand(entity));
+                adminBrand(entity),
+                minimumPrice,
+                maximumPrice,
+                onHand,
+                reserved,
+                available);
     }
 
     public StorefrontProductDetailResponse toStorefrontDetail(

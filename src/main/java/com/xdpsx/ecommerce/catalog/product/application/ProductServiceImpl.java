@@ -24,6 +24,7 @@ import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
 import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
 import com.xdpsx.ecommerce.catalog.brand.persistence.BrandRepository;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
+import com.xdpsx.ecommerce.catalog.category.domain.CategorySlug;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.product.api.dto.*;
 import com.xdpsx.ecommerce.catalog.product.domain.Product;
@@ -146,13 +147,29 @@ public class ProductServiceImpl implements ProductService {
     @Transactional(readOnly = true)
     @Override
     public PageResponse<AdminProductSummaryResponse> getAdminProducts(AdminProductFilter filter) {
+        Instant now = now();
         Page<Product> page = productRepository.findAll(
-                spec.getAdminFiltersSpec(filter.getSearch(), filter.getSort(), filter.getHasPublished()),
+                spec.getAdminFiltersSpec(filter.getSearch(), filter.getSort(), filter.getHasPublished(), now),
                 PageRequest.of(filter.getPageNum() - 1, filter.getPageSize()));
         loadImages(page.getContent());
-        Set<Long> availableProductIds = adminAvailableProductIds(page.getContent());
-        return PageMapper.toPageResponse(
-                page, product -> productMapper.toAdminSummary(product, availableProductIds.contains(product.getId())));
+        Map<Long, ProductVariantRepository.PriceRangeView> priceRanges = loadAdminPriceRanges(page.getContent(), now);
+        Map<Long, InventoryBalanceRepository.ProductInventoryTotals> inventoryTotals =
+                loadAdminInventoryTotals(page.getContent());
+        return PageMapper.toPageResponse(page, product -> {
+            ProductVariantRepository.PriceRangeView priceRange = priceRanges.get(product.getId());
+            InventoryBalanceRepository.ProductInventoryTotals inventory = inventoryTotals.get(product.getId());
+            long onHand = inventory == null ? 0 : inventory.getOnHand();
+            long reserved = inventory == null ? 0 : inventory.getReserved();
+            long available = inventory == null ? 0 : inventory.getAvailable();
+            return productMapper.toAdminSummary(
+                    product,
+                    available > 0,
+                    priceRange == null ? null : priceRange.getMinimumPrice(),
+                    priceRange == null ? null : priceRange.getMaximumPrice(),
+                    onHand,
+                    reserved,
+                    available);
+        });
     }
 
     @Transactional(readOnly = true)
@@ -171,15 +188,17 @@ public class ProductServiceImpl implements ProductService {
     @Transactional
     @Override
     public AdminProductSummaryResponse createProduct(ProductCreateRequest request) {
-        if (productRepository.existsBySlug(request.getSlug())) {
+        String slug = normalizeSlug(request.getSlug());
+        if (productRepository.existsBySlug(slug)) {
             throw new ApplicationException(
                     ErrorCode.RESOURCE_ALREADY_EXISTS,
-                    Map.of("resourceType", "product", "field", "slug", "value", request.getSlug()));
+                    Map.of("resourceType", "product", "field", "slug", "value", slug));
         }
         Category category = requireEffectivelyActiveCategory(request.getCategoryId());
         Brand brand = requireActiveBrand(request.getBrandId());
         List<Media> media = resolveNewMedia(request.getImageIds());
         Product product = productMapper.fromCreateRequestToEntity(request);
+        product.setSlug(slug);
         product.setCategory(category);
         product.setBrand(brand);
         replaceImages(product, media);
@@ -204,12 +223,13 @@ public class ProductServiceImpl implements ProductService {
         product.setName(request.getName());
         product.setDescription(request.getDescription());
         if (!Objects.equals(request.getSlug(), product.getSlug())) {
-            if (productRepository.existsBySlug(request.getSlug())) {
+            String slug = normalizeSlug(request.getSlug());
+            if (!Objects.equals(slug, product.getSlug()) && productRepository.existsBySlug(slug)) {
                 throw new ApplicationException(
                         ErrorCode.RESOURCE_ALREADY_EXISTS,
-                        Map.of("resourceType", "product", "field", "slug", "value", request.getSlug()));
+                        Map.of("resourceType", "product", "field", "slug", "value", slug));
             }
-            product.setSlug(request.getSlug());
+            product.setSlug(slug);
         }
         product.setCategory(targetCategory);
         product.setBrand(targetBrand);
@@ -227,8 +247,7 @@ public class ProductServiceImpl implements ProductService {
                     .forEach(Media::activate);
         }
         Product saved = productRepository.save(product);
-        return productMapper.toAdminSummary(
-                saved, !adminAvailableProductIds(List.of(saved)).isEmpty());
+        return toAdminSummaryWithInventory(saved);
     }
 
     @Transactional
@@ -264,7 +283,15 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public Map<String, Boolean> getSlugAvailability(String slug) {
-        return Map.of("slugExists", productRepository.existsBySlug(slug));
+        return Map.of("slugExists", productRepository.existsBySlug(normalizeSlug(slug)));
+    }
+
+    private static String normalizeSlug(String slug) {
+        String normalized = CategorySlug.normalize(slug);
+        if (normalized.isEmpty()) {
+            throw new ApplicationException(ErrorCode.INVALID_PRODUCT_SLUG, Map.of("field", "slug"));
+        }
+        return normalized;
     }
 
     private List<Media> resolveNewMedia(List<String> imageIds) {
@@ -378,10 +405,44 @@ public class ProductServiceImpl implements ProductService {
                 products.stream().map(Product::getId).toList()));
     }
 
-    private Set<Long> adminAvailableProductIds(List<Product> products) {
-        if (products.isEmpty()) return Set.of();
-        return new HashSet<>(inventoryBalanceRepository.findAvailableAdminProductIdsByProductIds(
-                products.stream().map(Product::getId).toList()));
+    private Map<Long, ProductVariantRepository.PriceRangeView> loadAdminPriceRanges(
+            List<Product> products, Instant now) {
+        List<Long> ids = productIds(products);
+        if (ids.isEmpty()) return Map.of();
+        return productVariantRepository.findAdminPriceRanges(ids, now).stream()
+                .collect(Collectors.toMap(ProductVariantRepository.PriceRangeView::getProductId, item -> item));
+    }
+
+    private Map<Long, InventoryBalanceRepository.ProductInventoryTotals> loadAdminInventoryTotals(
+            List<Product> products) {
+        List<Long> ids = productIds(products);
+        if (ids.isEmpty()) return Map.of();
+        return inventoryBalanceRepository.findActiveProductInventoryTotals(ids).stream()
+                .collect(Collectors.toMap(
+                        InventoryBalanceRepository.ProductInventoryTotals::getProductId, item -> item));
+    }
+
+    private AdminProductSummaryResponse toAdminSummaryWithInventory(Product product) {
+        Map<Long, ProductVariantRepository.PriceRangeView> priceRanges = loadAdminPriceRanges(List.of(product), now());
+        Map<Long, InventoryBalanceRepository.ProductInventoryTotals> totals =
+                loadAdminInventoryTotals(List.of(product));
+        ProductVariantRepository.PriceRangeView priceRange = priceRanges.get(product.getId());
+        InventoryBalanceRepository.ProductInventoryTotals inventory = totals.get(product.getId());
+        long onHand = inventory == null ? 0 : inventory.getOnHand();
+        long reserved = inventory == null ? 0 : inventory.getReserved();
+        long available = inventory == null ? 0 : inventory.getAvailable();
+        return productMapper.toAdminSummary(
+                product,
+                available > 0,
+                priceRange == null ? null : priceRange.getMinimumPrice(),
+                priceRange == null ? null : priceRange.getMaximumPrice(),
+                onHand,
+                reserved,
+                available);
+    }
+
+    private static List<Long> productIds(List<Product> products) {
+        return products.stream().map(Product::getId).toList();
     }
 
     private VariantMatrix loadVariantMatrix(Long productId, boolean storefront, Instant now) {

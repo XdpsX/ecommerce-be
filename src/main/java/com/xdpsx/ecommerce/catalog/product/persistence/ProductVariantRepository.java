@@ -46,6 +46,17 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
     List<PriceRangeView> findEligiblePriceRanges(
             @Param("productIds") Collection<Long> productIds, @Param("now") Instant now);
 
+    @Query("SELECT v.product.id AS productId, "
+            + "MIN(CASE WHEN v.salePrice IS NOT NULL AND v.saleStartsAt <= :now AND :now < v.saleEndsAt "
+            + "THEN v.salePrice ELSE v.basePrice END) AS minimumPrice, "
+            + "MAX(CASE WHEN v.salePrice IS NOT NULL AND v.saleStartsAt <= :now AND :now < v.saleEndsAt "
+            + "THEN v.salePrice ELSE v.basePrice END) AS maximumPrice "
+            + "FROM ProductVariant v WHERE v.product.id IN :productIds "
+            + "AND v.status = com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus.ACTIVE "
+            + "GROUP BY v.product.id")
+    List<PriceRangeView> findAdminPriceRanges(
+            @Param("productIds") Collection<Long> productIds, @Param("now") Instant now);
+
     default List<PriceRangeView> findEligiblePriceRanges(Collection<Long> productIds) {
         return findEligiblePriceRanges(productIds, Instant.now());
     }

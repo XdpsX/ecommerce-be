@@ -3,7 +3,6 @@ package com.xdpsx.ecommerce.catalog.category.application;
 import java.util.List;
 
 import com.xdpsx.ecommerce.catalog.category.api.dto.*;
-import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 
 /**
@@ -56,5 +55,5 @@ public interface CategoryService {
      */
     void reorderCategories(ReorderCategoriesRequest request);
 
-    void deleteCategory(Integer id, ModifyExclusiveDTO request);
+    void deleteCategory(Integer id, DeleteCategoryRequest request);
 }

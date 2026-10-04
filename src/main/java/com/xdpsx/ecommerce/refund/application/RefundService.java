@@ -8,19 +8,24 @@ import java.util.Map;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
+import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.order.domain.Order;
 import com.xdpsx.ecommerce.order.persistence.OrderRepository;
 import com.xdpsx.ecommerce.payment.domain.Payment;
 import com.xdpsx.ecommerce.payment.persistence.PaymentRepository;
 import com.xdpsx.ecommerce.refund.api.dto.RefundCompleteRequest;
 import com.xdpsx.ecommerce.refund.api.dto.RefundFailRequest;
+import com.xdpsx.ecommerce.refund.api.dto.RefundQueueItemResponse;
 import com.xdpsx.ecommerce.refund.api.dto.RefundResponse;
 import com.xdpsx.ecommerce.refund.domain.Refund;
+import com.xdpsx.ecommerce.refund.domain.RefundStatus;
 import com.xdpsx.ecommerce.refund.persistence.RefundLockTarget;
 import com.xdpsx.ecommerce.refund.persistence.RefundRepository;
 import com.xdpsx.ecommerce.user.domain.EmailIdentity;
@@ -39,6 +44,13 @@ public class RefundService {
     @Transactional(readOnly = true)
     public RefundResponse get(Long refundId) {
         return toResponse(refundRepository.findByIdWithPaymentAndOrder(refundId).orElseThrow(() -> notFound(refundId)));
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<RefundQueueItemResponse> getQueue(RefundStatus status, int pageNum, int pageSize) {
+        Page<RefundQueueItemResponse> page = refundRepository.findQueue(status, PageRequest.of(pageNum - 1, pageSize));
+        return PageResponse.of(
+                page.getContent(), page.getNumber() + 1, page.getSize(), page.getTotalElements(), page.getTotalPages());
     }
 
     @Transactional

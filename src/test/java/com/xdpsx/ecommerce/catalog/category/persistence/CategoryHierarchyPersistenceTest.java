@@ -3,7 +3,6 @@ package com.xdpsx.ecommerce.catalog.category.persistence;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CyclicBarrier;
@@ -21,6 +20,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
@@ -32,14 +32,18 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
 
+import com.xdpsx.ecommerce.catalog.category.api.dto.AdminCategoryResponse;
 import com.xdpsx.ecommerce.catalog.category.api.dto.CreateCategoryRequest;
 import com.xdpsx.ecommerce.catalog.category.api.dto.MoveCategoryRequest;
+import com.xdpsx.ecommerce.catalog.category.api.dto.ReorderCategoriesRequest;
 import com.xdpsx.ecommerce.catalog.category.api.dto.UpdateCategoryRequest;
 import com.xdpsx.ecommerce.catalog.category.application.CategoryHierarchy;
 import com.xdpsx.ecommerce.catalog.category.application.CategoryService;
 import com.xdpsx.ecommerce.catalog.category.application.CategoryServiceImpl;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
+import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 import com.xdpsx.ecommerce.testsupport.MySqlTestContainerFactory;
 
@@ -197,6 +201,59 @@ class CategoryHierarchyPersistenceTest {
         });
     }
 
+    private Long version(Integer categoryId) {
+        return transactionTemplate.execute(
+                status -> categoryRepository.findById(categoryId).orElseThrow().getVersion());
+    }
+
+    @Test
+    void categoryVersion_ShouldStartAtZeroAndAdvanceForMetadataMoveAndReorderWrites() {
+        Integer parentId = persist("Version Parent", 0, null);
+        Integer otherRootId = persist("Version Other Root", 1, null);
+        Integer firstChildId = persist("Version First Child", 0, parentId);
+        Integer secondChildId = persist("Version Second Child", 1, parentId);
+
+        assertThat(version(parentId)).isZero();
+        assertThat(version(otherRootId)).isZero();
+        assertThat(version(firstChildId)).isZero();
+        assertThat(version(secondChildId)).isZero();
+
+        AdminCategoryResponse updated = categoryService.updateCategory(
+                firstChildId,
+                new UpdateCategoryRequest("Version First Child Renamed", CategoryStatus.ACTIVE, null, null, 0L));
+        assertThat(updated.version()).isEqualTo(1L);
+
+        AdminCategoryResponse moved = categoryService.moveCategory(secondChildId, new MoveCategoryRequest(null, 0));
+        assertThat(moved.version()).isEqualTo(1L);
+        assertThat(version(parentId)).isEqualTo(1L); // Shifted from root position 0 to 1.
+        assertThat(version(otherRootId)).isEqualTo(1L); // Shifted from root position 1 to 2.
+        assertThat(version(firstChildId)).isEqualTo(1L); // Metadata update above.
+
+        categoryService.reorderCategories(
+                new ReorderCategoriesRequest(null, List.of(otherRootId, secondChildId, parentId)));
+
+        assertThat(version(otherRootId)).isEqualTo(2L);
+        assertThat(version(secondChildId)).isEqualTo(2L);
+        assertThat(version(parentId)).isEqualTo(2L);
+    }
+
+    @Test
+    void categoryVersion_ShouldRejectAStaleDatabaseWrite() {
+        Integer categoryId = persist("Versioned Category", 0, null);
+        Category stale = transactionTemplate.execute(
+                status -> categoryRepository.findById(categoryId).orElseThrow());
+
+        categoryService.updateCategory(
+                categoryId, new UpdateCategoryRequest("Updated Category", CategoryStatus.ACTIVE, null, null, 0L));
+        stale.setName("Stale Rename");
+
+        assertThatThrownBy(() -> transactionTemplate.execute(status -> categoryRepository.saveAndFlush(stale)))
+                .isInstanceOf(ObjectOptimisticLockingFailureException.class);
+        String persistedName = transactionTemplate.execute(
+                status -> categoryRepository.findById(categoryId).orElseThrow().getName());
+        assertThat(persistedName).isEqualTo("Updated Category");
+    }
+
     private List<String> namesOf(List<Category> categories) {
         return categories.stream().map(Category::getName).toList();
     }
@@ -331,13 +388,17 @@ class CategoryHierarchyPersistenceTest {
         Integer parentB = persist("Fashion", 1, null);
         Integer categoryId = persist("Laptops", 0, parentA);
 
-        runConcurrently(() -> moveChild(categoryId, parentB, 0), () -> renameCategory(categoryId, "Laptops Renamed"));
+        List<Integer> outcomes = runConcurrently(
+                () -> moveChild(categoryId, parentB, 0), () -> renameCategory(categoryId, "Laptops Renamed"));
 
         Category persisted = transactionTemplate.execute(
                 status -> categoryRepository.findById(categoryId).orElseThrow());
 
         assertThat(persisted.getParent().getId()).isEqualTo(parentB);
-        assertThat(persisted.getName()).isEqualTo("Laptops Renamed");
+        assertThat(persisted.getName()).isIn("Laptops Renamed", "Laptops");
+        if (persisted.getName().equals("Laptops")) {
+            assertThat(outcomes).contains(-1);
+        }
     }
 
     private Integer moveChild(Integer categoryId, Integer parentId, int position) {
@@ -350,13 +411,18 @@ class CategoryHierarchyPersistenceTest {
     private Integer renameCategory(Integer categoryId, String newName) {
         Category current = transactionTemplate.execute(
                 status -> categoryRepository.findById(categoryId).orElseThrow());
-        // Keep this lock-serialization test independent from the stale-write contract. The
-        // competing move may commit after this helper reads the category but before updateCategory
-        // acquires the hierarchy anchor; a timestamp beyond that short race window lets both valid
-        // writes complete so the assertions can detect a genuinely lost move or rename.
-        UpdateCategoryRequest request = new UpdateCategoryRequest(
-                newName, current.getStatus(), null, null, LocalDateTime.now().plusMinutes(1));
-        return categoryService.updateCategory(categoryId, request).displayOrder();
+        // Use the version read with the category. If a move wins before the update obtains its
+        // lock, the stale update must be rejected instead of writing the old parent back.
+        UpdateCategoryRequest request =
+                new UpdateCategoryRequest(newName, current.getStatus(), null, null, current.getVersion());
+        try {
+            return categoryService.updateCategory(categoryId, request).displayOrder();
+        } catch (ApplicationException exception) {
+            if (exception.getCode() == ErrorCode.CONCURRENT_MODIFICATION) {
+                return -1;
+            }
+            throw exception;
+        }
     }
 
     private Integer createRootCategory(String name) {

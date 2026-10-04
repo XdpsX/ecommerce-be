@@ -11,7 +11,6 @@ import org.springframework.web.bind.annotation.*;
 
 import com.xdpsx.ecommerce.catalog.category.api.dto.*;
 import com.xdpsx.ecommerce.catalog.category.application.CategoryService;
-import com.xdpsx.ecommerce.catalog.shared.api.dto.ModifyExclusiveDTO;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 
 import lombok.RequiredArgsConstructor;
@@ -66,7 +65,7 @@ public class AdminCategoryController implements AdminCategoryApiDocs {
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteCategory(@PathVariable Integer id, @Valid @RequestBody ModifyExclusiveDTO request) {
+    public void deleteCategory(@PathVariable Integer id, @Valid @RequestBody DeleteCategoryRequest request) {
         categoryService.deleteCategory(id, request);
     }
 }

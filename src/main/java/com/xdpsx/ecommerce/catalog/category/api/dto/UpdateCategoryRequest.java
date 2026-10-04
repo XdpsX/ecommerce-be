@@ -1,7 +1,5 @@
 package com.xdpsx.ecommerce.catalog.category.api.dto;
 
-import java.time.LocalDateTime;
-
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -14,7 +12,7 @@ import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
  * reorder operations.
  *
  * <p>Renaming does not change the slug. An explicit {@code slug} is accepted when the caller wants to change the
- * public identifier, and must already be in normalized form.
+ * public identifier, and must already be in normalized form. The {@code version} must match the admin-read version.
  */
 public record UpdateCategoryRequest(
         @NotBlank @Size(max = 128) String name,
@@ -24,4 +22,4 @@ public record UpdateCategoryRequest(
         String slug,
 
         String imageId,
-        @NotNull LocalDateTime lastRetrievedAt) {}
+        @NotNull Long version) {}

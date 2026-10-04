@@ -270,6 +270,7 @@ class CategoryStorefrontPersistenceTest {
         assertThat(byName.get("Electronics").effectivelyActive()).isFalse();
         assertThat(byName.get("Laptops").effectivelyActive()).isFalse();
         assertThat(byName.get("Laptops").status()).isEqualTo(CategoryStatus.ACTIVE);
+        assertThat(byName.get("Laptops").version()).isZero();
         assertThat(byName.get("Fashion").effectivelyActive()).isTrue();
         // The image was fetched, not lazily selected per row.
         assertThat(byName.get("Fashion").image()).isEqualTo("https://example.test/img-fashion");
