@@ -9,7 +9,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import jakarta.persistence.EntityManager;
+
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.xdpsx.ecommerce.common.error.ApplicationException;
@@ -45,22 +48,36 @@ public class OrderCancellationService {
     private final InventoryBalanceRepository inventoryBalanceRepository;
     private final OrderMapper orderMapper;
     private final Clock clock;
+    private final EntityManager entityManager;
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public OrderDetailsDTO cancelForCustomer(String userEmail, Long orderId, CancellationRequest request) {
         User user = userRepository
                 .findByEmail(EmailIdentity.canonicalize(userEmail))
                 .orElseThrow(() -> notFound("user", userEmail));
+        orderRepository
+                .findByIdAndUserIdForUpdateRoot(orderId, user.getId())
+                .orElseThrow(() -> notFound("order", orderId));
+        entityManager.clear();
         Order order = orderRepository
                 .findByIdAndUserIdForUpdate(orderId, user.getId())
                 .orElseThrow(() -> notFound("order", orderId));
+        refreshLockedPaymentState(order);
         return cancel(order, request, EmailIdentity.canonicalize(userEmail), false);
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public OrderDetailsDTO cancelAsAdmin(Long orderId, CancellationRequest request, String actor) {
+        orderRepository.findByIdForUpdateRoot(orderId).orElseThrow(() -> notFound("order", orderId));
+        entityManager.clear();
         Order order = orderRepository.findByIdForUpdate(orderId).orElseThrow(() -> notFound("order", orderId));
+        refreshLockedPaymentState(order);
         return cancel(order, request, normalizeActor(actor), true);
+    }
+
+    private void refreshLockedPaymentState(Order order) {
+        entityManager.refresh(order);
+        if (order.getPayment() != null) entityManager.refresh(order.getPayment());
     }
 
     private OrderDetailsDTO cancel(Order order, CancellationRequest request, String actor, boolean admin) {
@@ -77,9 +94,6 @@ public class OrderCancellationService {
         }
 
         Payment payment = order.getPayment();
-        Refund refund = payment == null
-                ? null
-                : refundRepository.findByPaymentIdForUpdate(payment.getId()).orElse(null);
         boolean unpaid = order.getStatus() == OrderStatus.PENDING_PAYMENT;
         if (unpaid && (payment == null || payment.getStatus() != PaymentStatus.PENDING)) {
             throw new ApplicationException(ErrorCode.MALFORMED_REQUEST, Map.of("reason", "paymentStateMismatch"));
@@ -87,6 +101,8 @@ public class OrderCancellationService {
         if (!unpaid && (payment == null || payment.getStatus() != PaymentStatus.PAID)) {
             throw new ApplicationException(ErrorCode.MALFORMED_REQUEST, Map.of("reason", "paymentStateMismatch"));
         }
+        Refund refund =
+                refundRepository.findByPaymentIdForUpdate(payment.getId()).orElse(null);
 
         Map<Long, InventoryBalance> balances = lockBalances(order);
         try {

@@ -70,6 +70,7 @@ public abstract class OrderMapper {
         if (payment == null || payment.getRefund() == null) return null;
         Refund refund = payment.getRefund();
         RefundSummaryDTO dto = new RefundSummaryDTO();
+        dto.setId(refund.getId());
         dto.setStatus(refund.getStatus().name());
         dto.setAmount(refund.getAmount());
         dto.setCurrency(refund.getCurrency());

@@ -59,10 +59,10 @@ public class Payment {
         paymentDate = paidAt;
     }
 
-    public void markPaidAfterCancellation(PaymentMethod method, LocalDateTime paidAt) {
+    public void markPaidAfterTerminal(PaymentMethod method, LocalDateTime paidAt) {
         if (status == PaymentStatus.PAID) return;
-        if (status != PaymentStatus.CANCELLED) {
-            throw new IllegalStateException("Only a cancelled Payment can become paid after cancellation");
+        if (status != PaymentStatus.CANCELLED && status != PaymentStatus.EXPIRED) {
+            throw new IllegalStateException("Only a cancelled or expired Payment can become paid after terminal state");
         }
         status = PaymentStatus.PAID;
         paymentMethod = method;

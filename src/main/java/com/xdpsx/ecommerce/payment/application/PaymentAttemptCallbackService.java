@@ -10,7 +10,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.xdpsx.ecommerce.common.error.ApplicationException;
@@ -39,6 +43,7 @@ import lombok.RequiredArgsConstructor;
 public class PaymentAttemptCallbackService {
     private static final String LATE_PAYMENT_ACTOR = "payment-callback";
     private static final String LATE_PAYMENT_REASON = "Payment received after order cancellation";
+    private static final String LATE_PAYMENT_EXPIRY_REASON = "Payment received after order expiry";
 
     private final PaymentAttemptRepository paymentAttemptRepository;
     private final OrderRepository orderRepository;
@@ -46,24 +51,30 @@ public class PaymentAttemptCallbackService {
     private final InventoryBalanceRepository inventoryBalanceRepository;
     private final RefundRepository refundRepository;
     private final Clock clock;
+    private final EntityManager entityManager;
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public PaymentCallbackResult process(
             String providerReference,
             BigDecimal amount,
             boolean successful,
             String providerTransactionId,
             String responseCode) {
-        PaymentAttempt reference = paymentAttemptRepository
-                .findByProviderReferenceWithPaymentAndOrder(providerReference)
+        Long orderId = paymentAttemptRepository
+                .findOrderIdByProviderReference(providerReference)
                 .orElseThrow(() -> notFound("paymentAttempt", providerReference));
-        Order order = reference.getPayment().getOrder();
-        Long orderId = order.getId();
 
-        Order lockedOrder = orderRepository.findByIdForUpdate(orderId).orElseThrow(() -> notFound("order", orderId));
+        orderRepository.findByIdForUpdateRoot(orderId).orElseThrow(() -> notFound("order", orderId));
+        entityManager.clear();
         PaymentAttempt attempt = paymentAttemptRepository
                 .findByProviderReferenceForUpdate(providerReference)
                 .orElseThrow(() -> notFound("paymentAttempt", providerReference));
+        if (attempt.getPayment() == null || attempt.getPayment().getOrder() == null) {
+            throw new ApplicationException(ErrorCode.CONCURRENT_MODIFICATION);
+        }
+        Order lockedOrder = attempt.getPayment().getOrder();
+        entityManager.refresh(lockedOrder, LockModeType.PESSIMISTIC_WRITE);
+        entityManager.refresh(attempt.getPayment(), LockModeType.PESSIMISTIC_WRITE);
 
         if (attempt.getExpectedAmount() == null
                 || amount == null
@@ -98,13 +109,19 @@ public class PaymentAttemptCallbackService {
             paymentAttemptRepository.save(attempt);
             return PaymentCallbackResult.ALREADY_CONFIRMED;
         }
-        if (payment.getStatus() == PaymentStatus.CANCELLED || lockedOrder.getStatus() == OrderStatus.CANCELLED) {
-            if (payment.getStatus() != PaymentStatus.CANCELLED || lockedOrder.getStatus() != OrderStatus.CANCELLED) {
+        if (payment.getStatus() == PaymentStatus.CANCELLED
+                || payment.getStatus() == PaymentStatus.EXPIRED
+                || lockedOrder.getStatus() == OrderStatus.CANCELLED
+                || lockedOrder.getStatus() == OrderStatus.PAYMENT_EXPIRED) {
+            boolean cancelled = lockedOrder.getStatus() == OrderStatus.CANCELLED;
+            PaymentStatus expectedPaymentStatus = cancelled ? PaymentStatus.CANCELLED : PaymentStatus.EXPIRED;
+            OrderStatus expectedOrderStatus = cancelled ? OrderStatus.CANCELLED : OrderStatus.PAYMENT_EXPIRED;
+            if (payment.getStatus() != expectedPaymentStatus || lockedOrder.getStatus() != expectedOrderStatus) {
                 throw new ApplicationException(ErrorCode.CONCURRENT_MODIFICATION);
             }
             Instant completedAt = clock.instant();
             LocalDateTime paidAt = LocalDateTime.ofInstant(completedAt, ZoneOffset.UTC);
-            payment.markPaidAfterCancellation(PaymentMethod.VNPAY, paidAt);
+            payment.markPaidAfterTerminal(PaymentMethod.VNPAY, paidAt);
             attempt.markSucceeded(providerTransactionId, responseCode, completedAt);
             createLatePaymentRefund(payment, lockedOrder, paidAt);
             paymentRepository.save(payment);
@@ -151,12 +168,14 @@ public class PaymentAttemptCallbackService {
 
     private void createLatePaymentRefund(Payment payment, Order order, LocalDateTime requestedAt) {
         if (refundRepository.findByPaymentIdForUpdate(payment.getId()).isPresent()) return;
+        String reason =
+                order.getStatus() == OrderStatus.PAYMENT_EXPIRED ? LATE_PAYMENT_EXPIRY_REASON : LATE_PAYMENT_REASON;
         Refund refund = Refund.builder()
                 .payment(payment)
                 .status(RefundStatus.PENDING)
                 .amount(order.getTotalAmount())
                 .currency(order.getCurrency())
-                .reason(LATE_PAYMENT_REASON)
+                .reason(reason)
                 .requestedBy(LATE_PAYMENT_ACTOR)
                 .requestedAt(requestedAt)
                 .build();

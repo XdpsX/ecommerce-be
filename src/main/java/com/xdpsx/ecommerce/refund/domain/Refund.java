@@ -60,7 +60,10 @@ public class Refund {
     private String failureReason;
 
     public void complete(String actor, LocalDateTime completedAt, String externalReference) {
-        if (status == RefundStatus.SUCCEEDED) return;
+        if (status == RefundStatus.SUCCEEDED) {
+            if (java.util.Objects.equals(this.externalReference, externalReference)) return;
+            throw new IllegalStateException("A succeeded Refund cannot be completed with different evidence");
+        }
         if (status != RefundStatus.PENDING) {
             throw new IllegalStateException("Only a pending Refund can succeed");
         }

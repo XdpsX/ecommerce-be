@@ -209,6 +209,7 @@ public class OrderServiceImpl implements OrderService {
 
     private static RefundSummaryDTO toRefundSummary(com.xdpsx.ecommerce.refund.domain.Refund refund) {
         RefundSummaryDTO dto = new RefundSummaryDTO();
+        dto.setId(refund.getId());
         dto.setStatus(refund.getStatus().name());
         dto.setAmount(refund.getAmount());
         dto.setCurrency(refund.getCurrency());

@@ -23,9 +23,8 @@ public interface PaymentAttemptRepository extends JpaRepository<PaymentAttempt, 
     Optional<PaymentAttempt> findTopByPaymentIdAndStatusOrderByCreatedAtDesc(
             Long paymentId, PaymentAttemptStatus status);
 
-    @Query("SELECT a FROM PaymentAttempt a JOIN FETCH a.payment p JOIN FETCH p.order "
-            + "WHERE a.providerReference = :providerReference")
-    Optional<PaymentAttempt> findByProviderReferenceWithPaymentAndOrder(String providerReference);
+    @Query("SELECT a.payment.order.id FROM PaymentAttempt a WHERE a.providerReference = :providerReference")
+    Optional<Long> findOrderIdByProviderReference(String providerReference);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT a FROM PaymentAttempt a JOIN FETCH a.payment p JOIN FETCH p.order "

@@ -29,9 +29,17 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
     Optional<Order> findByIdForUpdate(Long id);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT o FROM Order o WHERE o.id = :id")
+    Optional<Order> findByIdForUpdateRoot(Long id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query(
             "SELECT o FROM Order o LEFT JOIN FETCH o.payment p LEFT JOIN FETCH p.refund WHERE o.id = :orderId AND o.user.id = :userId")
     Optional<Order> findByIdAndUserIdForUpdate(Long orderId, Long userId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT o FROM Order o WHERE o.id = :orderId AND o.user.id = :userId")
+    Optional<Order> findByIdAndUserIdForUpdateRoot(Long orderId, Long userId);
 
     @Query(
             "SELECT DISTINCT o FROM Order o JOIN FETCH o.items LEFT JOIN FETCH o.payment p LEFT JOIN FETCH p.refund WHERE o.user.id = :userId AND o.trackingNumber = :trackingNumber")

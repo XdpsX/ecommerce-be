@@ -7,6 +7,7 @@ import lombok.Data;
 
 @Data
 public class RefundSummaryDTO {
+    private Long id;
     private String status;
     private BigDecimal amount;
     private String currency;
