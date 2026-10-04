@@ -71,6 +71,8 @@ import com.xdpsx.ecommerce.payment.api.PaymentController;
 import com.xdpsx.ecommerce.payment.api.dto.VNPayIpnResponse;
 import com.xdpsx.ecommerce.payment.application.PaymentAttemptService;
 import com.xdpsx.ecommerce.payment.infrastructure.vnpay.IpnHandler;
+import com.xdpsx.ecommerce.refund.api.AdminRefundController;
+import com.xdpsx.ecommerce.refund.application.RefundService;
 import com.xdpsx.ecommerce.user.api.UserAddressController;
 import com.xdpsx.ecommerce.user.api.UserController;
 import com.xdpsx.ecommerce.user.api.dto.UserAddressRequest;
@@ -89,6 +91,7 @@ import com.xdpsx.ecommerce.user.application.UserService;
             MediaController.class,
             OrderController.class,
             AdminOrderController.class,
+            AdminRefundController.class,
             PaymentController.class,
             UserController.class,
             UserAddressController.class
@@ -148,6 +151,9 @@ class SecurityBoundaryTest {
 
     @MockitoBean
     private OrderCancellationService orderCancellationService;
+
+    @MockitoBean
+    private RefundService refundService;
 
     @MockitoBean
     private PaymentAttemptService paymentAttemptService;
@@ -355,6 +361,31 @@ class SecurityBoundaryTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reason\":\"Fulfillment failed\"}"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void refundAdministration_ShouldRequireAdminAndUsePersistedMoney() throws Exception {
+        mockMvc.perform(get("/admin/refunds/9")
+                        .with(user("customer@example.test").roles("USER")))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(refundService);
+
+        when(refundService.complete(eq(9L), any(), eq("admin@example.test")))
+                .thenReturn(com.xdpsx.ecommerce.refund.api.dto.RefundResponse.builder()
+                        .id(9L)
+                        .status("SUCCEEDED")
+                        .amount(new java.math.BigDecimal("100.00"))
+                        .currency("VND")
+                        .build());
+        mockMvc.perform(post("/admin/refunds/9/complete")
+                        .with(user("admin@example.test").roles("ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"externalReference\":\"provider-refund-9\",\"amount\":1,\"currency\":\"USD\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.amount").value(100.00))
+                .andExpect(jsonPath("$.currency").value("VND"));
+
+        verify(refundService).complete(eq(9L), any(), eq("admin@example.test"));
     }
 
     @Test

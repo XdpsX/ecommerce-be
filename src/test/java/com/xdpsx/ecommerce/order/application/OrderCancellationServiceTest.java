@@ -15,6 +15,8 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
+import jakarta.persistence.EntityManager;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -63,6 +65,9 @@ class OrderCancellationServiceTest {
     @Mock
     private OrderMapper orderMapper;
 
+    @Mock
+    private EntityManager entityManager;
+
     @InjectMocks
     private OrderCancellationService service;
 
@@ -75,7 +80,8 @@ class OrderCancellationServiceTest {
                 refundRepository,
                 inventoryBalanceRepository,
                 orderMapper,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                entityManager);
         lenient()
                 .when(orderMapper.fromEntityToDetails(any()))
                 .thenReturn(com.xdpsx.ecommerce.order.api.dto.OrderDetailsDTO.builder()
@@ -92,6 +98,7 @@ class OrderCancellationServiceTest {
                 .status(PaymentAttemptStatus.PENDING)
                 .build();
         when(userRepository.findByEmail("buyer@example.test")).thenReturn(Optional.of(user));
+        when(orderRepository.findByIdAndUserIdForUpdateRoot(42L, 7L)).thenReturn(Optional.of(order));
         when(orderRepository.findByIdAndUserIdForUpdate(42L, 7L)).thenReturn(Optional.of(order));
         when(inventoryBalanceRepository.findAllByVariantIdsForUpdate(List.of(101L)))
                 .thenAnswer(invocation -> List.of(lastBalance = balance(101L, 1, 1)));
@@ -112,6 +119,7 @@ class OrderCancellationServiceTest {
         User user = User.builder().id(7L).email("buyer@example.test").build();
         Order order = order(OrderStatus.CONFIRMED, PaymentStatus.PAID, 0, 0);
         when(userRepository.findByEmail("buyer@example.test")).thenReturn(Optional.of(user));
+        when(orderRepository.findByIdAndUserIdForUpdateRoot(42L, 7L)).thenReturn(Optional.of(order));
         when(orderRepository.findByIdAndUserIdForUpdate(42L, 7L)).thenReturn(Optional.of(order));
         when(inventoryBalanceRepository.findAllByVariantIdsForUpdate(List.of(101L)))
                 .thenAnswer(invocation -> List.of(lastBalance = balance(101L, 0, 0)));
@@ -134,6 +142,7 @@ class OrderCancellationServiceTest {
         User user = User.builder().id(7L).email("buyer@example.test").build();
         Order order = order(OrderStatus.PROCESSING, PaymentStatus.PAID, 0, 0);
         when(userRepository.findByEmail("buyer@example.test")).thenReturn(Optional.of(user));
+        when(orderRepository.findByIdAndUserIdForUpdateRoot(42L, 7L)).thenReturn(Optional.of(order));
         when(orderRepository.findByIdAndUserIdForUpdate(42L, 7L)).thenReturn(Optional.of(order));
 
         ApplicationException exception = assertThrows(
@@ -147,6 +156,7 @@ class OrderCancellationServiceTest {
     @Test
     void adminCancellationOfProcessingOrder_ShouldUseTheSamePaidCompensation() {
         Order order = order(OrderStatus.PROCESSING, PaymentStatus.PAID, 0, 0);
+        when(orderRepository.findByIdForUpdateRoot(42L)).thenReturn(Optional.of(order));
         when(orderRepository.findByIdForUpdate(42L)).thenReturn(Optional.of(order));
         when(inventoryBalanceRepository.findAllByVariantIdsForUpdate(List.of(101L)))
                 .thenAnswer(invocation -> List.of(lastBalance = balance(101L, 0, 0)));
@@ -165,6 +175,7 @@ class OrderCancellationServiceTest {
         User user = User.builder().id(7L).email("buyer@example.test").build();
         Order order = order(OrderStatus.CANCELLED, PaymentStatus.PAID, 0, 0);
         when(userRepository.findByEmail("buyer@example.test")).thenReturn(Optional.of(user));
+        when(orderRepository.findByIdAndUserIdForUpdateRoot(42L, 7L)).thenReturn(Optional.of(order));
         when(orderRepository.findByIdAndUserIdForUpdate(42L, 7L)).thenReturn(Optional.of(order));
 
         service.cancelForCustomer("buyer@example.test", 42L, new CancellationRequest("Repeat request"));

@@ -12,6 +12,8 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
+import jakarta.persistence.EntityManager;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -55,6 +57,9 @@ class PaymentAttemptCallbackServiceTest {
     @Mock
     private RefundRepository refundRepository;
 
+    @Mock
+    private EntityManager entityManager;
+
     private PaymentAttemptCallbackService service;
     private PaymentAttempt attempt;
     private Order order;
@@ -68,7 +73,8 @@ class PaymentAttemptCallbackServiceTest {
                 paymentRepository,
                 inventoryBalanceRepository,
                 refundRepository,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                entityManager);
         order = Order.builder()
                 .id(42L)
                 .status(OrderStatus.PENDING_PAYMENT)
@@ -96,9 +102,9 @@ class PaymentAttemptCallbackServiceTest {
                 .createdAt(NOW)
                 .expiresAt(NOW.plusSeconds(600))
                 .build();
-        when(paymentAttemptRepository.findByProviderReferenceWithPaymentAndOrder("attempt-uuid"))
-                .thenReturn(Optional.of(attempt));
-        when(orderRepository.findByIdForUpdate(42L)).thenReturn(Optional.of(order));
+        when(paymentAttemptRepository.findOrderIdByProviderReference("attempt-uuid"))
+                .thenReturn(Optional.of(42L));
+        when(orderRepository.findByIdForUpdateRoot(42L)).thenReturn(Optional.of(order));
         when(paymentAttemptRepository.findByProviderReferenceForUpdate("attempt-uuid"))
                 .thenReturn(Optional.of(attempt));
     }
@@ -222,11 +228,11 @@ class PaymentAttemptCallbackServiceTest {
                 .expiresAt(NOW)
                 .completedAt(NOW)
                 .build();
-        when(paymentAttemptRepository.findByProviderReferenceWithPaymentAndOrder("attempt-uuid"))
-                .thenReturn(Optional.of(attempt));
+        when(paymentAttemptRepository.findOrderIdByProviderReference("attempt-uuid"))
+                .thenReturn(Optional.of(42L));
         when(paymentAttemptRepository.findByProviderReferenceForUpdate("attempt-uuid"))
                 .thenReturn(Optional.of(attempt));
-        when(orderRepository.findByIdForUpdate(42L)).thenReturn(Optional.of(order));
+        when(orderRepository.findByIdForUpdateRoot(42L)).thenReturn(Optional.of(order));
 
         PaymentCallbackResult result =
                 service.process("attempt-uuid", new BigDecimal("100.00"), true, "late-provider-transaction", "00");
@@ -234,6 +240,11 @@ class PaymentAttemptCallbackServiceTest {
         assertThat(result).isEqualTo(PaymentCallbackResult.PROVIDER_SUCCESS_RECORDED);
         assertThat(attempt.getStatus()).isEqualTo(PaymentAttemptStatus.SUCCEEDED);
         assertThat(attempt.getProviderTransactionId()).isEqualTo("late-provider-transaction");
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PAID);
+        assertThat(payment.getRefund()).isNotNull();
+        assertThat(payment.getRefund().getStatus()).isEqualTo(RefundStatus.PENDING);
+        assertThat(payment.getRefund().getReason()).isEqualTo("Payment received after order expiry");
+        verify(refundRepository).save(org.mockito.ArgumentMatchers.any(Refund.class));
         verify(inventoryBalanceRepository, org.mockito.Mockito.never())
                 .findAllByVariantIdsForUpdate(org.mockito.ArgumentMatchers.any());
     }
@@ -256,6 +267,7 @@ class PaymentAttemptCallbackServiceTest {
         assertThat(payment.getRefund().getStatus()).isEqualTo(RefundStatus.PENDING);
         assertThat(payment.getRefund().getAmount()).isEqualByComparingTo("100.00");
         assertThat(payment.getRefund().getRequestedBy()).isEqualTo("payment-callback");
+        assertThat(payment.getRefund().getReason()).isEqualTo("Payment received after order cancellation");
         verify(refundRepository).save(org.mockito.ArgumentMatchers.any(Refund.class));
         verify(inventoryBalanceRepository, org.mockito.Mockito.never())
                 .findAllByVariantIdsForUpdate(org.mockito.ArgumentMatchers.any());

@@ -14,6 +14,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -69,6 +70,7 @@ import com.xdpsx.ecommerce.order.api.dto.CancellationRequest;
 import com.xdpsx.ecommerce.order.application.OrderCancellationService;
 import com.xdpsx.ecommerce.order.application.OrderMapper;
 import com.xdpsx.ecommerce.order.application.OrderService;
+import com.xdpsx.ecommerce.order.application.PaymentCallbackResult;
 import com.xdpsx.ecommerce.order.domain.OrderStatus;
 import com.xdpsx.ecommerce.order.persistence.OrderRepository;
 import com.xdpsx.ecommerce.payment.application.PaymentAttemptCallbackService;
@@ -351,6 +353,91 @@ class CheckoutConcurrencyTest {
     }
 
     @Test
+    void callbackAfterCancellation_ShouldRecordPaymentAndCreateRefund() {
+        ProductVariant variant = saveVariant("callback-after-cancellation", 1);
+        User user = saveCustomer("callback-after-cancellation");
+        UserAddress address = saveAddress(user);
+        Cart cart = saveCart(user);
+        saveItem(cart, variant, 1);
+
+        var checkout =
+                checkoutService.execute(user.getEmail(), request(address.getId()), "callback-after-cancellation-key");
+        Long orderId = checkout.order().getId();
+        PreparedPaymentAttempt prepared = paymentAttemptPreparationService.prepare(user.getEmail(), orderId);
+
+        orderCancellationService.cancelForCustomer(
+                user.getEmail(), orderId, new CancellationRequest("Customer cancellation"));
+        PaymentCallbackResult result = paymentAttemptCallbackService.process(
+                prepared.providerReference(), BigDecimal.TEN, true, "late-cancellation-tx", "00");
+
+        assertThat(result).isEqualTo(PaymentCallbackResult.PROVIDER_SUCCESS_RECORDED);
+        var persisted = orderRepository.findById(orderId).orElseThrow();
+        var balance =
+                inventoryRepository.findByVariantIdWithVariant(variant.getId()).orElseThrow();
+        assertThat(persisted.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(persisted.getPayment().getStatus()).isEqualTo(PaymentStatus.PAID);
+        assertThat(persisted.getPayment().getRefund().getStatus())
+                .isEqualTo(com.xdpsx.ecommerce.refund.domain.RefundStatus.PENDING);
+        assertThat(balance.getOnHand()).isEqualTo(1);
+        assertThat(balance.getReserved()).isZero();
+    }
+
+    @Test
+    void callbackAndCancellationRace_BothLockOrders_ShouldCreateOneRefundAndRestoreInventory() throws Exception {
+        assertCallbackAndCancellationRace(false);
+        clearDatabase();
+        assertCallbackAndCancellationRace(true);
+    }
+
+    private void assertCallbackAndCancellationRace(boolean cancellationStartsFirst) throws Exception {
+        ProductVariant variant = saveVariant("callback-cancellation-race-" + cancellationStartsFirst, 1);
+        User user = saveCustomer("callback-cancellation-race-" + cancellationStartsFirst);
+        UserAddress address = saveAddress(user);
+        Cart cart = saveCart(user);
+        saveItem(cart, variant, 1);
+
+        var checkout = checkoutService.execute(
+                user.getEmail(), request(address.getId()), "callback-cancellation-race-key-" + cancellationStartsFirst);
+        Long orderId = checkout.order().getId();
+        PreparedPaymentAttempt prepared = paymentAttemptPreparationService.prepare(user.getEmail(), orderId);
+        CountDownLatch firstEntered = new CountDownLatch(1);
+
+        Future<PaymentCallbackResult> callback = executor.submit(() -> {
+            if (cancellationStartsFirst) await(firstEntered);
+            else firstEntered.countDown();
+            return paymentAttemptCallbackService.process(
+                    prepared.providerReference(), BigDecimal.TEN, true, "race-" + cancellationStartsFirst, "00");
+        });
+        Future<Void> cancellation = executor.submit(() -> {
+            if (cancellationStartsFirst) {
+                firstEntered.countDown();
+                Thread.yield();
+            } else {
+                await(firstEntered);
+            }
+            orderCancellationService.cancelForCustomer(
+                    user.getEmail(), orderId, new CancellationRequest("Race cancellation"));
+            return null;
+        });
+
+        assertThat(callback.get(10, TimeUnit.SECONDS))
+                .isIn(PaymentCallbackResult.CONFIRMED, PaymentCallbackResult.PROVIDER_SUCCESS_RECORDED);
+        assertThat(cancellation.get(10, TimeUnit.SECONDS)).isNull();
+
+        var persisted = orderRepository.findById(orderId).orElseThrow();
+        var balance =
+                inventoryRepository.findByVariantIdWithVariant(variant.getId()).orElseThrow();
+        assertThat(persisted.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(persisted.getPayment().getStatus()).isEqualTo(PaymentStatus.PAID);
+        assertThat(persisted.getPayment().getRefund()).isNotNull();
+        assertThat(persisted.getPayment().getRefund().getStatus())
+                .isEqualTo(com.xdpsx.ecommerce.refund.domain.RefundStatus.PENDING);
+        assertThat(refundRepository.count()).isEqualTo(1);
+        assertThat(balance.getOnHand()).isEqualTo(1);
+        assertThat(balance.getReserved()).isZero();
+    }
+
+    @Test
     void simultaneousCancellation_ShouldReleaseReservationAndCreateNoRefundTwice() throws Exception {
         ProductVariant variant = saveVariant("cancellation-race", 2);
         User user = saveCustomer("cancellation-race");
@@ -473,6 +560,17 @@ class CheckoutConcurrencyTest {
         try {
             barrier.await(10, TimeUnit.SECONDS);
         } catch (Exception exception) {
+            throw new IllegalStateException("Could not synchronize checkout callers", exception);
+        }
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Could not synchronize checkout callers");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
             throw new IllegalStateException("Could not synchronize checkout callers", exception);
         }
     }
@@ -605,14 +703,16 @@ class CheckoutConcurrencyTest {
                 PaymentRepository paymentRepository,
                 InventoryBalanceRepository inventoryBalanceRepository,
                 RefundRepository refundRepository,
-                Clock clock) {
+                Clock clock,
+                jakarta.persistence.EntityManager entityManager) {
             return new PaymentAttemptCallbackService(
                     paymentAttemptRepository,
                     orderRepository,
                     paymentRepository,
                     inventoryBalanceRepository,
                     refundRepository,
-                    clock);
+                    clock,
+                    entityManager);
         }
 
         @Bean
@@ -623,7 +723,8 @@ class CheckoutConcurrencyTest {
                 RefundRepository refundRepository,
                 InventoryBalanceRepository inventoryBalanceRepository,
                 OrderMapper orderMapper,
-                Clock clock) {
+                Clock clock,
+                jakarta.persistence.EntityManager entityManager) {
             return new OrderCancellationService(
                     orderRepository,
                     userRepository,
@@ -631,7 +732,8 @@ class CheckoutConcurrencyTest {
                     refundRepository,
                     inventoryBalanceRepository,
                     orderMapper,
-                    clock);
+                    clock,
+                    entityManager);
         }
 
         @Bean
