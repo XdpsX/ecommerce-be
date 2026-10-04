@@ -1,5 +1,6 @@
 package com.xdpsx.ecommerce.payment.persistence;
 
+import java.util.List;
 import java.util.Optional;
 
 import jakarta.persistence.LockModeType;
@@ -12,6 +13,12 @@ import com.xdpsx.ecommerce.payment.domain.PaymentAttempt;
 import com.xdpsx.ecommerce.payment.domain.PaymentAttemptStatus;
 
 public interface PaymentAttemptRepository extends JpaRepository<PaymentAttempt, Long> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT a FROM PaymentAttempt a WHERE a.payment.id = :paymentId "
+            + "AND a.status = com.xdpsx.ecommerce.payment.domain.PaymentAttemptStatus.PENDING "
+            + "ORDER BY a.id")
+    List<PaymentAttempt> findPendingByPaymentIdForUpdate(Long paymentId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<PaymentAttempt> findTopByPaymentIdAndStatusOrderByCreatedAtDesc(
             Long paymentId, PaymentAttemptStatus status);

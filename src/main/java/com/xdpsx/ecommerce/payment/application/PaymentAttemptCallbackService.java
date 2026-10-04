@@ -3,22 +3,31 @@ package com.xdpsx.ecommerce.payment.application;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
-import com.xdpsx.ecommerce.order.application.OrderService;
+import com.xdpsx.ecommerce.inventory.domain.InventoryBalance;
+import com.xdpsx.ecommerce.inventory.persistence.InventoryBalanceRepository;
 import com.xdpsx.ecommerce.order.application.PaymentCallbackResult;
 import com.xdpsx.ecommerce.order.domain.Order;
 import com.xdpsx.ecommerce.order.domain.OrderStatus;
 import com.xdpsx.ecommerce.order.persistence.OrderRepository;
+import com.xdpsx.ecommerce.payment.domain.Payment;
 import com.xdpsx.ecommerce.payment.domain.PaymentAttempt;
 import com.xdpsx.ecommerce.payment.domain.PaymentAttemptStatus;
+import com.xdpsx.ecommerce.payment.domain.PaymentMethod;
 import com.xdpsx.ecommerce.payment.domain.PaymentStatus;
 import com.xdpsx.ecommerce.payment.persistence.PaymentAttemptRepository;
+import com.xdpsx.ecommerce.payment.persistence.PaymentRepository;
 
 import lombok.RequiredArgsConstructor;
 
@@ -27,7 +36,8 @@ import lombok.RequiredArgsConstructor;
 public class PaymentAttemptCallbackService {
     private final PaymentAttemptRepository paymentAttemptRepository;
     private final OrderRepository orderRepository;
-    private final OrderService orderService;
+    private final PaymentRepository paymentRepository;
+    private final InventoryBalanceRepository inventoryBalanceRepository;
     private final Clock clock;
 
     @Transactional
@@ -51,8 +61,10 @@ public class PaymentAttemptCallbackService {
         if (attempt.getExpectedAmount() == null
                 || amount == null
                 || attempt.getExpectedAmount().compareTo(amount) != 0
+                || lockedOrder.getTotalAmount() == null
+                || lockedOrder.getTotalAmount().compareTo(amount) != 0
                 || !"VND".equals(attempt.getCurrency())) {
-            throw new ApplicationException(ErrorCode.MALFORMED_REQUEST);
+            throw new ApplicationException(ErrorCode.MALFORMED_REQUEST, Map.of("reason", "amountMismatch"));
         }
         if (attempt.getStatus() == PaymentAttemptStatus.SUCCEEDED) {
             return PaymentCallbackResult.ALREADY_CONFIRMED;
@@ -63,27 +75,64 @@ public class PaymentAttemptCallbackService {
             return PaymentCallbackResult.CONFIRMED;
         }
         if (providerTransactionId == null || providerTransactionId.isBlank() || providerTransactionId.length() > 32) {
-            throw new ApplicationException(ErrorCode.MALFORMED_REQUEST);
+            throw new ApplicationException(ErrorCode.MALFORMED_REQUEST, Map.of("reason", "invalidTransaction"));
         }
 
-        if (lockedOrder.getPayment() != null && lockedOrder.getPayment().getStatus() == PaymentStatus.PAID) {
+        Payment payment = lockedOrder.getPayment();
+        if (payment == null
+                || attempt.getPayment() == null
+                || !payment.getId().equals(attempt.getPayment().getId())
+                || payment.getOrder() == null
+                || !orderId.equals(payment.getOrder().getId())) {
+            throw new ApplicationException(ErrorCode.CONCURRENT_MODIFICATION);
+        }
+        if (payment.getStatus() == PaymentStatus.PAID) {
             attempt.markSucceeded(providerTransactionId, responseCode, clock.instant());
             paymentAttemptRepository.save(attempt);
             return PaymentCallbackResult.ALREADY_CONFIRMED;
         }
-        if (lockedOrder.getPayment() == null
-                || lockedOrder.getPayment().getStatus() != PaymentStatus.PENDING
-                || lockedOrder.getStatus() != OrderStatus.PENDING_PAYMENT) {
+        if (payment.getStatus() != PaymentStatus.PENDING || lockedOrder.getStatus() != OrderStatus.PENDING_PAYMENT) {
             attempt.markSucceeded(providerTransactionId, responseCode, clock.instant());
             paymentAttemptRepository.save(attempt);
             return PaymentCallbackResult.PROVIDER_SUCCESS_RECORDED;
         }
 
-        PaymentCallbackResult result = orderService.processPaymentCallback(orderId, amount, true);
+        List<Long> variantIds = lockedOrder.getItems().stream()
+                .map(item -> item.getVariantId())
+                .distinct()
+                .sorted()
+                .toList();
+        if (variantIds.isEmpty()) {
+            throw new ApplicationException(ErrorCode.INTERNAL_ERROR, Map.of("reason", "orderHasNoItems"));
+        }
+        Map<Long, InventoryBalance> balances =
+                inventoryBalanceRepository.findAllByVariantIdsForUpdate(variantIds).stream()
+                        .collect(Collectors.toMap(InventoryBalance::getVariantId, value -> value));
+        if (balances.size() != Set.copyOf(variantIds).size()) {
+            throw new ApplicationException(ErrorCode.INTERNAL_ERROR, Map.of("reason", "missingInventoryBalance"));
+        }
+        try {
+            lockedOrder.getItems().forEach(item -> balances.get(item.getVariantId())
+                    .consumeReserved(item.getQuantity()));
+        } catch (RuntimeException exception) {
+            throw new ApplicationException(
+                    ErrorCode.INTERNAL_ERROR, Map.of("reason", "reservationUnavailable"), exception);
+        }
+
         Instant completedAt = clock.instant();
+        payment.markPaid(PaymentMethod.VNPAY, LocalDateTime.ofInstant(completedAt, ZoneOffset.UTC));
+        lockedOrder.confirmPayment();
+        paymentRepository.save(payment);
         attempt.markSucceeded(providerTransactionId, responseCode, completedAt);
         paymentAttemptRepository.save(attempt);
-        return result;
+        expireOtherPendingAttempts(payment.getId(), attempt.getId(), completedAt);
+        return PaymentCallbackResult.CONFIRMED;
+    }
+
+    private void expireOtherPendingAttempts(Long paymentId, Long succeededAttemptId, Instant completedAt) {
+        paymentAttemptRepository.findPendingByPaymentIdForUpdate(paymentId).stream()
+                .filter(candidate -> !candidate.getId().equals(succeededAttemptId))
+                .forEach(candidate -> candidate.markExpired(completedAt));
     }
 
     private static ApplicationException notFound(String resourceType, Object resourceId) {

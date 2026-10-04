@@ -1,13 +1,10 @@
 package com.xdpsx.ecommerce.order.application;
 
-import java.math.BigDecimal;
 import java.time.Instant;
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -28,8 +25,8 @@ import com.xdpsx.ecommerce.order.domain.OrderStatus;
 import com.xdpsx.ecommerce.order.persistence.OrderRepository;
 import com.xdpsx.ecommerce.order.persistence.OrderSpecification;
 import com.xdpsx.ecommerce.payment.domain.Payment;
-import com.xdpsx.ecommerce.payment.domain.PaymentMethod;
 import com.xdpsx.ecommerce.payment.domain.PaymentStatus;
+import com.xdpsx.ecommerce.payment.persistence.PaymentAttemptRepository;
 import com.xdpsx.ecommerce.payment.persistence.PaymentRepository;
 import com.xdpsx.ecommerce.user.domain.EmailIdentity;
 import com.xdpsx.ecommerce.user.domain.User;
@@ -45,55 +42,7 @@ public class OrderServiceImpl implements OrderService {
     private final UserRepository userRepository;
     private final PaymentRepository paymentRepository;
     private final InventoryBalanceRepository inventoryBalanceRepository;
-
-    @Transactional
-    @Override
-    public PaymentCallbackResult processPaymentCallback(long orderId, BigDecimal amount, boolean successful) {
-        Order order = orderRepository
-                .findByIdForUpdate(orderId)
-                .orElseThrow(() -> new ApplicationException(
-                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "order", "resourceId", orderId)));
-        if (order.getTotalAmount() == null
-                || amount == null
-                || order.getTotalAmount().compareTo(amount) != 0) {
-            throw new ApplicationException(ErrorCode.MALFORMED_REQUEST);
-        }
-
-        Payment payment = order.getPayment();
-        if (payment == null) throw new ApplicationException(ErrorCode.MALFORMED_REQUEST);
-        if (payment.getStatus() == PaymentStatus.PAID) return PaymentCallbackResult.ALREADY_CONFIRMED;
-        if (!successful) return PaymentCallbackResult.CONFIRMED;
-
-        if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
-            throw new ApplicationException(ErrorCode.CONCURRENT_MODIFICATION);
-        }
-
-        List<Long> variantIds = order.getItems().stream()
-                .map(item -> item.getVariantId())
-                .distinct()
-                .sorted()
-                .toList();
-        if (variantIds.isEmpty()) {
-            throw new ApplicationException(ErrorCode.MALFORMED_REQUEST, Map.of("reason", "orderHasNoItems"));
-        }
-        Map<Long, InventoryBalance> balances =
-                inventoryBalanceRepository.findAllByVariantIdsForUpdate(variantIds).stream()
-                        .collect(Collectors.toMap(InventoryBalance::getVariantId, value -> value));
-        if (balances.size() != Set.copyOf(variantIds).size()) {
-            throw new ApplicationException(ErrorCode.MALFORMED_REQUEST, Map.of("reason", "missingInventoryBalance"));
-        }
-        try {
-            order.getItems().forEach(item -> balances.get(item.getVariantId()).consumeReserved(item.getQuantity()));
-        } catch (RuntimeException exception) {
-            throw new ApplicationException(
-                    ErrorCode.MALFORMED_REQUEST, Map.of("reason", "reservationUnavailable"), exception);
-        }
-
-        payment.markPaid(PaymentMethod.VNPAY, LocalDateTime.now());
-        order.confirmPayment();
-        paymentRepository.save(payment);
-        return PaymentCallbackResult.CONFIRMED;
-    }
+    private final PaymentAttemptRepository paymentAttemptRepository;
 
     @Transactional
     @Override
@@ -128,6 +77,14 @@ public class OrderServiceImpl implements OrderService {
         } catch (RuntimeException exception) {
             throw new ApplicationException(
                     ErrorCode.MALFORMED_REQUEST, Map.of("reason", "reservationUnavailable"), exception);
+        }
+        Payment payment = order.getPayment();
+        if (payment != null && payment.getStatus() == PaymentStatus.PENDING) {
+            paymentAttemptRepository
+                    .findPendingByPaymentIdForUpdate(payment.getId())
+                    .forEach(attempt -> attempt.markExpired(cutoff));
+            payment.markExpired();
+            paymentRepository.save(payment);
         }
         order.markPaymentExpired();
         return true;

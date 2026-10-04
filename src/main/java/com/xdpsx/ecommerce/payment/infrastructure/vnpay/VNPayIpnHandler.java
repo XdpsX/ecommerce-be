@@ -6,7 +6,6 @@ import java.util.Map;
 import org.springframework.stereotype.Service;
 
 import com.xdpsx.ecommerce.common.error.ApplicationException;
-import com.xdpsx.ecommerce.order.application.OrderService;
 import com.xdpsx.ecommerce.order.application.PaymentCallbackResult;
 import com.xdpsx.ecommerce.payment.api.dto.VNPayIpnResponse;
 import com.xdpsx.ecommerce.payment.application.PaymentAttemptCallbackService;
@@ -19,8 +18,6 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class VNPayIpnHandler implements IpnHandler {
     private final VNPayService vnPayService;
-
-    private final OrderService orderService;
 
     private final PaymentAttemptCallbackService paymentAttemptCallbackService;
 
@@ -35,41 +32,37 @@ public class VNPayIpnHandler implements IpnHandler {
         String providerReference = params.get(VNPayParams.TXN_REF);
         String responseCode = params.get(VNPayParams.RESPONSE_CODE);
         String transactionStatus = params.get(VNPayParams.TRANSACTION_STATUS);
-        if (providerReference == null || responseCode == null || transactionStatus == null) {
+        if (providerReference == null
+                || providerReference.isBlank()
+                || responseCode == null
+                || responseCode.isBlank()
+                || transactionStatus == null
+                || transactionStatus.isBlank()) {
             return response("99", "Invalid request");
         }
         boolean successful = "00".equals(responseCode) && "00".equals(transactionStatus);
+        String providerTransactionId = params.get(VNPayParams.TRANSACTION_NO);
+        if (successful && (providerTransactionId == null || providerTransactionId.isBlank())) {
+            return response("99", "Invalid request");
+        }
         try {
-            PaymentCallbackResult result;
-            Long orderId = parseOrderId(providerReference);
-            if (orderId != null) {
-                result = orderService.processPaymentCallback(orderId, amount, successful);
-            } else {
-                result = paymentAttemptCallbackService.process(
-                        providerReference, amount, successful, params.get(VNPayParams.TRANSACTION_NO), responseCode);
-            }
+            PaymentCallbackResult result = paymentAttemptCallbackService.process(
+                    providerReference, amount, successful, providerTransactionId, responseCode);
             return result == PaymentCallbackResult.ALREADY_CONFIRMED
                     ? response("02", "Order already confirmed")
                     : response("00", "Confirm Success");
         } catch (ApplicationException exception) {
             return switch (exception.getCode()) {
                 case RESOURCE_NOT_FOUND -> response("01", "Order not found");
-                case MALFORMED_REQUEST -> response("04", "invalid amount");
+                case MALFORMED_REQUEST ->
+                    isReason(exception, "amountMismatch")
+                            ? response("04", "invalid amount")
+                            : response("99", "Invalid request");
                 default -> response("99", "Unknow error");
             };
         } catch (RuntimeException exception) {
             log.error("VNPay IPN processing failed", exception);
             return response("99", "Unknow error");
-        }
-    }
-
-    private static Long parseOrderId(String txnRef) {
-        try {
-            long orderId = Long.parseLong(txnRef);
-            if (orderId <= 0) return null;
-            return orderId;
-        } catch (RuntimeException exception) {
-            return null;
         }
     }
 
@@ -89,5 +82,9 @@ public class VNPayIpnHandler implements IpnHandler {
 
     private static VNPayIpnResponse response(String code, String message) {
         return new VNPayIpnResponse(code, message);
+    }
+
+    private static boolean isReason(ApplicationException exception, String expectedReason) {
+        return expectedReason.equals(exception.getParameters().get("reason"));
     }
 }

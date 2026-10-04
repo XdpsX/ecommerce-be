@@ -66,11 +66,10 @@ public class CheckoutTransactionService {
         byte[] keyHash = CheckoutIdempotency.keyHash(idempotencyKey);
         byte[] requestHash = CheckoutIdempotency.requestHash(request);
 
-        User canonicalUser = userRepository
-                .findByEmail(EmailIdentity.canonicalize(userEmail))
+        User user = userRepository
+                .findByEmailForUpdate(EmailIdentity.canonicalize(userEmail))
                 .orElseThrow(
                         () -> new ApplicationException(ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "user")));
-        User user = userRepository.findByIdForUpdate(canonicalUser.getId()).orElseThrow();
 
         var existing = orderRepository.findByUserIdAndIdempotencyKeyHash(user.getId(), keyHash);
         if (existing.isPresent()) {
