@@ -193,7 +193,7 @@ class CheckoutConcurrencyTest {
         assertThat(secondAfter.getReserved()).isZero();
         assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
         assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus())
-                .isEqualTo(PaymentStatus.UNPAID);
+                .isEqualTo(PaymentStatus.PENDING);
     }
 
     @Test

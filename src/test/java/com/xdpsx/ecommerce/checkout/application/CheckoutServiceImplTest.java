@@ -2,7 +2,6 @@ package com.xdpsx.ecommerce.checkout.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -19,7 +18,7 @@ import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.order.domain.Order;
 import com.xdpsx.ecommerce.order.domain.OrderStatus;
 import com.xdpsx.ecommerce.payment.api.dto.InitPaymentResponse;
-import com.xdpsx.ecommerce.payment.application.PaymentService;
+import com.xdpsx.ecommerce.payment.application.PaymentAttemptService;
 import com.xdpsx.ecommerce.user.domain.User;
 
 @ExtendWith(MockitoExtension.class)
@@ -28,16 +27,17 @@ class CheckoutServiceImplTest {
     private CheckoutTransactionService transactionService;
 
     @Mock
-    private PaymentService paymentService;
+    private PaymentAttemptService paymentAttemptService;
 
     @Test
     void checkout_ShouldTranslatePaymentFailureAfterTransactionCommits() {
         Order order = pendingOrder();
         when(transactionService.execute("buyer@example.test", request(), "checkout-1"))
                 .thenReturn(new CheckoutTransactionResult(order, false));
-        when(paymentService.init(any())).thenThrow(new IllegalStateException("provider unavailable"));
+        when(paymentAttemptService.initialize("buyer@example.test", 42L, "127.0.0.1"))
+                .thenThrow(new ApplicationException(ErrorCode.PAYMENT_INITIALIZATION_FAILED));
 
-        CheckoutService service = new CheckoutServiceImpl(transactionService, paymentService);
+        CheckoutService service = new CheckoutServiceImpl(transactionService, paymentAttemptService);
 
         assertThatThrownBy(() -> service.checkout("buyer@example.test", request(), "checkout-1", "127.0.0.1"))
                 .isInstanceOfSatisfying(ApplicationException.class, exception -> assertThat(exception.getCode())
@@ -51,17 +51,17 @@ class CheckoutServiceImplTest {
         when(transactionService.execute("buyer@example.test", request(), "checkout-1"))
                 .thenReturn(new CheckoutTransactionResult(order, false))
                 .thenReturn(new CheckoutTransactionResult(order, true));
-        when(paymentService.init(any()))
+        when(paymentAttemptService.initialize("buyer@example.test", 42L, "127.0.0.1"))
                 .thenReturn(InitPaymentResponse.builder().vnpUrl("payment-url").build());
 
-        CheckoutService service = new CheckoutServiceImpl(transactionService, paymentService);
+        CheckoutService service = new CheckoutServiceImpl(transactionService, paymentAttemptService);
 
         service.checkout("buyer@example.test", request(), "checkout-1", "127.0.0.1");
         var replay = service.checkout("buyer@example.test", request(), "checkout-1", "127.0.0.1");
 
         assertThat(replay.isReplayed()).isTrue();
         assertThat(replay.getPayment().getVnpUrl()).isEqualTo("payment-url");
-        verify(paymentService, org.mockito.Mockito.times(2)).init(any());
+        verify(paymentAttemptService, org.mockito.Mockito.times(2)).initialize("buyer@example.test", 42L, "127.0.0.1");
     }
 
     private static CheckoutRequest request() {

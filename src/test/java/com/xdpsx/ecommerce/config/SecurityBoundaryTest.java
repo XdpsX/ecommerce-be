@@ -67,6 +67,7 @@ import com.xdpsx.ecommerce.order.api.OrderController;
 import com.xdpsx.ecommerce.order.application.OrderService;
 import com.xdpsx.ecommerce.payment.api.PaymentController;
 import com.xdpsx.ecommerce.payment.api.dto.VNPayIpnResponse;
+import com.xdpsx.ecommerce.payment.application.PaymentAttemptService;
 import com.xdpsx.ecommerce.payment.infrastructure.vnpay.IpnHandler;
 import com.xdpsx.ecommerce.user.api.UserAddressController;
 import com.xdpsx.ecommerce.user.api.UserController;
@@ -141,6 +142,9 @@ class SecurityBoundaryTest {
 
     @MockitoBean
     private OrderService orderService;
+
+    @MockitoBean
+    private PaymentAttemptService paymentAttemptService;
 
     @MockitoBean
     private IpnHandler ipnHandler;
@@ -325,6 +329,13 @@ class SecurityBoundaryTest {
                 .andExpect(jsonPath("$.Message").value("Confirm Success"));
 
         verify(ipnHandler).process(any());
+    }
+
+    @Test
+    void paymentRetry_ShouldRequireAuthentication() throws Exception {
+        mockMvc.perform(post("/orders/42/payment-attempts")).andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(paymentAttemptService);
     }
 
     @Test

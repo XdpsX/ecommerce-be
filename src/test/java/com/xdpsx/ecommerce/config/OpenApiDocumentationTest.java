@@ -44,6 +44,7 @@ import com.xdpsx.ecommerce.media.api.MediaController;
 import com.xdpsx.ecommerce.media.application.MediaService;
 import com.xdpsx.ecommerce.order.api.OrderController;
 import com.xdpsx.ecommerce.order.application.OrderService;
+import com.xdpsx.ecommerce.payment.application.PaymentAttemptService;
 import com.xdpsx.ecommerce.testsupport.SecurityConfigForControllerTests;
 
 import tools.jackson.databind.JsonNode;
@@ -120,6 +121,9 @@ class OpenApiDocumentationTest {
 
     @MockitoBean
     private OrderService orderService;
+
+    @MockitoBean
+    private PaymentAttemptService paymentAttemptService;
 
     @MockitoBean
     private AuthService authService;
@@ -578,6 +582,10 @@ class OpenApiDocumentationTest {
         assertThat(orderItem.has("finalUnitPrice")).isTrue();
         assertThat(orderItem.has("subtotal")).isTrue();
         assertThat(orderItem.has("currency")).isTrue();
+        JsonNode paymentResponse = openApi.at("/components/schemas/InitPaymentResponse/properties");
+        assertThat(paymentResponse.has("vnpUrl")).isTrue();
+        assertThat(paymentResponse.has("attemptReference")).isTrue();
+        assertThat(paymentResponse.has("expiresAt")).isTrue();
         JsonNode adminVariantProperties = openApi.at("/components/schemas/ProductVariantResponse/properties");
         assertThat(adminVariantProperties.has("salePrice")).isTrue();
         assertThat(adminVariantProperties.has("saleStartsAt")).isTrue();

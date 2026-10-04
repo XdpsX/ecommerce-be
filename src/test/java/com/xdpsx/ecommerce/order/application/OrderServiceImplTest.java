@@ -57,7 +57,7 @@ class OrderServiceImplTest {
 
     @Test
     void processPaymentCallback_ShouldMarkUnpaidOrderPaidAfterAmountAndStatusValidation() {
-        Order order = order(BigDecimal.TEN, PaymentStatus.UNPAID);
+        Order order = order(BigDecimal.TEN, PaymentStatus.PENDING);
         InventoryBalance balance = balance(1);
         when(orderRepository.findByIdForUpdate(42L)).thenReturn(java.util.Optional.of(order));
         when(inventoryBalanceRepository.findAllByVariantIdsForUpdate(List.of(101L)))
@@ -86,46 +86,46 @@ class OrderServiceImplTest {
 
     @Test
     void processPaymentCallback_ShouldRejectAmountMismatchWithoutChangingPayment() {
-        Order order = order(BigDecimal.TEN, PaymentStatus.UNPAID);
+        Order order = order(BigDecimal.TEN, PaymentStatus.PENDING);
         when(orderRepository.findByIdForUpdate(42L)).thenReturn(java.util.Optional.of(order));
 
         assertThrows(
                 ApplicationException.class,
                 () -> orderService.processPaymentCallback(42L, new BigDecimal("11.00"), true));
 
-        assertEquals(PaymentStatus.UNPAID, order.getPayment().getStatus());
+        assertEquals(PaymentStatus.PENDING, order.getPayment().getStatus());
         verify(paymentRepository, never()).save(order.getPayment());
     }
 
     @Test
     void processPaymentCallback_ShouldLeavePendingOrderUnchangedForSignedFailure() {
-        Order order = order(BigDecimal.TEN, PaymentStatus.UNPAID);
+        Order order = order(BigDecimal.TEN, PaymentStatus.PENDING);
         when(orderRepository.findByIdForUpdate(42L)).thenReturn(java.util.Optional.of(order));
 
         orderService.processPaymentCallback(42L, BigDecimal.TEN, false);
 
-        assertEquals(PaymentStatus.UNPAID, order.getPayment().getStatus());
+        assertEquals(PaymentStatus.PENDING, order.getPayment().getStatus());
         assertEquals(OrderStatus.PENDING_PAYMENT, order.getStatus());
         verify(inventoryBalanceRepository, never()).findAllByVariantIdsForUpdate(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
     void processPaymentCallback_ShouldRejectWhenReservationIsMissing() {
-        Order order = order(BigDecimal.TEN, PaymentStatus.UNPAID);
+        Order order = order(BigDecimal.TEN, PaymentStatus.PENDING);
         when(orderRepository.findByIdForUpdate(42L)).thenReturn(java.util.Optional.of(order));
         when(inventoryBalanceRepository.findAllByVariantIdsForUpdate(List.of(101L)))
                 .thenReturn(List.of());
 
         assertThrows(ApplicationException.class, () -> orderService.processPaymentCallback(42L, BigDecimal.TEN, true));
 
-        assertEquals(PaymentStatus.UNPAID, order.getPayment().getStatus());
+        assertEquals(PaymentStatus.PENDING, order.getPayment().getStatus());
         assertEquals(OrderStatus.PENDING_PAYMENT, order.getStatus());
         verify(paymentRepository, never()).save(order.getPayment());
     }
 
     @Test
     void expirePendingOrder_ShouldReleaseReservationAndMarkOrderExpired() {
-        Order order = order(BigDecimal.TEN, PaymentStatus.UNPAID);
+        Order order = order(BigDecimal.TEN, PaymentStatus.PENDING);
         order.setReservationExpiresAt(Instant.parse("2026-01-01T00:00:00Z"));
         InventoryBalance balance = balance(1);
         when(orderRepository.findByIdForUpdate(42L)).thenReturn(java.util.Optional.of(order));
@@ -141,7 +141,7 @@ class OrderServiceImplTest {
 
     @Test
     void expirePendingOrder_ShouldRecheckStateBeforeTouchingInventory() {
-        Order order = order(BigDecimal.TEN, PaymentStatus.UNPAID, OrderStatus.CONFIRMED);
+        Order order = order(BigDecimal.TEN, PaymentStatus.PENDING, OrderStatus.CONFIRMED);
         order.setReservationExpiresAt(Instant.parse("2026-01-01T00:00:00Z"));
         when(orderRepository.findByIdForUpdate(42L)).thenReturn(java.util.Optional.of(order));
 
@@ -162,7 +162,7 @@ class OrderServiceImplTest {
                         "Snapshot buyer", "+84901234567", "Snapshot street", "Ward", "District", "City", null))
                 .build();
         order.setPayment(
-                Payment.builder().order(order).status(PaymentStatus.UNPAID).build());
+                Payment.builder().order(order).status(PaymentStatus.PENDING).build());
         OrderStatusUpdate request = new OrderStatusUpdate();
         request.setStatus(OrderStatus.PROCESSING);
         when(orderRepository.findByIdForUpdate(42L)).thenReturn(Optional.of(order));
@@ -180,7 +180,7 @@ class OrderServiceImplTest {
 
     @Test
     void updateOrderStatus_ShouldRejectNonForwardTransitionWithoutSaving() {
-        Order order = order(BigDecimal.TEN, PaymentStatus.UNPAID);
+        Order order = order(BigDecimal.TEN, PaymentStatus.PENDING);
         OrderStatusUpdate request = new OrderStatusUpdate();
         request.setStatus(OrderStatus.PROCESSING);
         when(orderRepository.findByIdForUpdate(42L)).thenReturn(Optional.of(order));
