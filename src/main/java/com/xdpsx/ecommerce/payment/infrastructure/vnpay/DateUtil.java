@@ -1,20 +1,23 @@
 package com.xdpsx.ecommerce.payment.infrastructure.vnpay;
 
-import java.text.SimpleDateFormat;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.Calendar;
 import java.util.Date;
-import java.util.TimeZone;
 
 public class DateUtil {
-    protected static final SimpleDateFormat ISO_DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd");
-    protected static final SimpleDateFormat VNPAY_DATE_FORMAT = new SimpleDateFormat("yyyyMMddHHmmss");
-    public static final Calendar VN_CALENDAR = Calendar.getInstance(TimeZone.getTimeZone("Etc/GMT+7"));
+    private static final DateTimeFormatter ISO_DATE_FORMAT = DateTimeFormatter.ISO_LOCAL_DATE;
+    private static final DateTimeFormatter VNPAY_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+    private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
     public static Date parseISO(String date) {
         try {
-            return ISO_DATE_FORMAT.parse(date);
+            return Date.from(LocalDate.parse(date, ISO_DATE_FORMAT)
+                    .atStartOfDay(ZoneId.systemDefault())
+                    .toInstant());
         } catch (Exception e) {
             return null;
         }
@@ -29,10 +32,14 @@ public class DateUtil {
     }
 
     public static String getVnTime() {
-        return VNPAY_DATE_FORMAT.format(VN_CALENDAR.getTime());
+        return formatVnTime(Instant.now());
     }
 
     public static String formatVnTime(Calendar calendar) {
-        return VNPAY_DATE_FORMAT.format(calendar.getTime());
+        return formatVnTime(calendar.toInstant());
+    }
+
+    public static String formatVnTime(Instant instant) {
+        return VNPAY_DATE_FORMAT.format(instant.atZone(VN_ZONE));
     }
 }

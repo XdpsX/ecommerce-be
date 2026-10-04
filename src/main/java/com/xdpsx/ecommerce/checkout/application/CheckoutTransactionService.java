@@ -173,7 +173,7 @@ public class CheckoutTransactionService {
         }
         order.setTotalAmount(total);
         order.setPayment(
-                Payment.builder().order(order).status(PaymentStatus.UNPAID).build());
+                Payment.builder().order(order).status(PaymentStatus.PENDING).build());
         Order saved = orderRepository.saveAndFlush(order);
         cartItemRepository.deleteAllByCartId(cart.getId());
         return new CheckoutTransactionResult(saved, false);

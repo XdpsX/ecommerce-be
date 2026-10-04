@@ -89,9 +89,7 @@ public class OrderServiceImpl implements OrderService {
                     ErrorCode.MALFORMED_REQUEST, Map.of("reason", "reservationUnavailable"), exception);
         }
 
-        payment.setStatus(PaymentStatus.PAID);
-        payment.setPaymentMethod(PaymentMethod.VNPAY);
-        payment.setPaymentDate(LocalDateTime.now());
+        payment.markPaid(PaymentMethod.VNPAY, LocalDateTime.now());
         order.confirmPayment();
         paymentRepository.save(payment);
         return PaymentCallbackResult.CONFIRMED;

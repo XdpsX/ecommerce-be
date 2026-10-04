@@ -1,7 +1,6 @@
 package com.xdpsx.ecommerce.payment.infrastructure.vnpay;
 
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
+import java.nio.charset.StandardCharsets;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
@@ -10,28 +9,23 @@ import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import lombok.extern.slf4j.Slf4j;
-
 @Service
-@Slf4j
 public class CryptoService {
-
-    private final Mac mac = Mac.getInstance("HmacSHA512");
-
     @Value("${payment.vnpay.secret-key}")
     private String secretKey;
 
-    public CryptoService() throws NoSuchAlgorithmException {}
+    private SecretKeySpec signingKey;
 
     @PostConstruct
-    void init() throws InvalidKeyException {
-        SecretKeySpec secretKeySpec = new SecretKeySpec(secretKey.getBytes(), "HmacSHA512");
-        mac.init(secretKeySpec);
+    void init() {
+        signingKey = new SecretKeySpec(secretKey.getBytes(StandardCharsets.UTF_8), "HmacSHA512");
     }
 
     public String sign(String data) {
         try {
-            return EncodingUtil.toHexString(mac.doFinal(data.getBytes()));
+            Mac mac = Mac.getInstance("HmacSHA512");
+            mac.init(signingKey);
+            return EncodingUtil.toHexString(mac.doFinal(data.getBytes(StandardCharsets.UTF_8)));
         } catch (Exception e) {
             throw new RuntimeException("VNPAY_SIGNING_FAILED");
         }

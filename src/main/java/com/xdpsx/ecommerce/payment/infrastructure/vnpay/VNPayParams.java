@@ -9,6 +9,7 @@ public class VNPayParams {
     public static final String ORDER_INFO = "vnp_OrderInfo";
     public static final String ORDER_TYPE = "vnp_OrderType";
     public static final String TXN_REF = "vnp_TxnRef";
+    public static final String TRANSACTION_NO = "vnp_TransactionNo";
     public static final String VERSION = "vnp_Version";
     public static final String COMMAND = "vnp_Command";
     public static final String TMN_CODE = "vnp_TmnCode";

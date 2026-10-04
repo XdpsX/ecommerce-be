@@ -4,6 +4,8 @@ import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.*;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -14,9 +16,7 @@ import com.xdpsx.ecommerce.payment.api.dto.InitPaymentResponse;
 import com.xdpsx.ecommerce.payment.application.PaymentService;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class VNPayService implements PaymentService {
@@ -38,35 +38,37 @@ public class VNPayService implements PaymentService {
     private Integer paymentTimeout;
 
     private final CryptoService cryptoService;
+    private final Clock clock;
 
     @Override
     public InitPaymentResponse init(InitPaymentRequest request) {
-        var amount = request.getAmount().multiply(BigDecimal.valueOf(DEFAULT_MULTIPLIER)); // 1. amount * 100
-        var txnRef = request.getTxnRef(); // 2. bookingId
-        var returnUrl = buildReturnUrl(txnRef); // 3. FE redirect by returnUrl
-        var vnCalendar = Calendar.getInstance(TimeZone.getTimeZone("Etc/GMT+7"));
-        var createdDate = DateUtil.formatVnTime(vnCalendar);
-        vnCalendar.add(Calendar.MINUTE, paymentTimeout);
-        var expiredDate = DateUtil.formatVnTime(vnCalendar); // 4. expiredDate for secure
+        var amount = toVnPayAmount(request.getAmount());
+        var txnRef = requireReference(request.getTxnRef());
+        var returnUrl = buildReturnUrl(txnRef);
+        Instant createdAt = clock.instant();
+        Instant expiresAt = request.getExpiresAt();
+        if (expiresAt == null) {
+            int timeoutMinutes = paymentTimeout == null ? 15 : paymentTimeout;
+            expiresAt = createdAt.plusSeconds(timeoutMinutes * 60L);
+        }
+        if (!expiresAt.isAfter(createdAt)) throw new IllegalArgumentException("Payment expiry must be in the future");
 
         var ipAddress = request.getIpAddress();
         var orderInfo = buildPaymentDetail(request);
-        var requestId = request.getRequestId();
-
         Map<String, String> params = new HashMap<>();
 
         params.put(VNPayParams.VERSION, VERSION);
         params.put(VNPayParams.COMMAND, COMMAND);
 
         params.put(VNPayParams.TMN_CODE, tmnCode);
-        params.put(VNPayParams.AMOUNT, String.valueOf(amount));
-        params.put(VNPayParams.CURRENCY, "VND");
+        params.put(VNPayParams.AMOUNT, amount);
+        params.put(VNPayParams.CURRENCY, requireCurrency(request.getCurrency()));
 
         params.put(VNPayParams.TXN_REF, txnRef);
         params.put(VNPayParams.RETURN_URL, returnUrl);
 
-        params.put(VNPayParams.CREATED_DATE, createdDate);
-        params.put(VNPayParams.EXPIRE_DATE, expiredDate);
+        params.put(VNPayParams.CREATED_DATE, DateUtil.formatVnTime(createdAt));
+        params.put(VNPayParams.EXPIRE_DATE, DateUtil.formatVnTime(expiresAt));
 
         params.put(VNPayParams.IP_ADDRESS, ipAddress);
         params.put(VNPayParams.LOCALE, "vn");
@@ -75,8 +77,29 @@ public class VNPayService implements PaymentService {
         params.put(VNPayParams.ORDER_TYPE, ORDER_TYPE);
 
         var initPaymentUrl = buildInitPaymentUrl(params);
-        log.debug("[request_id={}] Init payment url: {}", requestId, initPaymentUrl);
         return InitPaymentResponse.builder().vnpUrl(initPaymentUrl).build();
+    }
+
+    private static String toVnPayAmount(BigDecimal amount) {
+        if (amount == null || amount.signum() <= 0) throw new IllegalArgumentException("Payment amount is invalid");
+        try {
+            return amount.movePointRight(2).toBigIntegerExact().toString();
+        } catch (ArithmeticException exception) {
+            throw new IllegalArgumentException("Payment amount cannot be represented by VNPay", exception);
+        }
+    }
+
+    private static String requireReference(String reference) {
+        if (reference == null || reference.isBlank() || reference.length() > 100) {
+            throw new IllegalArgumentException("Payment reference is invalid");
+        }
+        return reference;
+    }
+
+    private static String requireCurrency(String currency) {
+        String resolvedCurrency = currency == null ? "VND" : currency;
+        if (!"VND".equals(resolvedCurrency)) throw new IllegalArgumentException("Only VND payments are supported");
+        return resolvedCurrency;
     }
 
     public boolean verifyIpn(Map<String, String> params) {

@@ -27,6 +27,10 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
     @Query("SELECT o FROM Order o LEFT JOIN FETCH o.payment WHERE o.id = :id")
     Optional<Order> findByIdForUpdate(Long id);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT o FROM Order o LEFT JOIN FETCH o.payment WHERE o.id = :orderId AND o.user.id = :userId")
+    Optional<Order> findByIdAndUserIdForUpdate(Long orderId, Long userId);
+
     @Query("SELECT o FROM Order o JOIN FETCH o.items WHERE o.user.id = :userId AND o.trackingNumber = :trackingNumber")
     Optional<Order> findByUserIdAndTrackingNumber(Long userId, String trackingNumber);
 

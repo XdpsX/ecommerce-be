@@ -1,5 +1,6 @@
 package com.xdpsx.ecommerce.order.api;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
 import org.springframework.http.HttpStatus;
@@ -12,6 +13,8 @@ import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.order.api.dto.*;
 import com.xdpsx.ecommerce.order.application.OrderService;
 import com.xdpsx.ecommerce.order.domain.OrderStatus;
+import com.xdpsx.ecommerce.payment.api.dto.InitPaymentResponse;
+import com.xdpsx.ecommerce.payment.application.PaymentAttemptService;
 import com.xdpsx.ecommerce.payment.domain.PaymentStatus;
 
 import lombok.RequiredArgsConstructor;
@@ -21,6 +24,14 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class OrderController {
     private final OrderService orderService;
+    private final PaymentAttemptService paymentAttemptService;
+
+    @PostMapping("/{orderId}/payment-attempts")
+    public ResponseEntity<InitPaymentResponse> createPaymentAttempt(
+            Authentication authentication, @PathVariable Long orderId, HttpServletRequest request) {
+        return ResponseEntity.ok(
+                paymentAttemptService.initialize(authentication.getName(), orderId, request.getRemoteAddr()));
+    }
 
     @GetMapping("/me")
     public ResponseEntity<PageResponse<OrderDTO>> getMyOrders(

@@ -6,9 +6,11 @@ import jakarta.persistence.*;
 
 import com.xdpsx.ecommerce.order.domain.Order;
 
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
-@Setter
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor
@@ -31,4 +33,29 @@ public class Payment {
     private PaymentStatus status;
 
     private LocalDateTime paymentDate;
+
+    public void markPending() {
+        if (status != PaymentStatus.PENDING) {
+            throw new IllegalStateException("Only a pending Payment can remain pending");
+        }
+        status = PaymentStatus.PENDING;
+    }
+
+    public void markPaid(PaymentMethod method, LocalDateTime paidAt) {
+        if (status == PaymentStatus.PAID) return;
+        if (status != PaymentStatus.PENDING) {
+            throw new IllegalStateException("Only a pending Payment can become paid");
+        }
+        status = PaymentStatus.PAID;
+        paymentMethod = method;
+        paymentDate = paidAt;
+    }
+
+    public void markExpired() {
+        if (status == PaymentStatus.EXPIRED) return;
+        if (status != PaymentStatus.PENDING) {
+            throw new IllegalStateException("Only a pending Payment can expire");
+        }
+        status = PaymentStatus.EXPIRED;
+    }
 }

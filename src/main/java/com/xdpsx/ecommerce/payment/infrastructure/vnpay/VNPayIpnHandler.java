@@ -9,6 +9,7 @@ import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.order.application.OrderService;
 import com.xdpsx.ecommerce.order.application.PaymentCallbackResult;
 import com.xdpsx.ecommerce.payment.api.dto.VNPayIpnResponse;
+import com.xdpsx.ecommerce.payment.application.PaymentAttemptCallbackService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,24 +22,32 @@ public class VNPayIpnHandler implements IpnHandler {
 
     private final OrderService orderService;
 
+    private final PaymentAttemptCallbackService paymentAttemptCallbackService;
+
     @Override
     public VNPayIpnResponse process(Map<String, String> params) {
         if (!vnPayService.verifyIpn(params)) {
             return response("97", "Invalid signature");
         }
 
-        Long orderId = parseOrderId(params.get(VNPayParams.TXN_REF));
-        if (orderId == null) return response("01", "Order not found");
         BigDecimal amount = parseAmount(params.get(VNPayParams.AMOUNT));
         if (amount == null) return response("04", "invalid amount");
+        String providerReference = params.get(VNPayParams.TXN_REF);
         String responseCode = params.get(VNPayParams.RESPONSE_CODE);
         String transactionStatus = params.get(VNPayParams.TRANSACTION_STATUS);
-        if (responseCode == null || transactionStatus == null) {
+        if (providerReference == null || responseCode == null || transactionStatus == null) {
             return response("99", "Invalid request");
         }
         boolean successful = "00".equals(responseCode) && "00".equals(transactionStatus);
         try {
-            PaymentCallbackResult result = orderService.processPaymentCallback(orderId, amount, successful);
+            PaymentCallbackResult result;
+            Long orderId = parseOrderId(providerReference);
+            if (orderId != null) {
+                result = orderService.processPaymentCallback(orderId, amount, successful);
+            } else {
+                result = paymentAttemptCallbackService.process(
+                        providerReference, amount, successful, params.get(VNPayParams.TRANSACTION_NO), responseCode);
+            }
             return result == PaymentCallbackResult.ALREADY_CONFIRMED
                     ? response("02", "Order already confirmed")
                     : response("00", "Confirm Success");

@@ -44,3 +44,5 @@ app:
     reservation-lifetime: ${APP_CHECKOUT_RESERVATION_LIFETIME:15m}
     cleanup-batch-size: ${APP_CHECKOUT_CLEANUP_BATCH_SIZE:100}
     cleanup-fixed-delay-ms: ${APP_CHECKOUT_CLEANUP_FIXED_DELAY_MS:60000}
+  payment-attempt:
+    lifetime: ${APP_PAYMENT_ATTEMPT_LIFETIME:15m}
