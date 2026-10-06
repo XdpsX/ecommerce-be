@@ -1,0 +1,59 @@
+services:
+  mysql:
+    container_name: mysql
+    image: mysql:8.4
+    environment:
+      MYSQL_USER: ${DB_USER:-xdpsx}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-xdpsxpass}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpass}
+    volumes:
+      - mysql:/var/lib/mysql
+      - ./docker/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - ecommerce-network
+
+  app:
+    container_name: ecommerce-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      REVISION: ${REVISION:-0.0.1-SNAPSHOT}
+      SERVER_PORT: 8080
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-ecommerce}
+      DB_USER: ${DB_USER:-xdpsx}
+      DB_PASSWORD: ${DB_PASSWORD:-xdpsxpass}
+      JWT_SECRET: ${JWT_SECRET:-replace-with-a-random-secret-at-least-32-characters}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-CLOUDINARY_API_SECRET}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-CLOUDINARY_CLOUD_NAME}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-GOOGLE_CLIENT_SECRET}
+      VNPAY_TMN_CODE: ${VNPAY_TMN_CODE:-VNPAY_TMN_CODE}
+      VNPAY_SECRET_KEY: ${VNPAY_SECRET_KEY:-VNPAY_SECRET_KEY}
+      APP_BOOTSTRAP_ADMIN_ENABLED: ${APP_BOOTSTRAP_ADMIN_ENABLED:-false}
+      APP_BOOTSTRAP_ADMIN_EMAIL: ${APP_BOOTSTRAP_ADMIN_EMAIL:-}
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    networks:
+      - ecommerce-network
+
+networks:
+  ecommerce-network:
+    driver: bridge
+
+volumes:
+  mysql:
