@@ -361,7 +361,8 @@ class OpenApiDocumentationTest {
 
         JsonNode resourceParameter = operation.path("parameters").get(0);
         assertThat(resourceParameter.path("name").asString()).isEqualTo("resource");
-        assertThat(resourceParameter.path("description").asString()).isEqualTo("category, brand,...");
+        assertThat(resourceParameter.path("description").asString())
+                .isEqualTo("category, brand, product, product-description");
     }
 
     @Test
@@ -497,7 +498,7 @@ class OpenApiDocumentationTest {
     void mediaUpload_shouldReferenceDtoSchemaDirectlyForCreated() {
         JsonNode schema = openApi.at("/paths/~1media~1image-upload/post/responses/201/content/*~1*/schema");
 
-        assertThat(schema.path("$ref").asString()).isEqualTo("#/components/schemas/ViewMediaDTO");
+        assertThat(schema.path("$ref").asString()).isEqualTo("#/components/schemas/UploadedMediaDTO");
     }
 
     @Test

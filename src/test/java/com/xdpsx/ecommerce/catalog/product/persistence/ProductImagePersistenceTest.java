@@ -43,8 +43,8 @@ import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.product.domain.Product;
 import com.xdpsx.ecommerce.catalog.product.domain.ProductImage;
 import com.xdpsx.ecommerce.media.domain.Media;
+import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
-import com.xdpsx.ecommerce.media.domain.MediaStatus;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
 /** Verifies ordered Product images with a real Hibernate persistence context. */
@@ -296,7 +296,7 @@ class ProductImagePersistenceTest {
                 .url("https://example.test/" + id)
                 .contentType("image/png")
                 .purpose(MediaPurpose.PRODUCT_IMAGE)
-                .status(MediaStatus.ACTIVE)
+                .attachmentStatus(MediaAttachmentStatus.ACTIVE)
                 .build();
     }
 
@@ -307,7 +307,7 @@ class ProductImagePersistenceTest {
                 .url("https://example.test/" + id)
                 .contentType("image/png")
                 .purpose(MediaPurpose.PRODUCT_IMAGE)
-                .status(MediaStatus.TEMPORARY)
+                .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .build();
     }
 

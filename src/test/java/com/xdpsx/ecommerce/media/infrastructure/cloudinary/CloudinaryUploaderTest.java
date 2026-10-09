@@ -16,6 +16,7 @@ import com.cloudinary.Uploader;
 import com.cloudinary.Url;
 
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 class CloudinaryUploaderTest {
 
@@ -72,6 +73,35 @@ class CloudinaryUploaderTest {
                 assertThrows(RuntimeException.class, () -> cloudinaryUploader.uploadFile(file, new HashMap<>()));
 
         assertTrue(exception.getMessage().contains("Uploading image to Cloudinary failed"));
+    }
+
+    @Test
+    void uploadFile_ShouldDeserializeBatchIdFromCloudinaryResponse() throws IOException {
+        objectMapper = JsonMapper.builder().build();
+        cloudinaryUploader = new CloudinaryUploader(cloudinary, objectMapper);
+
+        MultipartFile file = mock(MultipartFile.class);
+        Uploader uploader = mock(Uploader.class);
+        when(cloudinary.uploader()).thenReturn(uploader);
+        when(file.getBytes()).thenReturn("fake-image".getBytes());
+        when(uploader.upload(any(), any()))
+                .thenReturn(Map.of(
+                        "public_id",
+                        "products/item",
+                        "secure_url",
+                        "https://res.cloudinary.com/products/item.jpg",
+                        "width",
+                        1200,
+                        "height",
+                        800,
+                        "bytes",
+                        12345L,
+                        "batch_id",
+                        "batch-42"));
+
+        CloudinaryUploadResponse response = cloudinaryUploader.uploadFile(file, new HashMap<>());
+
+        assertEquals("batch-42", response.batchId());
     }
 
     @Test

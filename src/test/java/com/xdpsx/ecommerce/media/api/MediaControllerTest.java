@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.util.Map;
 import javax.imageio.ImageIO;
 
 import org.junit.jupiter.api.*;
@@ -19,7 +20,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.xdpsx.ecommerce.media.api.dto.CreateMediaDTO;
-import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
+import com.xdpsx.ecommerce.media.api.dto.UploadedMediaDTO;
 import com.xdpsx.ecommerce.media.application.MediaService;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 import com.xdpsx.ecommerce.testsupport.SecurityConfigForControllerTests;
@@ -56,7 +57,8 @@ class MediaControllerTest {
             // Arrange
             MockMultipartFile validImageFile = createValidImageFile("image.png", IMAGE_PNG_VALUE);
 
-            ViewMediaDTO expectedViewMedia = new ViewMediaDTO("mediaId", "Test caption", "caption", "url");
+            UploadedMediaDTO expectedViewMedia =
+                    new UploadedMediaDTO("mediaId", "Test caption", "caption", "url", Map.of());
 
             when(mediaService.createMedia(any(CreateMediaDTO.class), eq(MediaPurpose.PRODUCT_IMAGE)))
                     .thenReturn(expectedViewMedia);

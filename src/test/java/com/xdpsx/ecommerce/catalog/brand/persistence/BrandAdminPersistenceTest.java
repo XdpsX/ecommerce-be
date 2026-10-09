@@ -44,8 +44,8 @@ import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.media.domain.Media;
+import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
-import com.xdpsx.ecommerce.media.domain.MediaStatus;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 import com.xdpsx.ecommerce.testsupport.MySqlTestContainerFactory;
 
@@ -240,7 +240,7 @@ class BrandAdminPersistenceTest {
         assertThat(exception.getCode()).isEqualTo(ErrorCode.RESOURCE_IN_USE);
         transactionTemplate.executeWithoutResult(status -> {
             Brand persisted = brandRepository.findById(brand.getId()).orElseThrow();
-            assertThat(persisted.getImage().getStatus()).isEqualTo(MediaStatus.ACTIVE);
+            assertThat(persisted.getImage().getAttachmentStatus()).isEqualTo(MediaAttachmentStatus.ACTIVE);
             assertThat(productRepository.existsByBrandId(brand.getId())).isTrue();
         });
     }
@@ -283,7 +283,7 @@ class BrandAdminPersistenceTest {
         transactionTemplate.executeWithoutResult(status -> {
             Brand persisted = brandRepository.findDetailById(seeded.getId()).orElseThrow();
             assertThat(persisted.getStatus()).isEqualTo(BrandStatus.INACTIVE);
-            assertThat(persisted.getImage().getStatus()).isEqualTo(MediaStatus.ACTIVE);
+            assertThat(persisted.getImage().getAttachmentStatus()).isEqualTo(MediaAttachmentStatus.ACTIVE);
             assertThat(persisted.getCategories()).extracting(Category::getSlug).containsExactly("optimistic-category");
         });
     }
@@ -304,7 +304,7 @@ class BrandAdminPersistenceTest {
                 .url("https://example.test/" + id + ".png")
                 .contentType("image/png")
                 .purpose(MediaPurpose.BRAND_LOGO)
-                .status(MediaStatus.ACTIVE)
+                .attachmentStatus(MediaAttachmentStatus.ACTIVE)
                 .build();
     }
 

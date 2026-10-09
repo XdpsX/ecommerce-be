@@ -7,6 +7,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.Map;
 import javax.imageio.ImageIO;
 
 import org.junit.jupiter.api.*;
@@ -20,14 +21,15 @@ import org.springframework.web.multipart.MultipartFile;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.api.dto.CreateMediaDTO;
-import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
+import com.xdpsx.ecommerce.media.api.dto.UploadedMediaDTO;
 import com.xdpsx.ecommerce.media.application.storage.MediaStorage;
 import com.xdpsx.ecommerce.media.application.storage.MediaStorageException;
 import com.xdpsx.ecommerce.media.application.storage.MediaUploadCommand;
+import com.xdpsx.ecommerce.media.application.storage.MediaUrlGenerator;
 import com.xdpsx.ecommerce.media.application.storage.StoredMedia;
 import com.xdpsx.ecommerce.media.domain.Media;
+import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
-import com.xdpsx.ecommerce.media.domain.MediaStatus;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
 @ExtendWith(MockitoExtension.class)
@@ -40,6 +42,9 @@ class MediaServiceImplTest {
 
     @Mock
     private MediaStorage mediaStorage;
+
+    @Mock
+    private MediaUrlGenerator mediaUrlGenerator;
 
     @Nested
     @DisplayName("1. createMedia")
@@ -58,9 +63,11 @@ class MediaServiceImplTest {
 
             when(mediaStorage.upload(any(MediaUploadCommand.class))).thenReturn(storedMedia);
             when(mediaRepository.save(any(Media.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(mediaUrlGenerator.generateVariants(storedMedia.externalId(), purpose))
+                    .thenReturn(Map.of("categoryCard", "https://secure-url/category-card"));
 
             // When
-            ViewMediaDTO result = mediaService.createMedia(request, purpose);
+            UploadedMediaDTO result = mediaService.createMedia(request, purpose);
 
             // Then
             ArgumentCaptor<Media> mediaCaptor = ArgumentCaptor.forClass(Media.class);
@@ -74,10 +81,11 @@ class MediaServiceImplTest {
             assertEquals("test caption", persisted.getCaption());
             assertEquals("image/jpeg", persisted.getContentType());
             assertEquals(purpose, persisted.getPurpose());
-            assertEquals(MediaStatus.TEMPORARY, persisted.getStatus());
+            assertEquals(MediaAttachmentStatus.TEMPORARY, persisted.getAttachmentStatus());
 
             assertEquals(persisted.getId(), result.id());
             assertEquals(storedMedia.url(), result.url());
+            assertEquals(Map.of("categoryCard", "https://secure-url/category-card"), result.variants());
 
             ArgumentCaptor<MediaUploadCommand> commandCaptor = ArgumentCaptor.forClass(MediaUploadCommand.class);
             verify(mediaStorage).upload(commandCaptor.capture());
@@ -100,7 +108,42 @@ class MediaServiceImplTest {
             verify(mediaStorage, never()).upload(any());
         }
 
-        @DisplayName("1.3 should fail when storage upload fails")
+        @DisplayName("1.3 should accept a description image without a minimum width")
+        @Test
+        void createMedia_shouldAcceptSmallProductDescriptionImage() throws Exception {
+            MediaPurpose descriptionPurpose = MediaPurpose.PRODUCT_DESCRIPTION_IMAGE;
+            MultipartFile mockFile = mockImageFile(1);
+            CreateMediaDTO request = new CreateMediaDTO("description", mockFile);
+            StoredMedia descriptionMedia =
+                    new StoredMedia("products/description", "https://secure-url/description", "batch");
+
+            when(mediaStorage.upload(any(MediaUploadCommand.class))).thenReturn(descriptionMedia);
+            when(mediaRepository.save(any(Media.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(mediaUrlGenerator.generateVariants(descriptionMedia.externalId(), descriptionPurpose))
+                    .thenReturn(Map.of("productContent", "https://secure-url/description-content"));
+
+            UploadedMediaDTO result = mediaService.createMedia(request, descriptionPurpose);
+
+            assertEquals(Map.of("productContent", "https://secure-url/description-content"), result.variants());
+            verify(mediaStorage).upload(argThat(command -> command.purpose() == descriptionPurpose));
+        }
+
+        @DisplayName("1.4 should reject invalid data for a description image")
+        @Test
+        void createMedia_shouldRejectInvalidProductDescriptionImage() throws Exception {
+            MediaPurpose descriptionPurpose = MediaPurpose.PRODUCT_DESCRIPTION_IMAGE;
+            MultipartFile mockFile = mock(MultipartFile.class);
+            when(mockFile.getInputStream()).thenReturn(new ByteArrayInputStream("not-an-image".getBytes()));
+            CreateMediaDTO request = new CreateMediaDTO("description", mockFile);
+
+            IllegalArgumentException exception = assertThrows(
+                    IllegalArgumentException.class, () -> mediaService.createMedia(request, descriptionPurpose));
+
+            assertEquals("Invalid image format", exception.getMessage());
+            verify(mediaStorage, never()).upload(any());
+        }
+
+        @DisplayName("1.5 should fail when storage upload fails")
         @Test
         void createMedia_shouldFail_whenStorageUploadFails() throws Exception {
             // Given
@@ -120,7 +163,7 @@ class MediaServiceImplTest {
             verify(mediaRepository, never()).save(any());
         }
 
-        @DisplayName("1.4 should throw exception when image is not valid")
+        @DisplayName("1.6 should throw exception when image is not valid")
         @Test
         void validateImageSize_ShouldThrowIllegalArgumentException_WhenImageIsNull() throws IOException {
             // Arrange
@@ -135,7 +178,7 @@ class MediaServiceImplTest {
             assertEquals("Invalid image format", exception.getMessage());
         }
 
-        @DisplayName("1.5 should throw exception when can not read image")
+        @DisplayName("1.7 should throw exception when can not read image")
         @Test
         void validateImageSize_ShouldThrowRuntimeException_WhenIOExceptionOccurs() throws IOException {
             // Arrange
@@ -151,7 +194,7 @@ class MediaServiceImplTest {
             assertInstanceOf(IOException.class, exception.getCause());
         }
 
-        @DisplayName("1.6 should delete the uploaded asset and propagate the original failure when saving fails")
+        @DisplayName("1.8 should delete the uploaded asset and propagate the original failure when saving fails")
         @Test
         void createMedia_ShouldDeleteUploadedFile_WhenSavingMediaFails() throws Exception {
             // Arrange
@@ -174,7 +217,7 @@ class MediaServiceImplTest {
             verify(mediaStorage).delete(storedMedia.externalId());
         }
 
-        @DisplayName("1.7 should suppress compensation failure on the original persistence failure")
+        @DisplayName("1.9 should suppress compensation failure on the original persistence failure")
         @Test
         void createMedia_ShouldSuppressCleanupFailure_WhenSavingAndCleanupBothFail() throws Exception {
             // Arrange
@@ -196,7 +239,7 @@ class MediaServiceImplTest {
             assertEquals("cleanup failed", exception.getSuppressed()[0].getMessage());
         }
 
-        @DisplayName("1.8 should keep the persisted media when only the response mapping fails")
+        @DisplayName("1.10 should keep the persisted media when only the response mapping fails")
         @Test
         void createMedia_ShouldNotCompensate_WhenMappingFailsAfterPersist() throws Exception {
             // Arrange

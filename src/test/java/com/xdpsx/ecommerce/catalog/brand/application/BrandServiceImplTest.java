@@ -37,8 +37,8 @@ import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.domain.Media;
+import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
-import com.xdpsx.ecommerce.media.domain.MediaStatus;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
 @ExtendWith(MockitoExtension.class)
@@ -272,7 +272,10 @@ class BrandServiceImplTest {
                 .name("Old")
                 .status(BrandStatus.ACTIVE)
                 .version(2L)
-                .image(Media.builder().id("old-logo").status(MediaStatus.ACTIVE).build())
+                .image(Media.builder()
+                        .id("old-logo")
+                        .attachmentStatus(MediaAttachmentStatus.ACTIVE)
+                        .build())
                 .build();
         when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
         UpdateBrandRequest request = new UpdateBrandRequest("New", BrandStatus.INACTIVE, null, Set.of(), 1L);
@@ -283,20 +286,23 @@ class BrandServiceImplTest {
         assertEquals(ErrorCode.CONCURRENT_MODIFICATION, exception.getCode());
         assertEquals("Old", brand.getName());
         assertEquals(BrandStatus.ACTIVE, brand.getStatus());
-        assertEquals(MediaStatus.ACTIVE, brand.getImage().getStatus());
+        assertEquals(MediaAttachmentStatus.ACTIVE, brand.getImage().getAttachmentStatus());
         verifyNoInteractions(mediaRepository, categoryRepository);
         verify(brandRepository, never()).save(any(Brand.class));
     }
 
     @Test
     void deleteBrand_ShouldMarkLogoPendingDeleteAndRemoveBrand() {
-        Media image = Media.builder().id("logo").status(MediaStatus.ACTIVE).build();
+        Media image = Media.builder()
+                .id("logo")
+                .attachmentStatus(MediaAttachmentStatus.ACTIVE)
+                .build();
         Brand brand = Brand.builder().id(1).version(4L).image(image).build();
         when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
 
         brandService.deleteBrand(1, new DeleteBrandRequest(4L));
 
-        assertEquals(MediaStatus.PENDING_DELETE, image.getStatus());
+        assertEquals(MediaAttachmentStatus.PENDING_DELETE, image.getAttachmentStatus());
         verify(mediaRepository).save(image);
         verify(brandRepository).delete(brand);
         verify(brandRepository).flush();
@@ -304,7 +310,10 @@ class BrandServiceImplTest {
 
     @Test
     void deleteBrand_ShouldRejectBrandReferencedByProductBeforeChangingMedia() {
-        Media image = Media.builder().id("logo").status(MediaStatus.ACTIVE).build();
+        Media image = Media.builder()
+                .id("logo")
+                .attachmentStatus(MediaAttachmentStatus.ACTIVE)
+                .build();
         Brand brand = Brand.builder().id(1).version(4L).image(image).build();
         when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
         when(productRepository.existsByBrandId(1)).thenReturn(true);
@@ -313,15 +322,17 @@ class BrandServiceImplTest {
                 assertThrows(ApplicationException.class, () -> brandService.deleteBrand(1, new DeleteBrandRequest(4L)));
 
         assertEquals(ErrorCode.RESOURCE_IN_USE, exception.getCode());
-        assertEquals(MediaStatus.ACTIVE, image.getStatus());
+        assertEquals(MediaAttachmentStatus.ACTIVE, image.getAttachmentStatus());
         verifyNoInteractions(mediaRepository);
         verify(brandRepository, never()).delete(any(Brand.class));
     }
 
     @Test
     void updateBrand_ShouldLeaveOldLogoWhenReplacementIsNotAttachable() {
-        Media oldImage =
-                Media.builder().id("old-logo").status(MediaStatus.ACTIVE).build();
+        Media oldImage = Media.builder()
+                .id("old-logo")
+                .attachmentStatus(MediaAttachmentStatus.ACTIVE)
+                .build();
         Brand brand = Brand.builder()
                 .id(1)
                 .name("Old")
@@ -340,7 +351,7 @@ class BrandServiceImplTest {
                         1, new UpdateBrandRequest("New", BrandStatus.INACTIVE, "missing-logo", null, 2L)));
 
         assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
-        assertEquals(MediaStatus.ACTIVE, oldImage.getStatus());
+        assertEquals(MediaAttachmentStatus.ACTIVE, oldImage.getAttachmentStatus());
         assertEquals("Old", brand.getName());
         assertEquals(BrandStatus.ACTIVE, brand.getStatus());
         verify(mediaRepository, never()).save(any(Media.class));
@@ -371,12 +382,14 @@ class BrandServiceImplTest {
 
     @Test
     void updateBrand_ShouldActivateReplacementAndMarkOldLogoPendingDelete() {
-        Media oldImage =
-                Media.builder().id("old-logo").status(MediaStatus.ACTIVE).build();
+        Media oldImage = Media.builder()
+                .id("old-logo")
+                .attachmentStatus(MediaAttachmentStatus.ACTIVE)
+                .build();
         Media newImage = Media.builder()
                 .id("new-logo")
                 .purpose(MediaPurpose.BRAND_LOGO)
-                .status(MediaStatus.TEMPORARY)
+                .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .build();
         Brand brand = Brand.builder()
                 .id(1)
@@ -392,8 +405,8 @@ class BrandServiceImplTest {
 
         brandService.updateBrand(1, new UpdateBrandRequest("Nike", BrandStatus.ACTIVE, "new-logo", null, 2L));
 
-        assertEquals(MediaStatus.PENDING_DELETE, oldImage.getStatus());
-        assertEquals(MediaStatus.ACTIVE, newImage.getStatus());
+        assertEquals(MediaAttachmentStatus.PENDING_DELETE, oldImage.getAttachmentStatus());
+        assertEquals(MediaAttachmentStatus.ACTIVE, newImage.getAttachmentStatus());
         assertSame(newImage, brand.getImage());
         verify(mediaRepository).save(oldImage);
         verify(mediaRepository).save(newImage);
