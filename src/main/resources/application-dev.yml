@@ -57,6 +57,11 @@ cloudinary:
   cloud:
     name: ${CLOUDINARY_CLOUD_NAME}
 
+media:
+  cloudinary:
+    eager-notification-url: ${CLOUDINARY_EAGER_NOTIFICATION_URL:}
+    webhook-timestamp-tolerance: ${CLOUDINARY_WEBHOOK_TIMESTAMP_TOLERANCE:2h}
+
 app:
   bootstrap-admin:
     enabled: ${APP_BOOTSTRAP_ADMIN_ENABLED:false}

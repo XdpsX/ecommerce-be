@@ -5,7 +5,7 @@ import org.springframework.http.MediaType;
 import com.xdpsx.ecommerce.common.error.ApiProblemSchema;
 import com.xdpsx.ecommerce.common.error.ValidationProblemSchema;
 import com.xdpsx.ecommerce.media.api.dto.CreateMediaDTO;
-import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
+import com.xdpsx.ecommerce.media.api.dto.UploadedMediaDTO;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -20,7 +20,9 @@ public interface MediaControllerApi {
 
     @Operation(
             summary = "Upload image",
-            description = "Uploads an image file to the server. Max file size: 2MB",
+            description = "Uploads an image file and schedules Cloudinary eager variants. The original source URL "
+                    + "remains in url; named variants are returned under variants. Max file size: 2MB. "
+                    + "Supported resources: category, brand, product, product-description.",
             requestBody =
                     @RequestBody(
                             description = "containing the image file and its metadata",
@@ -60,7 +62,9 @@ public interface MediaControllerApi {
                         description = "Internal Server Error",
                         content = @Content(schema = @Schema(implementation = ApiProblemSchema.class)))
             })
-    ViewMediaDTO createMedia(@Parameter(description = "category, brand,...") String resource, CreateMediaDTO request);
+    UploadedMediaDTO createMedia(
+            @Parameter(description = "category, brand, product, product-description") String resource,
+            CreateMediaDTO request);
 
     @Operation(
             summary = "Delete media",

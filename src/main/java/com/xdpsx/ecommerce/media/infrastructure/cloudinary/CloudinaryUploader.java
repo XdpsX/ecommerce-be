@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.cloudinary.Cloudinary;
+import com.cloudinary.Transformation;
 import com.cloudinary.utils.ObjectUtils;
 
 import lombok.RequiredArgsConstructor;
@@ -75,6 +76,15 @@ public class CloudinaryUploader {
                 .url()
                 .publicId(publicId)
                 .secure(true) // Sá»­ dá»¥ng HTTPS
+                .generate();
+    }
+
+    public String getFileUrl(String publicId, Transformation<?> transformation) {
+        return cloudinary
+                .url()
+                .publicId(publicId)
+                .transformation(transformation)
+                .secure(true)
                 .generate();
     }
 }

@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.api.dto.CreateMediaDTO;
-import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
+import com.xdpsx.ecommerce.media.api.dto.UploadedMediaDTO;
 import com.xdpsx.ecommerce.media.application.MediaService;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 
@@ -27,7 +27,7 @@ public class MediaController implements MediaControllerApi {
 
     @PostMapping(path = "/image-upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
-    public ViewMediaDTO createMedia(@RequestParam String resource, @Valid @ModelAttribute CreateMediaDTO request) {
+    public UploadedMediaDTO createMedia(@RequestParam String resource, @Valid @ModelAttribute CreateMediaDTO request) {
         MediaPurpose purpose = MediaPurpose.fromResource(resource);
         if (purpose == null) {
             throw new ApplicationException(ErrorCode.INVALID_MEDIA_RESOURCE_TYPE, Map.of("resource", resource));

@@ -33,6 +33,12 @@ Run the application with the `dev` profile configured in `.env`:
 
 The API runs at `http://localhost:8080` by default. Swagger UI is available at `http://localhost:8080/swagger-ui/index.html`.
 
+Async Cloudinary eager processing posts signed notifications to `POST /webhooks/cloudinary/eager`. For end-to-end
+local testing, set `CLOUDINARY_EAGER_NOTIFICATION_URL` in `.env` to a public HTTPS tunnel forwarding to that path.
+The default two-hour signature timestamp tolerance can be changed with
+`CLOUDINARY_WEBHOOK_TIMESTAMP_TOLERANCE`. Unit tests use mocked Cloudinary responses and signed webhook fixtures;
+no tunnel is required for the normal test suite.
+
 To build and run both MySQL and the application in Docker:
 
 ```powershell

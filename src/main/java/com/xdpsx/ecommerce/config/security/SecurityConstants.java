@@ -1,6 +1,7 @@
 package com.xdpsx.ecommerce.config.security;
 
 public class SecurityConstants {
+    public static final String CLOUDINARY_EAGER_WEBHOOK = "/webhooks/cloudinary/eager";
     public static final String[] PUBLIC_ENDPOINTS = {
         "/auth/**", "/oauth2/**", "/login/oauth2/**", "/swagger-ui/**", "/v3/api-docs/**", "/error"
     };

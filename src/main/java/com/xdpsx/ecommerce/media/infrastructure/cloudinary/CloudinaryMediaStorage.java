@@ -5,7 +5,6 @@ import java.util.Map;
 
 import org.springframework.stereotype.Component;
 
-import com.cloudinary.Transformation;
 import com.xdpsx.ecommerce.media.application.storage.MediaStorage;
 import com.xdpsx.ecommerce.media.application.storage.MediaStorageException;
 import com.xdpsx.ecommerce.media.application.storage.MediaUploadCommand;
@@ -28,9 +27,11 @@ public class CloudinaryMediaStorage implements MediaStorage {
     private static final Map<MediaPurpose, String> FOLDERS = Map.of(
             MediaPurpose.CATEGORY_IMAGE, "categories",
             MediaPurpose.BRAND_LOGO, "brands",
-            MediaPurpose.PRODUCT_IMAGE, "products");
+            MediaPurpose.PRODUCT_IMAGE, "products",
+            MediaPurpose.PRODUCT_DESCRIPTION_IMAGE, "products");
 
     private final CloudinaryUploader cloudinaryUploader;
+    private final CloudinaryMediaProperties properties;
 
     @Override
     public StoredMedia upload(MediaUploadCommand command) {
@@ -44,7 +45,10 @@ public class CloudinaryMediaStorage implements MediaStorage {
         }
 
         // A response without an identity is unusable: the asset cannot be tracked or deleted later.
-        if (response == null || isBlank(response.publicId())) {
+        if (response == null || isBlank(response.publicId()) || isBlank(response.batchId())) {
+            if (response != null && !isBlank(response.publicId())) {
+                removeOrphan(response.publicId());
+            }
             throw new MediaStorageException("Storage provider returned an unusable upload response");
         }
 
@@ -58,7 +62,7 @@ public class CloudinaryMediaStorage implements MediaStorage {
             throw new MediaStorageException("Storage provider returned an upload response without a usable URL");
         }
 
-        return new StoredMedia(externalId, url);
+        return new StoredMedia(externalId, url, response.batchId());
     }
 
     /**
@@ -90,9 +94,9 @@ public class CloudinaryMediaStorage implements MediaStorage {
     private Map<String, Object> uploadOptions(MediaPurpose purpose) {
         Map<String, Object> options = new HashMap<>();
         options.put("folder", FOLDERS.get(purpose));
-        options.put(
-                "transformation",
-                new Transformation<>().width(purpose.minWidth()).crop("scale"));
+        options.put("eager", CloudinaryMediaTransformations.eagerFor(purpose));
+        options.put("eager_async", true);
+        options.put("eager_notification_url", properties.getEagerNotificationUrl());
         return options;
     }
 

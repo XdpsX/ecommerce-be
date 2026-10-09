@@ -1,5 +1,6 @@
 package com.xdpsx.ecommerce.config.security;
 
+import static com.xdpsx.ecommerce.config.security.SecurityConstants.CLOUDINARY_EAGER_WEBHOOK;
 import static com.xdpsx.ecommerce.config.security.SecurityConstants.PUBLIC_ENDPOINTS;
 import static com.xdpsx.ecommerce.config.security.SecurityConstants.PUBLIC_GET_ENDPOINTS;
 
@@ -74,6 +75,8 @@ public class SecurityConfig {
         http.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
         http.authorizeHttpRequests(request -> request.requestMatchers("/cart/claim")
                 .authenticated()
+                .requestMatchers(HttpMethod.POST, CLOUDINARY_EAGER_WEBHOOK)
+                .permitAll()
                 .requestMatchers("/cart/**")
                 .permitAll()
                 .requestMatchers(PUBLIC_ENDPOINTS)

@@ -46,3 +46,8 @@ app:
     cleanup-fixed-delay-ms: ${APP_CHECKOUT_CLEANUP_FIXED_DELAY_MS:60000}
   payment-attempt:
     lifetime: ${APP_PAYMENT_ATTEMPT_LIFETIME:15m}
+
+media:
+  cloudinary:
+    eager-notification-url: ${CLOUDINARY_EAGER_NOTIFICATION_URL:}
+    webhook-timestamp-tolerance: ${CLOUDINARY_WEBHOOK_TIMESTAMP_TOLERANCE:2h}
