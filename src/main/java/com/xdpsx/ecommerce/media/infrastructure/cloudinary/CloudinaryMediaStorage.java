@@ -45,7 +45,7 @@ public class CloudinaryMediaStorage implements MediaStorage {
         }
 
         // A response without an identity is unusable: the asset cannot be tracked or deleted later.
-        if (response == null || isBlank(response.publicId()) || isBlank(response.batchId())) {
+        if (response == null || isBlank(response.publicId()) || isBlank(response.processingBatchId())) {
             if (response != null && !isBlank(response.publicId())) {
                 removeOrphan(response.publicId());
             }
@@ -62,7 +62,7 @@ public class CloudinaryMediaStorage implements MediaStorage {
             throw new MediaStorageException("Storage provider returned an upload response without a usable URL");
         }
 
-        return new StoredMedia(externalId, url, response.batchId());
+        return new StoredMedia(externalId, url, response.processingBatchId());
     }
 
     /**

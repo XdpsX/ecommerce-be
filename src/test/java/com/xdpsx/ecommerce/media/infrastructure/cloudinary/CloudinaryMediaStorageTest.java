@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.*;
@@ -105,6 +106,62 @@ class CloudinaryMediaStorageTest {
         // Assert
         assertEquals("publicId", storedMedia.externalId());
         assertEquals("http://plain-url", storedMedia.url());
+    }
+
+    @Test
+    void upload_ShouldUseBatchIdFromEagerResult() {
+        CloudinaryUploadResponse response = new CloudinaryUploadResponse(
+                "categories/image-id",
+                "http://plain-url",
+                "https://secure-url",
+                null,
+                null,
+                null,
+                null,
+                null,
+                0,
+                0,
+                0L,
+                "display",
+                null,
+                null,
+                null,
+                List.of(new CloudinaryUploadResponse.EagerResult("batch-id")));
+        when(cloudinaryUploader.uploadFile(eq(file), anyMap())).thenReturn(response);
+
+        StoredMedia storedMedia = mediaStorage.upload(new MediaUploadCommand(file, MediaPurpose.CATEGORY_IMAGE));
+
+        assertEquals("batch-id", storedMedia.processingReference());
+        verify(cloudinaryUploader, never()).deleteFile(anyString());
+    }
+
+    @Test
+    void upload_ShouldRejectDifferentEagerBatchIds() {
+        CloudinaryUploadResponse response = new CloudinaryUploadResponse(
+                "products/image-id",
+                "http://plain-url",
+                "https://secure-url",
+                null,
+                null,
+                null,
+                null,
+                null,
+                0,
+                0,
+                0L,
+                "display",
+                null,
+                null,
+                null,
+                List.of(
+                        new CloudinaryUploadResponse.EagerResult("batch-one"),
+                        new CloudinaryUploadResponse.EagerResult("batch-two")));
+        when(cloudinaryUploader.uploadFile(eq(file), anyMap())).thenReturn(response);
+
+        assertThrows(
+                MediaStorageException.class,
+                () -> mediaStorage.upload(new MediaUploadCommand(file, MediaPurpose.PRODUCT_IMAGE)));
+        verify(cloudinaryUploader).deleteFile("products/image-id");
     }
 
     @Test

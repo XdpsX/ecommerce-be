@@ -5,6 +5,7 @@ import static org.mockito.Mockito.*;
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -76,7 +77,7 @@ class CloudinaryUploaderTest {
     }
 
     @Test
-    void uploadFile_ShouldDeserializeBatchIdFromCloudinaryResponse() throws IOException {
+    void uploadFile_ShouldDeserializeNestedEagerBatchIdFromCloudinaryResponse() throws IOException {
         objectMapper = JsonMapper.builder().build();
         cloudinaryUploader = new CloudinaryUploader(cloudinary, objectMapper);
 
@@ -96,12 +97,16 @@ class CloudinaryUploaderTest {
                         800,
                         "bytes",
                         12345L,
-                        "batch_id",
-                        "batch-42"));
+                        "eager",
+                        List.of(Map.of(
+                                "batch_id", "batch-42",
+                                "status", "processing",
+                                "secure_url", "https://res.cloudinary.com/products/item-card.jpg"))));
 
         CloudinaryUploadResponse response = cloudinaryUploader.uploadFile(file, new HashMap<>());
 
-        assertEquals("batch-42", response.batchId());
+        assertNull(response.batchId());
+        assertEquals("batch-42", response.processingBatchId());
     }
 
     @Test
