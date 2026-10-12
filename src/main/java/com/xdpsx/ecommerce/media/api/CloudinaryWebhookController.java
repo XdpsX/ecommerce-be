@@ -16,7 +16,7 @@ import lombok.RequiredArgsConstructor;
 
 @RestController
 @RequiredArgsConstructor
-public class CloudinaryWebhookController {
+public class CloudinaryWebhookController implements CloudinaryWebhookApi {
     public static final String EAGER_PATH = "/webhooks/cloudinary/eager";
 
     private final NotificationSignatureVerifier signatureVerifier;

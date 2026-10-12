@@ -17,7 +17,7 @@ import lombok.RequiredArgsConstructor;
 @RequestMapping("/admin/orders")
 @PreAuthorize("hasRole('ADMIN')")
 @RequiredArgsConstructor
-public class AdminOrderController {
+public class AdminOrderController implements AdminOrderApi {
     private final OrderCancellationService orderCancellationService;
 
     @PostMapping("/{orderId}/cancellation")

@@ -26,7 +26,7 @@ import lombok.RequiredArgsConstructor;
 @RequestMapping("/admin/brands")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
-public class AdminBrandController implements AdminBrandApiDocs {
+public class AdminBrandController implements AdminBrandApi {
     private final BrandService brandService;
 
     @GetMapping

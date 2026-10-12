@@ -14,7 +14,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 /** Documentation-only interface for the public Brand read model. */
 @Tag(name = "Brand API")
-interface StorefrontBrandApiDocs {
+interface StorefrontBrandApi {
     @Operation(
             summary = "Get storefront brands",
             description = "Retrieve active brands in stable name/id order. When categoryId is supplied, only brands "

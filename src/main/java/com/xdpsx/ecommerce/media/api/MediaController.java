@@ -22,7 +22,7 @@ import lombok.RequiredArgsConstructor;
 @RequestMapping("/media")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
-public class MediaController implements MediaControllerApi {
+public class MediaController implements MediaApi {
     private final MediaService mediaService;
 
     @PostMapping(path = "/image-upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

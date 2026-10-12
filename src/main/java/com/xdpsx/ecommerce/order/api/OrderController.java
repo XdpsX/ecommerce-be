@@ -26,7 +26,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/orders")
 @RequiredArgsConstructor
-public class OrderController {
+public class OrderController implements OrderApi {
     private final OrderService orderService;
     private final OrderCancellationService orderCancellationService;
     private final PaymentAttemptService paymentAttemptService;

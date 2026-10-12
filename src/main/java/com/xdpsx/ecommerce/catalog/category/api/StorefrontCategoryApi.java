@@ -24,7 +24,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
  * {@code displayOrder ASC, id ASC}; clients cannot change the order.
  */
 @Tag(name = "Category API")
-interface StorefrontCategoryApiDocs {
+interface StorefrontCategoryApi {
 
     @Operation(
             summary = "Get root categories",

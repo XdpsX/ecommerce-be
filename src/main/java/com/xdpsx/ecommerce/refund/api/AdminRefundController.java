@@ -23,7 +23,7 @@ import lombok.RequiredArgsConstructor;
 @RequestMapping("/admin/refunds")
 @PreAuthorize("hasRole('ADMIN')")
 @RequiredArgsConstructor
-public class AdminRefundController {
+public class AdminRefundController implements AdminRefundApi {
     private final RefundService refundService;
 
     @GetMapping

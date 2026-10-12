@@ -20,7 +20,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/categories")
 @RequiredArgsConstructor
-public class StorefrontCategoryController implements StorefrontCategoryApiDocs {
+public class StorefrontCategoryController implements StorefrontCategoryApi {
     private final CategoryService categoryService;
 
     @GetMapping

@@ -19,7 +19,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequiredArgsConstructor
 @Validated
-public class UserController {
+public class UserController implements UserApi {
     private final UserService userService;
 
     @GetMapping("/users/me")

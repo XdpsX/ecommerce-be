@@ -17,12 +17,12 @@ import lombok.extern.slf4j.Slf4j;
 @RestController
 @RequestMapping("/payments")
 @RequiredArgsConstructor
-public class PaymentController {
+public class PaymentController implements PaymentApi {
 
     private final IpnHandler ipnHandler;
 
     @GetMapping("/vnpay_ipn")
-    VNPayIpnResponse processIpn(@RequestParam Map<String, String> params) {
+    public VNPayIpnResponse processIpn(@RequestParam Map<String, String> params) {
         log.info(
                 "[VNPay Ipn] reference={}, responseCode={}, transactionStatus={}",
                 params.get("vnp_TxnRef"),

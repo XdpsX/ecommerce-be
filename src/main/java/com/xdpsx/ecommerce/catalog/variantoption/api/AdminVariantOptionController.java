@@ -18,7 +18,7 @@ import lombok.RequiredArgsConstructor;
 @RequestMapping("/admin/variant-options")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
-public class AdminVariantOptionController implements AdminVariantOptionApiDocs {
+public class AdminVariantOptionController implements AdminVariantOptionApi {
     private final VariantOptionService variantOptionService;
 
     @GetMapping

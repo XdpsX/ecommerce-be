@@ -25,7 +25,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
  * {@code /{id}/parent} moves one node and {@code /order} replaces a whole sibling group order.
  */
 @Tag(name = "Admin Category API")
-interface AdminCategoryApiDocs {
+interface AdminCategoryApi {
     @Operation(
             summary = "Get admin categories",
             description = "Retrieve a paginated flat list of categories, including inactive ones",
