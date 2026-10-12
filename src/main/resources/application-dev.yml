@@ -44,7 +44,6 @@ springdoc:
   override-with-generic-response: false
 openapi:
   service:
-    api-docs: ecommerce-be
     server: http://localhost:${server.port}
     title: Backend service
     version: ${REVISION:1.0.0}

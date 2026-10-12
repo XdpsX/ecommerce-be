@@ -7,7 +7,6 @@ import jakarta.validation.constraints.Min;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -16,10 +15,8 @@ import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.order.api.dto.*;
 import com.xdpsx.ecommerce.order.application.OrderCancellationService;
 import com.xdpsx.ecommerce.order.application.OrderService;
-import com.xdpsx.ecommerce.order.domain.OrderStatus;
 import com.xdpsx.ecommerce.payment.api.dto.InitPaymentResponse;
 import com.xdpsx.ecommerce.payment.application.PaymentAttemptService;
-import com.xdpsx.ecommerce.payment.domain.PaymentStatus;
 
 import lombok.RequiredArgsConstructor;
 
@@ -61,33 +58,5 @@ public class OrderController implements OrderApi {
             @Valid @RequestBody CancellationRequest request) {
         return ResponseEntity.ok(
                 orderCancellationService.cancelForCustomer(authentication.getName(), orderId, request));
-    }
-
-    @GetMapping("/{orderId}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<OrderDetailsDTO> getOrderById(@PathVariable Long orderId) {
-        OrderDetailsDTO response = orderService.getOrderById(orderId);
-        return ResponseEntity.ok(response);
-    }
-
-    @GetMapping
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<PageResponse<OrderDTO>> getPageOrders(
-            @RequestParam(defaultValue = "1") @Min(1) int pageNum,
-            @RequestParam(defaultValue = "5") @Min(1) @Max(PageConstants.MAX_ITEMS_PER_PAGE) int pageSize,
-            @RequestParam(required = false) OrderStatus orderStatus,
-            @RequestParam(required = false) PaymentStatus paymentStatus,
-            @RequestParam(required = false) String trackingNumber) {
-        PageResponse<OrderDTO> response =
-                orderService.getAllOrders(pageNum, pageSize, orderStatus, paymentStatus, trackingNumber);
-        return new ResponseEntity<>(response, HttpStatus.OK);
-    }
-
-    @PatchMapping("/{id}/status")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<OrderDTO> updateOrderStatus(
-            @PathVariable Long id, @Valid @RequestBody OrderStatusUpdate request) {
-        OrderDTO response = orderService.updateOrderStatus(id, request);
-        return ResponseEntity.ok(response);
     }
 }
