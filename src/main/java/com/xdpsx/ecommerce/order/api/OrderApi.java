@@ -2,10 +2,13 @@ package com.xdpsx.ecommerce.order.api;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 
+import com.xdpsx.ecommerce.common.pagination.PageConstants;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.order.api.dto.CancellationRequest;
 import com.xdpsx.ecommerce.order.api.dto.OrderDTO;
@@ -23,7 +26,10 @@ interface OrderApi {
             Authentication authentication, Long orderId, HttpServletRequest request);
 
     @Operation(summary = "List current user orders", responses = @ApiResponse(responseCode = "200", description = "OK"))
-    ResponseEntity<PageResponse<OrderDTO>> getMyOrders(Authentication authentication, int pageNum, int pageSize);
+    ResponseEntity<PageResponse<OrderDTO>> getMyOrders(
+            Authentication authentication,
+            @Min(1) int pageNum,
+            @Min(1) @Max(PageConstants.MAX_ITEMS_PER_PAGE) int pageSize);
 
     @Operation(
             summary = "Get order by tracking number",

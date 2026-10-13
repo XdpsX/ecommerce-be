@@ -1,9 +1,12 @@
 package com.xdpsx.ecommerce.refund.api;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 
 import org.springframework.security.core.Authentication;
 
+import com.xdpsx.ecommerce.common.pagination.PageConstants;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.refund.api.dto.RefundCompleteRequest;
 import com.xdpsx.ecommerce.refund.api.dto.RefundFailRequest;
@@ -22,7 +25,8 @@ interface AdminRefundApi {
             summary = "List refund queue",
             security = @SecurityRequirement(name = "Bearer Authorization"),
             responses = @ApiResponse(responseCode = "200", description = "OK"))
-    PageResponse<RefundQueueItemResponse> getQueue(RefundStatus status, int pageNum, int pageSize);
+    PageResponse<RefundQueueItemResponse> getQueue(
+            RefundStatus status, @Min(1) int pageNum, @Min(1) @Max(PageConstants.MAX_ITEMS_PER_PAGE) int pageSize);
 
     @Operation(
             summary = "Get refund",

@@ -2,15 +2,12 @@ package com.xdpsx.ecommerce.order.api;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
-import com.xdpsx.ecommerce.common.pagination.PageConstants;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.order.api.dto.*;
 import com.xdpsx.ecommerce.order.application.OrderCancellationService;
@@ -38,8 +35,8 @@ public class OrderController implements OrderApi {
     @GetMapping("/me")
     public ResponseEntity<PageResponse<OrderDTO>> getMyOrders(
             Authentication authentication,
-            @RequestParam(defaultValue = "1") @Min(1) int pageNum,
-            @RequestParam(defaultValue = "5") @Min(1) @Max(PageConstants.MAX_ITEMS_PER_PAGE) int pageSize) {
+            @RequestParam(defaultValue = "1") int pageNum,
+            @RequestParam(defaultValue = "5") int pageSize) {
         PageResponse<OrderDTO> response = orderService.getMyOrders(authentication.getName(), pageNum, pageSize);
         return new ResponseEntity<>(response, HttpStatus.OK);
     }

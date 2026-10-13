@@ -30,7 +30,7 @@ class MediaProcessingMigrationTest {
     private static List<String> statements(String sql) {
         String withoutComments = Arrays.stream(sql.split("\\n"))
                 .filter(line -> !line.trim().startsWith("--"))
-                .collect(java.util.stream.Collectors.joining("\\n"));
+                .collect(java.util.stream.Collectors.joining("\n"));
         return Arrays.stream(withoutComments.split(";"))
                 .map(String::trim)
                 .filter(statement -> !statement.isEmpty())

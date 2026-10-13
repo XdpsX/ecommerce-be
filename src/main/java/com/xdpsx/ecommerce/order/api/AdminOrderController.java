@@ -1,8 +1,6 @@
 package com.xdpsx.ecommerce.order.api;
 
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -10,7 +8,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
-import com.xdpsx.ecommerce.common.pagination.PageConstants;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.order.api.dto.CancellationRequest;
 import com.xdpsx.ecommerce.order.api.dto.OrderDTO;
@@ -46,8 +43,8 @@ public class AdminOrderController implements AdminOrderApi {
 
     @GetMapping("/orders")
     public ResponseEntity<PageResponse<OrderDTO>> getPageOrders(
-            @RequestParam(defaultValue = "1") @Min(1) int pageNum,
-            @RequestParam(defaultValue = "5") @Min(1) @Max(PageConstants.MAX_ITEMS_PER_PAGE) int pageSize,
+            @RequestParam(defaultValue = "1") int pageNum,
+            @RequestParam(defaultValue = "5") int pageSize,
             @RequestParam(required = false) OrderStatus orderStatus,
             @RequestParam(required = false) PaymentStatus paymentStatus,
             @RequestParam(required = false) String trackingNumber) {
