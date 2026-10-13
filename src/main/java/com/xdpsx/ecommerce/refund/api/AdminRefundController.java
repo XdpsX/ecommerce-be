@@ -1,14 +1,11 @@
 package com.xdpsx.ecommerce.refund.api;
 
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
-import com.xdpsx.ecommerce.common.pagination.PageConstants;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.refund.api.dto.RefundCompleteRequest;
 import com.xdpsx.ecommerce.refund.api.dto.RefundFailRequest;
@@ -23,14 +20,14 @@ import lombok.RequiredArgsConstructor;
 @RequestMapping("/admin/refunds")
 @PreAuthorize("hasRole('ADMIN')")
 @RequiredArgsConstructor
-public class AdminRefundController {
+public class AdminRefundController implements AdminRefundApi {
     private final RefundService refundService;
 
     @GetMapping
     public PageResponse<RefundQueueItemResponse> getQueue(
             @RequestParam(required = false) RefundStatus status,
-            @RequestParam(defaultValue = "1") @Min(1) int pageNum,
-            @RequestParam(defaultValue = "5") @Min(1) @Max(PageConstants.MAX_ITEMS_PER_PAGE) int pageSize) {
+            @RequestParam(defaultValue = "1") int pageNum,
+            @RequestParam(defaultValue = "5") int pageSize) {
         return refundService.getQueue(status, pageNum, pageSize);
     }
 

@@ -30,8 +30,9 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.xdpsx.ecommerce.media.domain.Media;
+import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
+import com.xdpsx.ecommerce.media.domain.MediaProcessingStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
-import com.xdpsx.ecommerce.media.domain.MediaStatus;
 
 @SpringJUnitConfig(MediaAttachmentConcurrencyTest.PersistenceConfig.class)
 class MediaAttachmentConcurrencyTest {
@@ -97,7 +98,7 @@ class MediaAttachmentConcurrencyTest {
                 .url("https://example.test/shared-upload.png")
                 .contentType("image/png")
                 .purpose(MediaPurpose.PRODUCT_IMAGE)
-                .status(MediaStatus.TEMPORARY)
+                .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .build());
         mediaRepository.save(Media.builder()
                 .id("second-upload")
@@ -105,7 +106,17 @@ class MediaAttachmentConcurrencyTest {
                 .url("https://example.test/second-upload.png")
                 .contentType("image/png")
                 .purpose(MediaPurpose.PRODUCT_IMAGE)
-                .status(MediaStatus.TEMPORARY)
+                .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
+                .build());
+        mediaRepository.save(Media.builder()
+                .id("processing-upload")
+                .externalId("external-processing-upload")
+                .url("https://example.test/processing-upload.png")
+                .contentType("image/png")
+                .purpose(MediaPurpose.PRODUCT_IMAGE)
+                .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
+                .processingStatus(MediaProcessingStatus.PROCESSING)
+                .processingReference("processing-batch")
                 .build());
     }
 
@@ -148,8 +159,8 @@ class MediaAttachmentConcurrencyTest {
         allowFirstCommit.countDown();
         firstAttachment.get(5, TimeUnit.SECONDS);
         assertThat(competingAttachment.get(5, TimeUnit.SECONDS)).isEmpty();
-        assertThat(mediaRepository.findById("shared-upload").orElseThrow().getStatus())
-                .isEqualTo(MediaStatus.ACTIVE);
+        assertThat(mediaRepository.findById("shared-upload").orElseThrow().getAttachmentStatus())
+                .isEqualTo(MediaAttachmentStatus.ACTIVE);
     }
 
     @Test
@@ -183,8 +194,8 @@ class MediaAttachmentConcurrencyTest {
         allowFirstCommit.countDown();
         attachment.get(5, TimeUnit.SECONDS);
         assertThat(claim.get(5, TimeUnit.SECONDS)).isEqualTo(0);
-        assertThat(mediaRepository.findById("shared-upload").orElseThrow().getStatus())
-                .isEqualTo(MediaStatus.ACTIVE);
+        assertThat(mediaRepository.findById("shared-upload").orElseThrow().getAttachmentStatus())
+                .isEqualTo(MediaAttachmentStatus.ACTIVE);
     }
 
     @Test
@@ -215,6 +226,48 @@ class MediaAttachmentConcurrencyTest {
         allowBulkCommit.countDown();
         productImageUpdate.get(5, TimeUnit.SECONDS);
         assertThat(competingAttachment.get(5, TimeUnit.SECONDS)).isPresent();
+    }
+
+    @Test
+    void processingLock_ShouldKeepTheFirstTerminalOutcome() throws Exception {
+        CountDownLatch firstHasCompleted = new CountDownLatch(1);
+        CountDownLatch allowFirstCommit = new CountDownLatch(1);
+
+        Future<Void> firstOutcome = executor.submit(() -> {
+            transactionTemplate.executeWithoutResult(status -> {
+                Media media = mediaRepository
+                        .findByProcessingReferenceForUpdate("processing-batch")
+                        .orElseThrow();
+                media.markProcessingReady();
+                entityManager.flush();
+                firstHasCompleted.countDown();
+                await(allowFirstCommit);
+            });
+            return null;
+        });
+
+        assertThat(firstHasCompleted.await(5, TimeUnit.SECONDS)).isTrue();
+        Future<Void> competingOutcome = executor.submit(() -> {
+            transactionTemplate.executeWithoutResult(status -> {
+                Media media = mediaRepository
+                        .findByProcessingReferenceForUpdate("processing-batch")
+                        .orElseThrow();
+                media.markProcessingFailed("later failure");
+            });
+            return null;
+        });
+
+        try {
+            competingOutcome.get(250, TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.TimeoutException expectedLockWait) {
+            assertThat(competingOutcome).isNotDone();
+        }
+
+        allowFirstCommit.countDown();
+        firstOutcome.get(5, TimeUnit.SECONDS);
+        competingOutcome.get(5, TimeUnit.SECONDS);
+        assertThat(mediaRepository.findById("processing-upload").orElseThrow().getProcessingStatus())
+                .isEqualTo(MediaProcessingStatus.READY);
     }
 
     private static void await(CountDownLatch latch) {

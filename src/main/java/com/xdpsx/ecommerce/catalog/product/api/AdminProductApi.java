@@ -18,18 +18,22 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 @Tag(name = "Admin Product API")
-interface AdminProductApiDocs {
+interface AdminProductApi {
     @Operation(
             summary = "Get admin products",
             description = "Retrieve all products, including drafts and unpublished products.",
             security = @SecurityRequirement(name = "Bearer Authorization"),
-            responses = {@ApiResponse(responseCode = "401", description = "Authentication required")})
+            responses = {
+                @ApiResponse(responseCode = "200", description = "OK"),
+                @ApiResponse(responseCode = "401", description = "Authentication required")
+            })
     PageResponse<AdminProductSummaryResponse> getProducts(@ParameterObject AdminProductFilter filter);
 
     @Operation(
             summary = "Get admin product by ID",
             security = @SecurityRequirement(name = "Bearer Authorization"),
             responses = {
+                @ApiResponse(responseCode = "200", description = "OK"),
                 @ApiResponse(responseCode = "401", description = "Authentication required"),
                 @ApiResponse(
                         responseCode = "404",

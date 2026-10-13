@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springdoc.core.configuration.SpringDocConfiguration;
 import org.springdoc.core.properties.SpringDocConfigProperties;
+import org.springdoc.webmvc.core.configuration.MultipleOpenApiSupportConfiguration;
 import org.springdoc.webmvc.core.configuration.SpringDocWebMvcConfiguration;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
@@ -40,25 +41,35 @@ import com.xdpsx.ecommerce.catalog.product.application.ProductService;
 import com.xdpsx.ecommerce.catalog.product.application.ProductVariantService;
 import com.xdpsx.ecommerce.catalog.variantoption.api.AdminVariantOptionController;
 import com.xdpsx.ecommerce.catalog.variantoption.application.VariantOptionService;
+import com.xdpsx.ecommerce.checkout.api.CheckoutController;
+import com.xdpsx.ecommerce.checkout.application.CheckoutService;
+import com.xdpsx.ecommerce.media.api.CloudinaryWebhookController;
 import com.xdpsx.ecommerce.media.api.MediaController;
+import com.xdpsx.ecommerce.media.application.CloudinaryEagerWebhookHandler;
 import com.xdpsx.ecommerce.media.application.MediaService;
+import com.xdpsx.ecommerce.media.infrastructure.cloudinary.NotificationSignatureVerifier;
+import com.xdpsx.ecommerce.order.api.AdminOrderController;
 import com.xdpsx.ecommerce.order.api.OrderController;
 import com.xdpsx.ecommerce.order.application.OrderCancellationService;
 import com.xdpsx.ecommerce.order.application.OrderService;
+import com.xdpsx.ecommerce.payment.api.PaymentController;
 import com.xdpsx.ecommerce.payment.application.PaymentAttemptService;
+import com.xdpsx.ecommerce.payment.infrastructure.vnpay.IpnHandler;
 import com.xdpsx.ecommerce.refund.api.AdminRefundController;
 import com.xdpsx.ecommerce.refund.application.RefundService;
 import com.xdpsx.ecommerce.testsupport.SecurityConfigForControllerTests;
+import com.xdpsx.ecommerce.user.api.UserAddressController;
+import com.xdpsx.ecommerce.user.api.UserController;
+import com.xdpsx.ecommerce.user.application.UserAddressService;
+import com.xdpsx.ecommerce.user.application.UserService;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Guards that documentation-only interfaces ({@code AdminCategoryApiDocs},
- * {@code StorefrontCategoryApiDocs}, {@code AdminBrandApiDocs},
- * {@code AdminVariantOptionApiDocs}, {@code MediaControllerApi}) are still discovered by Springdoc while Spring
- * MVC behavior lives exclusively on the
- * controllers.
+ * Guards that documentation interfaces ({@code *Api}) are discovered by Springdoc while Spring MVC
+ * behavior lives exclusively on the controllers. It also verifies that the grouped documents keep
+ * backoffice, storefront, and integration routes separate.
  *
  * <p>
  * Uses a focused MVC slice: only the controllers, the Springdoc beans, and
@@ -78,14 +89,21 @@ import tools.jackson.databind.ObjectMapper;
             MediaController.class,
             CartController.class,
             OrderController.class,
+            AdminOrderController.class,
             AuthController.class,
-            AdminRefundController.class
+            AdminRefundController.class,
+            UserAddressController.class,
+            UserController.class,
+            CheckoutController.class,
+            PaymentController.class,
+            CloudinaryWebhookController.class
         })
-@Import(SecurityConfigForControllerTests.class)
+@Import({OpenApiConfig.class, SecurityConfigForControllerTests.class})
 @ImportAutoConfiguration({
     SpringDocConfiguration.class,
     SpringDocConfigProperties.class,
-    SpringDocWebMvcConfiguration.class
+    SpringDocWebMvcConfiguration.class,
+    MultipleOpenApiSupportConfiguration.class
 })
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class OpenApiDocumentationTest {
@@ -139,6 +157,24 @@ class OpenApiDocumentationTest {
     private AuthService authService;
 
     @MockitoBean
+    private UserAddressService userAddressService;
+
+    @MockitoBean
+    private CheckoutService checkoutService;
+
+    @MockitoBean
+    private UserService userService;
+
+    @MockitoBean
+    private IpnHandler ipnHandler;
+
+    @MockitoBean
+    private NotificationSignatureVerifier notificationSignatureVerifier;
+
+    @MockitoBean
+    private CloudinaryEagerWebhookHandler cloudinaryEagerWebhookHandler;
+
+    @MockitoBean
     private RefreshCookieService refreshCookieService;
 
     @MockitoBean
@@ -148,18 +184,25 @@ class OpenApiDocumentationTest {
     private ObjectMapper objectMapper;
 
     private JsonNode openApi;
+    private JsonNode backofficeOpenApi;
+    private JsonNode storefrontOpenApi;
+    private JsonNode integrationOpenApi;
 
     @BeforeAll
     void fetchGeneratedOpenApi() throws Exception {
-        String json = mockMvc.perform(get("/v3/api-docs"))
-                .andReturn()
-                .getResponse()
-                .getContentAsString(StandardCharsets.UTF_8);
-        openApi = objectMapper.readTree(json);
+        openApi = fetchOpenApi("/v3/api-docs");
+        backofficeOpenApi = fetchOpenApi("/v3/api-docs/backoffice");
+        storefrontOpenApi = fetchOpenApi("/v3/api-docs/storefront");
+        integrationOpenApi = fetchOpenApi("/v3/api-docs/integration");
+    }
+
+    private JsonNode fetchOpenApi(String path) throws Exception {
+        String json = mockMvc.perform(get(path)).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        return objectMapper.readTree(json);
     }
 
     @Test
-    void adminCategoryById_shouldKeepOperationFromApiDocsInterface() {
+    void adminCategoryById_shouldKeepOperationFromApiInterface() {
         JsonNode operation = openApi.at("/paths/~1admin~1categories~1{id}/get");
 
         assertThat(operation.isMissingNode()).isFalse();
@@ -246,6 +289,16 @@ class OpenApiDocumentationTest {
     }
 
     @Test
+    void adminProductReads_shouldDocumentSuccessResponseSchemas() {
+        JsonNode listSchema = openApi.at("/paths/~1admin~1products/get/responses/200/content/*~1*/schema");
+        assertThat(listSchema.path("$ref").asString())
+                .isEqualTo("#/components/schemas/PageResponseAdminProductSummaryResponse");
+
+        JsonNode detailSchema = openApi.at("/paths/~1admin~1products~1{id}/get/responses/200/content/*~1*/schema");
+        assertThat(detailSchema.path("$ref").asString()).isEqualTo("#/components/schemas/AdminProductDetailResponse");
+    }
+
+    @Test
     void adminOrderAndRefundQueues_shouldDocumentTrackingAndPagedRefundFields() {
         JsonNode orderParameters = openApi.at("/paths/~1orders/get/parameters");
         assertThat(orderParameters.findValuesAsString("name")).contains("trackingNumber");
@@ -267,7 +320,7 @@ class OpenApiDocumentationTest {
     }
 
     @Test
-    void adminCategories_shouldInheritParameterObjectFromApiDocsInterface() {
+    void adminCategories_shouldInheritParameterObjectFromApiInterface() {
         JsonNode parameters = openApi.at("/paths/~1admin~1categories/get/parameters");
 
         assertThat(parameters.isArray()).isTrue();
@@ -361,7 +414,8 @@ class OpenApiDocumentationTest {
 
         JsonNode resourceParameter = operation.path("parameters").get(0);
         assertThat(resourceParameter.path("name").asString()).isEqualTo("resource");
-        assertThat(resourceParameter.path("description").asString()).isEqualTo("category, brand,...");
+        assertThat(resourceParameter.path("description").asString())
+                .isEqualTo("category, brand, product, product-description");
     }
 
     @Test
@@ -497,7 +551,7 @@ class OpenApiDocumentationTest {
     void mediaUpload_shouldReferenceDtoSchemaDirectlyForCreated() {
         JsonNode schema = openApi.at("/paths/~1media~1image-upload/post/responses/201/content/*~1*/schema");
 
-        assertThat(schema.path("$ref").asString()).isEqualTo("#/components/schemas/ViewMediaDTO");
+        assertThat(schema.path("$ref").asString()).isEqualTo("#/components/schemas/UploadedMediaDTO");
     }
 
     @Test
@@ -521,12 +575,104 @@ class OpenApiDocumentationTest {
     }
 
     @Test
-    void mediaDelete_shouldKeepOperationFromApiDocsInterface() {
+    void mediaDelete_shouldKeepOperationFromApiInterface() {
         JsonNode operation = openApi.at("/paths/~1media~1{id}/delete");
 
         assertThat(operation.isMissingNode()).isFalse();
         assertThat(operation.path("summary").asString()).isEqualTo("Delete media");
         assertThat(operation.path("tags").get(0).asString()).isEqualTo("Media API");
+    }
+
+    @Test
+    void userAddressRoutes_shouldDocumentRuntimeSuccessStatusesAndSchemas() {
+        JsonNode create = openApi.at("/paths/~1users~1me~1addresses/post");
+        JsonNode delete = openApi.at("/paths/~1users~1me~1addresses~1{addressId}/delete");
+
+        assertThat(create.path("responses").has("201")).isTrue();
+        assertThat(create.path("responses").has("200")).isFalse();
+        assertThat(create.at("/responses/201/content/*~1*/schema/$ref").asString())
+                .isEqualTo("#/components/schemas/UserAddressResponse");
+
+        assertThat(delete.path("responses").has("204")).isTrue();
+        assertThat(delete.path("responses").has("200")).isFalse();
+        assertThat(delete.at("/responses/204/content").isMissingNode()).isTrue();
+    }
+
+    @Test
+    void checkout_shouldDocumentCreatedAndIdempotentReplayResponses() {
+        JsonNode operation = openApi.at("/paths/~1checkout/post");
+
+        assertThat(operation.path("responses").has("200")).isTrue();
+        assertThat(operation.path("responses").has("201")).isTrue();
+        assertThat(operation.at("/responses/200/content/*~1*/schema/$ref").asString())
+                .isEqualTo("#/components/schemas/CheckoutResponse");
+        assertThat(operation.at("/responses/201/content/*~1*/schema/$ref").asString())
+                .isEqualTo("#/components/schemas/CheckoutResponse");
+        JsonNode idempotencyKey = null;
+        for (JsonNode parameter : operation.path("parameters")) {
+            if ("Idempotency-Key".equals(parameter.path("name").asString())) {
+                idempotencyKey = parameter;
+                break;
+            }
+        }
+        assertThat(idempotencyKey).isNotNull();
+        assertThat(idempotencyKey.path("in").asString()).isEqualTo("header");
+        assertThat(idempotencyKey.path("required").asBoolean()).isTrue();
+    }
+
+    @Test
+    void groupedOpenApi_shouldSeparateBackofficeStorefrontAndIntegrationRoutes() {
+        assertThat(backofficeOpenApi.at("/paths/~1admin~1products/get").isMissingNode())
+                .isFalse();
+        assertThat(backofficeOpenApi.at("/paths/~1media~1image-upload/post").isMissingNode())
+                .isFalse();
+        assertThat(backofficeOpenApi.at("/paths/~1products/get").isMissingNode())
+                .isTrue();
+        assertThat(backofficeOpenApi.at("/paths/~1orders/get").isMissingNode()).isFalse();
+        assertThat(backofficeOpenApi.at("/paths/~1orders~1me/get").isMissingNode())
+                .isTrue();
+        assertThat(backofficeOpenApi.at("/paths/~1orders~1{id}~1status/patch").isMissingNode())
+                .isFalse();
+
+        assertThat(storefrontOpenApi.at("/paths/~1products/get").isMissingNode())
+                .isFalse();
+        assertThat(storefrontOpenApi.at("/paths/~1checkout/post").isMissingNode())
+                .isFalse();
+        assertThat(storefrontOpenApi.at("/paths/~1orders~1me/get").isMissingNode())
+                .isFalse();
+        assertThat(storefrontOpenApi.at("/paths/~1orders/get").isMissingNode()).isTrue();
+        assertThat(storefrontOpenApi.at("/paths/~1orders~1{id}~1status/patch").isMissingNode())
+                .isTrue();
+        assertThat(storefrontOpenApi.at("/paths/~1admin~1products/get").isMissingNode())
+                .isTrue();
+
+        assertThat(backofficeOpenApi.at("/paths/~1auth~1login/post").isMissingNode())
+                .isFalse();
+        assertThat(backofficeOpenApi.at("/paths/~1auth~1refresh/post").isMissingNode())
+                .isFalse();
+        assertThat(backofficeOpenApi.at("/paths/~1auth~1logout/post").isMissingNode())
+                .isFalse();
+        assertThat(backofficeOpenApi.at("/paths/~1auth~1register/post").isMissingNode())
+                .isTrue();
+        assertThat(storefrontOpenApi.at("/paths/~1auth~1login/post").isMissingNode())
+                .isFalse();
+        assertThat(storefrontOpenApi.at("/paths/~1auth~1refresh/post").isMissingNode())
+                .isFalse();
+        assertThat(storefrontOpenApi.at("/paths/~1auth~1register/post").isMissingNode())
+                .isFalse();
+
+        assertThat(integrationOpenApi
+                        .at("/paths/~1webhooks~1cloudinary~1eager/post")
+                        .isMissingNode())
+                .isFalse();
+        assertThat(integrationOpenApi.at("/paths/~1payments~1vnpay_ipn/get").isMissingNode())
+                .isFalse();
+        assertThat(integrationOpenApi.at("/paths/~1products/get").isMissingNode())
+                .isTrue();
+
+        assertThat(backofficeOpenApi.at("/paths/~1orders/get/tags/0").asText()).isEqualTo("Admin Order API");
+        assertThat(storefrontOpenApi.at("/paths/~1orders~1me/get/tags/0").asText())
+                .isEqualTo("Order API");
     }
 
     @Test

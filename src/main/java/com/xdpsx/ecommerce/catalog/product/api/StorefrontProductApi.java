@@ -16,7 +16,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 @Tag(name = "Product API")
-interface StorefrontProductApiDocs {
+interface StorefrontProductApi {
     @Operation(summary = "Search storefront products", description = "Retrieve only currently visible products.")
     PageResponse<StorefrontProductSummaryResponse> getProducts(@ParameterObject StorefrontProductFilter filter);
 

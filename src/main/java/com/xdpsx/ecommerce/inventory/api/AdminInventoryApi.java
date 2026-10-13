@@ -15,7 +15,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 @Tag(name = "Admin Inventory API")
-interface AdminInventoryApiDocs {
+interface AdminInventoryApi {
     @Operation(
             summary = "Get SKU inventory balance",
             security = @SecurityRequirement(name = "Bearer Authorization"),

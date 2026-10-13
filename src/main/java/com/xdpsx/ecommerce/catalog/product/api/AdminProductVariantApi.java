@@ -16,7 +16,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 @Tag(name = "Admin Product Variant API")
-interface AdminProductVariantApiDocs {
+interface AdminProductVariantApi {
     @Operation(
             summary = "List product variants",
             description = "List active and inactive SKUs for one Product.",

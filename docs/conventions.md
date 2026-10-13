@@ -9,6 +9,13 @@ Improve the code incrementally. Existing code is not automatically the desired d
 - Add a new Liquibase changeset for database changes; do not edit an applied changeset.
 - Avoid new dependencies and abstractions until a concrete need exists.
 
+## OpenAPI contracts
+
+- Keep documented success statuses aligned with controller behavior. When specifying `@Operation.responses`, include every possible 2xx status as well as errors, including statuses selected at runtime.
+- Every success response with a body must have a schema in the generated `/v3/api-docs`. Check that generic wrappers such as `PageResponse<T>` retain their concrete element type. A `204` response must have no body schema.
+- When changing an API used by generated clients, add a focused assertion for its generated success status and schema to `OpenApiDocumentationTest` when it protects a real contract risk.
+- Keep each controller paired with a documentation interface named `*Api`. Springdoc exposes the generated documents at `/v3/api-docs/backoffice`, `/v3/api-docs/storefront`, and `/v3/api-docs/integration`; frontend clients should generate from the group they consume instead of the aggregate `/v3/api-docs` document.
+
 ## Tests
 
 Do not test every possible case. Prefer a small set that provides useful confidence:

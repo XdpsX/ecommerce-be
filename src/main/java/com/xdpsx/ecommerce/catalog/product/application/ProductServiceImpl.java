@@ -44,8 +44,8 @@ import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.config.StorePricingProperties;
 import com.xdpsx.ecommerce.inventory.persistence.InventoryBalanceRepository;
 import com.xdpsx.ecommerce.media.domain.Media;
+import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
-import com.xdpsx.ecommerce.media.domain.MediaStatus;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 import com.xdpsx.ecommerce.order.persistence.OrderItemRepository;
 
@@ -243,7 +243,7 @@ public class ProductServiceImpl implements ProductService {
             productRepository.flush();
             appendImages(product, replacementMedia);
             replacementMedia.stream()
-                    .filter(item -> item.getStatus() == MediaStatus.TEMPORARY)
+                    .filter(item -> item.getAttachmentStatus() == MediaAttachmentStatus.TEMPORARY)
                     .forEach(Media::activate);
         }
         Product saved = productRepository.save(product);
@@ -303,7 +303,8 @@ public class ProductServiceImpl implements ProductService {
         return ids.stream()
                 .map(id -> {
                     Media item = byId.get(id);
-                    if (item.getPurpose() != MediaPurpose.PRODUCT_IMAGE || item.getStatus() != MediaStatus.TEMPORARY) {
+                    if (item.getPurpose() != MediaPurpose.PRODUCT_IMAGE
+                            || item.getAttachmentStatus() != MediaAttachmentStatus.TEMPORARY) {
                         throw notFound("media", id);
                     }
                     return item;
@@ -324,8 +325,9 @@ public class ProductServiceImpl implements ProductService {
                     Media item = byId.get(id);
                     if (item == null
                             || item.getPurpose() != MediaPurpose.PRODUCT_IMAGE
-                            || (item.getStatus() != MediaStatus.TEMPORARY
-                                    && (!current.containsKey(id) || item.getStatus() != MediaStatus.ACTIVE))) {
+                            || (item.getAttachmentStatus() != MediaAttachmentStatus.TEMPORARY
+                                    && (!current.containsKey(id)
+                                            || item.getAttachmentStatus() != MediaAttachmentStatus.ACTIVE))) {
                         throw notFound("media", id);
                     }
                     return item;

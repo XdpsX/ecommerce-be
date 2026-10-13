@@ -34,8 +34,8 @@ import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.domain.Media;
+import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
-import com.xdpsx.ecommerce.media.domain.MediaStatus;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
 /**
@@ -182,7 +182,7 @@ class CategoryServiceImplTest {
         Media media = Media.builder()
                 .id(imageId)
                 .purpose(MediaPurpose.CATEGORY_IMAGE)
-                .status(MediaStatus.TEMPORARY)
+                .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .build();
         CreateCategoryRequest request = new CreateCategoryRequest("Laptops", CategoryStatus.ACTIVE, imageId, 7);
 
@@ -200,7 +200,7 @@ class CategoryServiceImplTest {
         categoryService.createCategory(request);
 
         // Assert
-        assertEquals(MediaStatus.ACTIVE, media.getStatus());
+        assertEquals(MediaAttachmentStatus.ACTIVE, media.getAttachmentStatus());
 
         ArgumentCaptor<Category> captor = ArgumentCaptor.forClass(Category.class);
         verify(categoryRepository).save(captor.capture());
@@ -378,12 +378,12 @@ class CategoryServiceImplTest {
         Media oldImage = Media.builder()
                 .id(oldImageId)
                 .purpose(MediaPurpose.CATEGORY_IMAGE)
-                .status(MediaStatus.ACTIVE)
+                .attachmentStatus(MediaAttachmentStatus.ACTIVE)
                 .build();
         Media newImage = Media.builder()
                 .id(newImageId)
                 .purpose(MediaPurpose.CATEGORY_IMAGE)
-                .status(MediaStatus.TEMPORARY)
+                .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .build();
         Category category = category(categoryId, "Shoes", "shoes", 0);
         category.setImage(oldImage);
@@ -399,8 +399,8 @@ class CategoryServiceImplTest {
         categoryService.updateCategory(categoryId, request);
 
         // Assert
-        assertEquals(MediaStatus.PENDING_DELETE, oldImage.getStatus());
-        assertEquals(MediaStatus.ACTIVE, newImage.getStatus());
+        assertEquals(MediaAttachmentStatus.PENDING_DELETE, oldImage.getAttachmentStatus());
+        assertEquals(MediaAttachmentStatus.ACTIVE, newImage.getAttachmentStatus());
 
         ArgumentCaptor<Category> captor = ArgumentCaptor.forClass(Category.class);
         verify(categoryRepository).saveAndFlush(captor.capture());
@@ -698,7 +698,7 @@ class CategoryServiceImplTest {
         Media image = Media.builder()
                 .id("media-id")
                 .purpose(MediaPurpose.CATEGORY_IMAGE)
-                .status(MediaStatus.ACTIVE)
+                .attachmentStatus(MediaAttachmentStatus.ACTIVE)
                 .build();
         Category category = category(categoryId, "Shoes", "shoes", 0);
         category.setImage(image);
@@ -712,7 +712,7 @@ class CategoryServiceImplTest {
         categoryService.deleteCategory(categoryId, new DeleteCategoryRequest(0L));
 
         // Assert
-        assertEquals(MediaStatus.PENDING_DELETE, image.getStatus());
+        assertEquals(MediaAttachmentStatus.PENDING_DELETE, image.getAttachmentStatus());
         verify(mediaRepository).save(image);
         verify(categoryRepository).delete(category);
     }

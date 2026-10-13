@@ -21,7 +21,7 @@ import lombok.RequiredArgsConstructor;
 @RequestMapping("/admin/inventory/variants/{variantId}")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
-public class AdminInventoryController implements AdminInventoryApiDocs {
+public class AdminInventoryController implements AdminInventoryApi {
     private final InventoryService inventoryService;
 
     @GetMapping

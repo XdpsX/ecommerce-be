@@ -22,7 +22,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/checkout")
 @RequiredArgsConstructor
-public class CheckoutController {
+public class CheckoutController implements CheckoutApi {
     private final CheckoutService checkoutService;
 
     @PostMapping

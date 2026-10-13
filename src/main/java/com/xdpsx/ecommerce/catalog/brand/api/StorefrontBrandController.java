@@ -16,7 +16,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/brands")
 @RequiredArgsConstructor
-public class StorefrontBrandController implements StorefrontBrandApiDocs {
+public class StorefrontBrandController implements StorefrontBrandApi {
     private final BrandService brandService;
 
     @GetMapping

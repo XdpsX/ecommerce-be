@@ -25,7 +25,7 @@ import lombok.RequiredArgsConstructor;
 @RequestMapping("/admin/categories")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
-public class AdminCategoryController implements AdminCategoryApiDocs {
+public class AdminCategoryController implements AdminCategoryApi {
     private final CategoryService categoryService;
 
     @GetMapping

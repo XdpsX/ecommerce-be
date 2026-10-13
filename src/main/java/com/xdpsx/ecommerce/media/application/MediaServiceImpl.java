@@ -12,14 +12,17 @@ import org.springframework.web.multipart.MultipartFile;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.api.dto.CreateMediaDTO;
+import com.xdpsx.ecommerce.media.api.dto.UploadedMediaDTO;
 import com.xdpsx.ecommerce.media.api.dto.ViewMediaDTO;
 import com.xdpsx.ecommerce.media.application.storage.MediaStorage;
 import com.xdpsx.ecommerce.media.application.storage.MediaStorageException;
 import com.xdpsx.ecommerce.media.application.storage.MediaUploadCommand;
+import com.xdpsx.ecommerce.media.application.storage.MediaUrlGenerator;
 import com.xdpsx.ecommerce.media.application.storage.StoredMedia;
 import com.xdpsx.ecommerce.media.domain.Media;
+import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
+import com.xdpsx.ecommerce.media.domain.MediaProcessingStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
-import com.xdpsx.ecommerce.media.domain.MediaStatus;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -29,9 +32,10 @@ import lombok.RequiredArgsConstructor;
 public class MediaServiceImpl implements MediaService {
     private final MediaRepository mediaRepository;
     private final MediaStorage mediaStorage;
+    private final MediaUrlGenerator mediaUrlGenerator;
 
     @Override
-    public ViewMediaDTO createMedia(CreateMediaDTO request, MediaPurpose purpose) {
+    public UploadedMediaDTO createMedia(CreateMediaDTO request, MediaPurpose purpose) {
         validateImageSize(request.file(), purpose);
 
         // Only a confirmed media-provider failure becomes MEDIA_UPLOAD_FAILED.
@@ -50,7 +54,9 @@ public class MediaServiceImpl implements MediaService {
                 .caption(request.caption())
                 .contentType(request.file().getContentType())
                 .purpose(purpose)
-                .status(MediaStatus.TEMPORARY)
+                .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
+                .processingStatus(MediaProcessingStatus.PROCESSING)
+                .processingReference(storedMedia.processingReference())
                 .build();
 
         Media savedMedia;
@@ -65,7 +71,13 @@ public class MediaServiceImpl implements MediaService {
 
         // Mapping happens after a successful insert and must not trigger compensation: the persisted row
         // already references the asset, and a temporary upload is cleaned up by TTL if it is never returned.
-        return MediaMapper.INSTANCE.toViewMediaDTO(savedMedia);
+        ViewMediaDTO mapped = MediaMapper.INSTANCE.toViewMediaDTO(savedMedia);
+        return new UploadedMediaDTO(
+                mapped.id(),
+                mapped.caption(),
+                mapped.contentType(),
+                mapped.url(),
+                mediaUrlGenerator.generateVariants(savedMedia.getExternalId(), savedMedia.getPurpose()));
     }
 
     private void cleanupQuietly(String externalId, RuntimeException cause) {
@@ -86,9 +98,6 @@ public class MediaServiceImpl implements MediaService {
     }
 
     private void validateImageSize(MultipartFile file, MediaPurpose purpose) {
-        if (purpose.minWidth() == null) {
-            return;
-        }
         try {
             BufferedImage image = ImageIO.read(file.getInputStream());
             if (image == null) {
@@ -96,7 +105,7 @@ public class MediaServiceImpl implements MediaService {
             }
 
             int width = image.getWidth();
-            if (width < purpose.minWidth()) {
+            if (purpose.minWidth() != null && width < purpose.minWidth()) {
                 throw new ApplicationException(ErrorCode.INVALID_IMAGE_WIDTH, Map.of("minWidth", purpose.minWidth()));
             }
 

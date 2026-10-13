@@ -18,7 +18,7 @@ import lombok.RequiredArgsConstructor;
 @RequestMapping("/admin/products/{productId}/variants")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
-public class AdminProductVariantController implements AdminProductVariantApiDocs {
+public class AdminProductVariantController implements AdminProductVariantApi {
     private final ProductVariantService productVariantService;
 
     @GetMapping

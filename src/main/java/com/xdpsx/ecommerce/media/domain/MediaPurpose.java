@@ -13,6 +13,7 @@ public enum MediaPurpose {
     CATEGORY_IMAGE("category", 280),
     BRAND_LOGO("brand", 280),
     PRODUCT_IMAGE("product", 560),
+    PRODUCT_DESCRIPTION_IMAGE("product-description", null),
     ;
 
     private final String resource;

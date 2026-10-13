@@ -5,6 +5,7 @@ import static org.mockito.Mockito.*;
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -16,6 +17,7 @@ import com.cloudinary.Uploader;
 import com.cloudinary.Url;
 
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 class CloudinaryUploaderTest {
 
@@ -72,6 +74,39 @@ class CloudinaryUploaderTest {
                 assertThrows(RuntimeException.class, () -> cloudinaryUploader.uploadFile(file, new HashMap<>()));
 
         assertTrue(exception.getMessage().contains("Uploading image to Cloudinary failed"));
+    }
+
+    @Test
+    void uploadFile_ShouldDeserializeNestedEagerBatchIdFromCloudinaryResponse() throws IOException {
+        objectMapper = JsonMapper.builder().build();
+        cloudinaryUploader = new CloudinaryUploader(cloudinary, objectMapper);
+
+        MultipartFile file = mock(MultipartFile.class);
+        Uploader uploader = mock(Uploader.class);
+        when(cloudinary.uploader()).thenReturn(uploader);
+        when(file.getBytes()).thenReturn("fake-image".getBytes());
+        when(uploader.upload(any(), any()))
+                .thenReturn(Map.of(
+                        "public_id",
+                        "products/item",
+                        "secure_url",
+                        "https://res.cloudinary.com/products/item.jpg",
+                        "width",
+                        1200,
+                        "height",
+                        800,
+                        "bytes",
+                        12345L,
+                        "eager",
+                        List.of(Map.of(
+                                "batch_id", "batch-42",
+                                "status", "processing",
+                                "secure_url", "https://res.cloudinary.com/products/item-card.jpg"))));
+
+        CloudinaryUploadResponse response = cloudinaryUploader.uploadFile(file, new HashMap<>());
+
+        assertNull(response.batchId());
+        assertEquals("batch-42", response.processingBatchId());
     }
 
     @Test

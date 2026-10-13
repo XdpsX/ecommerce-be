@@ -25,7 +25,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
  * rejected with 409 before any association or media state changes.
  */
 @Tag(name = "Admin Brand API")
-interface AdminBrandApiDocs {
+interface AdminBrandApi {
     @Operation(
             summary = "Get admin brands",
             description = "Retrieve a paginated flat list of brands, including inactive ones",

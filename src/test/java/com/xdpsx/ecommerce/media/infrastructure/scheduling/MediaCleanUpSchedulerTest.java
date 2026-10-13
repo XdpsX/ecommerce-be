@@ -13,7 +13,7 @@ import org.mockito.InOrder;
 import com.xdpsx.ecommerce.media.application.storage.MediaStorage;
 import com.xdpsx.ecommerce.media.application.storage.MediaStorageException;
 import com.xdpsx.ecommerce.media.domain.Media;
-import com.xdpsx.ecommerce.media.domain.MediaStatus;
+import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
 class MediaCleanUpSchedulerTest {
@@ -35,9 +35,10 @@ class MediaCleanUpSchedulerTest {
         Media media = Media.builder()
                 .id("mediaId")
                 .externalId("test_external_id")
-                .status(MediaStatus.PENDING_DELETE)
+                .attachmentStatus(MediaAttachmentStatus.PENDING_DELETE)
                 .build();
-        when(mediaRepository.findAllByStatus(MediaStatus.PENDING_DELETE)).thenReturn(List.of(media));
+        when(mediaRepository.findAllByAttachmentStatus(MediaAttachmentStatus.PENDING_DELETE))
+                .thenReturn(List.of(media));
 
         // Act
         mediaCleanUpScheduler.cleanUpDeletedMedia();
@@ -54,9 +55,10 @@ class MediaCleanUpSchedulerTest {
         Media media = Media.builder()
                 .id("mediaId")
                 .externalId("failing_external_id")
-                .status(MediaStatus.PENDING_DELETE)
+                .attachmentStatus(MediaAttachmentStatus.PENDING_DELETE)
                 .build();
-        when(mediaRepository.findAllByStatus(MediaStatus.PENDING_DELETE)).thenReturn(List.of(media));
+        when(mediaRepository.findAllByAttachmentStatus(MediaAttachmentStatus.PENDING_DELETE))
+                .thenReturn(List.of(media));
         doThrow(new MediaStorageException("provider unavailable"))
                 .when(mediaStorage)
                 .delete("failing_external_id");
@@ -74,14 +76,15 @@ class MediaCleanUpSchedulerTest {
         Media failing = Media.builder()
                 .id("failing")
                 .externalId("failing_external_id")
-                .status(MediaStatus.PENDING_DELETE)
+                .attachmentStatus(MediaAttachmentStatus.PENDING_DELETE)
                 .build();
         Media healthy = Media.builder()
                 .id("healthy")
                 .externalId("healthy_external_id")
-                .status(MediaStatus.PENDING_DELETE)
+                .attachmentStatus(MediaAttachmentStatus.PENDING_DELETE)
                 .build();
-        when(mediaRepository.findAllByStatus(MediaStatus.PENDING_DELETE)).thenReturn(List.of(failing, healthy));
+        when(mediaRepository.findAllByAttachmentStatus(MediaAttachmentStatus.PENDING_DELETE))
+                .thenReturn(List.of(failing, healthy));
         doThrow(new MediaStorageException("provider unavailable"))
                 .when(mediaStorage)
                 .delete("failing_external_id");
@@ -100,7 +103,7 @@ class MediaCleanUpSchedulerTest {
         Media media = Media.builder()
                 .id("expiredId")
                 .externalId("expired_external_id")
-                .status(MediaStatus.TEMPORARY)
+                .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .build();
         when(mediaRepository.findExpiredTemporaryMedia(any(LocalDateTime.class)))
                 .thenReturn(List.of(media));
@@ -122,7 +125,7 @@ class MediaCleanUpSchedulerTest {
         Media media = Media.builder()
                 .id("attachedId")
                 .externalId("attached_external_id")
-                .status(MediaStatus.TEMPORARY)
+                .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .build();
         when(mediaRepository.findExpiredTemporaryMedia(any(LocalDateTime.class)))
                 .thenReturn(List.of(media));
@@ -142,7 +145,7 @@ class MediaCleanUpSchedulerTest {
         Media media = Media.builder()
                 .id("expiredId")
                 .externalId("expired_external_id")
-                .status(MediaStatus.TEMPORARY)
+                .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .build();
         when(mediaRepository.findExpiredTemporaryMedia(any(LocalDateTime.class)))
                 .thenReturn(List.of(media));
@@ -164,7 +167,8 @@ class MediaCleanUpSchedulerTest {
     @Test
     void cleanUpJobs_ShouldDoNothing_WhenNoMediaMatches() {
         // Arrange
-        when(mediaRepository.findAllByStatus(MediaStatus.PENDING_DELETE)).thenReturn(Collections.emptyList());
+        when(mediaRepository.findAllByAttachmentStatus(MediaAttachmentStatus.PENDING_DELETE))
+                .thenReturn(Collections.emptyList());
         when(mediaRepository.findExpiredTemporaryMedia(any(LocalDateTime.class)))
                 .thenReturn(Collections.emptyList());
 

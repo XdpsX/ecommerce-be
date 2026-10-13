@@ -18,7 +18,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 @Tag(name = "Admin Variant Option API")
-interface AdminVariantOptionApiDocs {
+interface AdminVariantOptionApi {
     @Operation(
             summary = "List variant options",
             description = "Retrieve all catalog options and their values in display order, including inactive entries",

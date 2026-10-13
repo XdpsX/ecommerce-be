@@ -44,7 +44,6 @@ springdoc:
   override-with-generic-response: false
 openapi:
   service:
-    api-docs: ecommerce-be
     server: http://localhost:${server.port}
     title: Backend service
     version: ${REVISION:1.0.0}
@@ -56,6 +55,11 @@ cloudinary:
     secret: ${CLOUDINARY_API_SECRET}
   cloud:
     name: ${CLOUDINARY_CLOUD_NAME}
+
+media:
+  cloudinary:
+    eager-notification-url: ${CLOUDINARY_EAGER_NOTIFICATION_URL:}
+    webhook-timestamp-tolerance: ${CLOUDINARY_WEBHOOK_TIMESTAMP_TOLERANCE:2h}
 
 app:
   bootstrap-admin:

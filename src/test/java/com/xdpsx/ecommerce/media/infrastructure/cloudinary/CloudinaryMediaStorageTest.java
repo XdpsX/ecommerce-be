@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.*;
@@ -26,13 +27,15 @@ class CloudinaryMediaStorageTest {
     @BeforeEach
     void setUp() {
         cloudinaryUploader = mock(CloudinaryUploader.class);
-        mediaStorage = new CloudinaryMediaStorage(cloudinaryUploader);
+        CloudinaryMediaProperties properties = new CloudinaryMediaProperties();
+        properties.setEagerNotificationUrl("https://tunnel.example/webhooks/cloudinary/eager");
+        mediaStorage = new CloudinaryMediaStorage(cloudinaryUploader, properties);
         file = mock(MultipartFile.class);
     }
 
     @Test
     @SuppressWarnings("unchecked")
-    void upload_ShouldMapPurposeToFolderAndTransformation_AndPreferSecureUrl() {
+    void upload_ShouldMapPurposeToFolderAndEagerTransformation_AndPreferSecureUrl() {
         // Arrange
         CloudinaryUploadResponse response = new CloudinaryUploadResponse(
                 "brands/logo-id",
@@ -48,7 +51,8 @@ class CloudinaryMediaStorageTest {
                 0L,
                 "display",
                 null,
-                null);
+                null,
+                "batch-id");
         when(cloudinaryUploader.uploadFile(eq(file), anyMap())).thenReturn(response);
 
         // Act
@@ -62,11 +66,15 @@ class CloudinaryMediaStorageTest {
         verify(cloudinaryUploader).uploadFile(eq(file), optionsCaptor.capture());
         Map<String, Object> options = optionsCaptor.getValue();
         assertEquals("brands", options.get("folder"));
-        Transformation<?> transformation = (Transformation<?>) options.get("transformation");
+        assertEquals(true, options.get("eager_async"));
+        assertTrue(options.containsKey("eager_notification_url"));
+        Transformation<?> transformation = (Transformation<?>) ((java.util.List<?>) options.get("eager")).get(0);
         assertEquals(
                 new Transformation<>()
-                        .width(MediaPurpose.BRAND_LOGO.minWidth())
-                        .crop("scale")
+                        .width(400)
+                        .height(400)
+                        .crop("fit")
+                        .quality("auto")
                         .generate(),
                 transformation.generate());
     }
@@ -75,7 +83,21 @@ class CloudinaryMediaStorageTest {
     void upload_ShouldFallBackToPlainUrl_WhenSecureUrlIsMissing() {
         // Arrange
         CloudinaryUploadResponse response = new CloudinaryUploadResponse(
-                "publicId", "http://plain-url", null, null, null, null, null, null, 0, 0, 0L, "display", null, null);
+                "publicId",
+                "http://plain-url",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                0,
+                0,
+                0L,
+                "display",
+                null,
+                null,
+                "batch-id");
         when(cloudinaryUploader.uploadFile(eq(file), anyMap())).thenReturn(response);
 
         // Act
@@ -84,6 +106,62 @@ class CloudinaryMediaStorageTest {
         // Assert
         assertEquals("publicId", storedMedia.externalId());
         assertEquals("http://plain-url", storedMedia.url());
+    }
+
+    @Test
+    void upload_ShouldUseBatchIdFromEagerResult() {
+        CloudinaryUploadResponse response = new CloudinaryUploadResponse(
+                "categories/image-id",
+                "http://plain-url",
+                "https://secure-url",
+                null,
+                null,
+                null,
+                null,
+                null,
+                0,
+                0,
+                0L,
+                "display",
+                null,
+                null,
+                null,
+                List.of(new CloudinaryUploadResponse.EagerResult("batch-id")));
+        when(cloudinaryUploader.uploadFile(eq(file), anyMap())).thenReturn(response);
+
+        StoredMedia storedMedia = mediaStorage.upload(new MediaUploadCommand(file, MediaPurpose.CATEGORY_IMAGE));
+
+        assertEquals("batch-id", storedMedia.processingReference());
+        verify(cloudinaryUploader, never()).deleteFile(anyString());
+    }
+
+    @Test
+    void upload_ShouldRejectDifferentEagerBatchIds() {
+        CloudinaryUploadResponse response = new CloudinaryUploadResponse(
+                "products/image-id",
+                "http://plain-url",
+                "https://secure-url",
+                null,
+                null,
+                null,
+                null,
+                null,
+                0,
+                0,
+                0L,
+                "display",
+                null,
+                null,
+                null,
+                List.of(
+                        new CloudinaryUploadResponse.EagerResult("batch-one"),
+                        new CloudinaryUploadResponse.EagerResult("batch-two")));
+        when(cloudinaryUploader.uploadFile(eq(file), anyMap())).thenReturn(response);
+
+        assertThrows(
+                MediaStorageException.class,
+                () -> mediaStorage.upload(new MediaUploadCommand(file, MediaPurpose.PRODUCT_IMAGE)));
+        verify(cloudinaryUploader).deleteFile("products/image-id");
     }
 
     @Test
@@ -116,7 +194,7 @@ class CloudinaryMediaStorageTest {
     void upload_ShouldRemoveUploadedAsset_WhenResponseHasIdentityButNoUrl() {
         // Arrange
         CloudinaryUploadResponse response = new CloudinaryUploadResponse(
-                "orphan-id", null, null, null, null, null, null, null, 0, 0, 0L, "display", null, null);
+                "orphan-id", null, null, null, null, null, null, null, 0, 0, 0L, "display", null, null, "batch-id");
         when(cloudinaryUploader.uploadFile(eq(file), anyMap())).thenReturn(response);
         when(cloudinaryUploader.deleteFile("orphan-id")).thenReturn(true);
 
@@ -133,7 +211,7 @@ class CloudinaryMediaStorageTest {
     void upload_ShouldStillFail_WhenOrphanCleanupFails() {
         // Arrange
         CloudinaryUploadResponse response = new CloudinaryUploadResponse(
-                "orphan-id", null, null, null, null, null, null, null, 0, 0, 0L, "display", null, null);
+                "orphan-id", null, null, null, null, null, null, null, 0, 0, 0L, "display", null, null, "batch-id");
         when(cloudinaryUploader.uploadFile(eq(file), anyMap())).thenReturn(response);
         when(cloudinaryUploader.deleteFile("orphan-id")).thenThrow(new RuntimeException("cleanup down"));
 

@@ -24,7 +24,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/users/me/addresses")
 @RequiredArgsConstructor
-public class UserAddressController {
+public class UserAddressController implements UserAddressApi {
     private final UserAddressService addressService;
 
     @GetMapping

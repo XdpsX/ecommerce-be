@@ -38,8 +38,8 @@ import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.domain.Media;
+import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
-import com.xdpsx.ecommerce.media.domain.MediaStatus;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
 /** Verifies the public Brand read model with a real Hibernate persistence context. */
@@ -269,7 +269,7 @@ class BrandStorefrontPersistenceTest {
                 .url("https://example.test/" + id)
                 .contentType("image/png")
                 .purpose(MediaPurpose.BRAND_LOGO)
-                .status(MediaStatus.ACTIVE)
+                .attachmentStatus(MediaAttachmentStatus.ACTIVE)
                 .build();
     }
 }

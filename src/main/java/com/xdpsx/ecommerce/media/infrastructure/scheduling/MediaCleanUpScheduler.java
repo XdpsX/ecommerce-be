@@ -8,7 +8,7 @@ import org.springframework.stereotype.Service;
 import com.xdpsx.ecommerce.media.application.storage.MediaStorage;
 import com.xdpsx.ecommerce.media.application.storage.MediaStorageException;
 import com.xdpsx.ecommerce.media.domain.Media;
-import com.xdpsx.ecommerce.media.domain.MediaStatus;
+import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -34,7 +34,9 @@ public class MediaCleanUpScheduler {
      */
     @Scheduled(cron = "0 5 0 * * ?") // Every day at 00:05
     public void cleanUpDeletedMedia() {
-        mediaRepository.findAllByStatus(MediaStatus.PENDING_DELETE).forEach(this::deleteAssetAndRecord);
+        mediaRepository
+                .findAllByAttachmentStatus(MediaAttachmentStatus.PENDING_DELETE)
+                .forEach(this::deleteAssetAndRecord);
     }
 
     /**
