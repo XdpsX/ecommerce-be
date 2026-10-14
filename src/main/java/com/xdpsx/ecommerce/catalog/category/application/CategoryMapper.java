@@ -9,6 +9,8 @@ import com.xdpsx.ecommerce.catalog.category.api.dto.CategorySummaryResponse;
 import com.xdpsx.ecommerce.catalog.category.api.dto.CategoryTreeResponse;
 import com.xdpsx.ecommerce.catalog.category.api.dto.StorefrontCategoryResponse;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
+import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
+import com.xdpsx.ecommerce.media.application.storage.MediaVariant;
 
 @Mapper
 public interface CategoryMapper {
@@ -19,12 +21,23 @@ public interface CategoryMapper {
     @Mapping(target = "effectivelyActive", expression = "java(entity.isEffectivelyActive())")
     AdminCategoryResponse toAdminCategoryResponse(Category entity);
 
-    @Mapping(target = "children", ignore = true)
-    @Mapping(target = "image", source = "entity.image.url")
-    CategoryTreeResponse toCategoryTreeResponse(Category entity);
+    default CategoryTreeResponse toCategoryTreeResponse(Category entity, MediaUrlResolver mediaUrlResolver) {
+        CategoryTreeResponse response = new CategoryTreeResponse();
+        response.setId(entity.getId());
+        response.setName(entity.getName());
+        response.setSlug(entity.getSlug());
+        response.setImage(mediaUrlResolver.resolve(entity.getImage(), MediaVariant.CATEGORY_CARD));
+        return response;
+    }
 
-    @Mapping(target = "image", source = "entity.image.url")
-    StorefrontCategoryResponse toStorefrontCategoryResponse(Category entity);
+    default StorefrontCategoryResponse toStorefrontCategoryResponse(
+            Category entity, MediaUrlResolver mediaUrlResolver) {
+        return new StorefrontCategoryResponse(
+                entity.getId(),
+                entity.getName(),
+                entity.getSlug(),
+                mediaUrlResolver.resolve(entity.getImage(), MediaVariant.CATEGORY_CARD));
+    }
 
     CategorySummaryResponse toSummaryResponse(Category entity);
 }

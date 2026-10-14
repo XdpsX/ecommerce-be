@@ -6,10 +6,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
-/**
- * The slug contract is shared with the Liquibase backfill for legacy rows, so the individual normalization rules
- * are pinned here rather than only through a service test.
- */
+/** Pins the category slug normalization contract independently of persistence and service behavior. */
 class CategorySlugTest {
 
     @ParameterizedTest

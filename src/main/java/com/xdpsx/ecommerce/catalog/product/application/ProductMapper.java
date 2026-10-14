@@ -11,11 +11,16 @@ import com.xdpsx.ecommerce.catalog.category.api.dto.CategorySummaryResponse;
 import com.xdpsx.ecommerce.catalog.product.api.dto.*;
 import com.xdpsx.ecommerce.catalog.product.domain.Product;
 import com.xdpsx.ecommerce.config.StorePricingProperties;
+import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
+import com.xdpsx.ecommerce.media.application.storage.MediaVariant;
 
 @Mapper(componentModel = "spring")
 public abstract class ProductMapper {
     @Autowired
     protected StorePricingProperties storePricingProperties;
+
+    @Autowired
+    protected MediaUrlResolver mediaUrlResolver;
 
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "published", constant = "false")
@@ -35,7 +40,7 @@ public abstract class ProductMapper {
                 maximumPrice,
                 currency(),
                 inStock,
-                mainImage(entity),
+                mainImage(entity, MediaVariant.PRODUCT_CARD),
                 category(entity),
                 brand(entity));
     }
@@ -87,11 +92,11 @@ public abstract class ProductMapper {
                 maximumPrice,
                 currency(),
                 inStock,
-                mainImage(entity),
+                mainImage(entity, MediaVariant.PRODUCT_DETAIL),
                 category(entity),
                 brand(entity),
                 entity.getDescription(),
-                imageDtos(entity),
+                storefrontImageDtos(entity, MediaVariant.PRODUCT_DETAIL),
                 options,
                 variants);
     }
@@ -121,6 +126,14 @@ public abstract class ProductMapper {
                 variants);
     }
 
+    private String mainImage(Product entity, MediaVariant variant) {
+        return entity.getImages().stream()
+                .filter(image -> image.getDisplayOrder() == 0)
+                .map(image -> mediaUrlResolver.resolve(image.getMedia(), variant))
+                .findFirst()
+                .orElse(null);
+    }
+
     private static String mainImage(Product entity) {
         return entity.getImages().stream()
                 .filter(image -> image.getDisplayOrder() == 0)
@@ -137,6 +150,15 @@ public abstract class ProductMapper {
         return entity.getImages().stream()
                 .map(image -> new ProductImageDTO(
                         image.getMedia().getId(), image.getMedia().getUrl(), image.getDisplayOrder()))
+                .toList();
+    }
+
+    private java.util.List<ProductImageDTO> storefrontImageDtos(Product entity, MediaVariant variant) {
+        return entity.getImages().stream()
+                .map(image -> new ProductImageDTO(
+                        image.getMedia().getId(),
+                        mediaUrlResolver.resolve(image.getMedia(), variant),
+                        image.getDisplayOrder()))
                 .toList();
     }
 

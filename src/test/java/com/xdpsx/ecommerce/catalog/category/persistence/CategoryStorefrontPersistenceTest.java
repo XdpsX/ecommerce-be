@@ -38,6 +38,7 @@ import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
+import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
@@ -108,7 +109,10 @@ class CategoryStorefrontPersistenceTest {
             return new CategoryServiceImpl(
                     categoryRepository,
                     mediaRepository,
+                    new MediaUrlResolver((externalId, purpose) ->
+                            java.util.Map.of("categoryCard", "https://derived.example.test/" + externalId)),
                     new CategoryHierarchy(categoryRepository),
+                    () -> 42L,
                     transactionTemplate);
         }
     }

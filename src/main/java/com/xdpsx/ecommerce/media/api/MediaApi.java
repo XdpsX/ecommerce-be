@@ -22,7 +22,8 @@ public interface MediaApi {
             summary = "Upload image",
             description = "Uploads an image file and schedules Cloudinary eager variants. The original source URL "
                     + "remains in url; named variants are returned under variants. Max file size: 2MB. "
-                    + "Supported resources: category, brand, product, product-description.",
+                    + "Supported resources: category, brand, product, product-description. The authenticated "
+                    + "uploader is recorded as the owner of the temporary Media.",
             requestBody =
                     @RequestBody(
                             description = "containing the image file and its metadata",
@@ -68,7 +69,8 @@ public interface MediaApi {
 
     @Operation(
             summary = "Delete media",
-            description = "Deletes a media file from the server",
+            description = "Requests deletion of the caller's temporary Media. Only the authenticated uploader can "
+                    + "delete it; active Media and another user's temporary Media are not deletable through this API.",
             responses = {
                 @ApiResponse(responseCode = "204", description = "No Content", content = @Content),
                 @ApiResponse(

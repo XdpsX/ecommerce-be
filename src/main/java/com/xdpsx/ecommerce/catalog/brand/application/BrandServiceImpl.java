@@ -16,6 +16,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.xdpsx.ecommerce.auth.application.CurrentUserIdProvider;
 import com.xdpsx.ecommerce.catalog.brand.api.dto.*;
 import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
 import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
@@ -28,6 +29,7 @@ import com.xdpsx.ecommerce.catalog.shared.application.PageMapper;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
+import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
@@ -37,16 +39,20 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
     private final BrandRepository brandRepository;
     private final CategoryRepository categoryRepository;
     private final ProductRepository productRepository;
+    private final MediaUrlResolver mediaUrlResolver;
 
     public BrandServiceImpl(
             MediaRepository mediaRepository,
             BrandRepository brandRepository,
             CategoryRepository categoryRepository,
-            ProductRepository productRepository) {
-        super(mediaRepository);
+            ProductRepository productRepository,
+            MediaUrlResolver mediaUrlResolver,
+            CurrentUserIdProvider currentUserIdProvider) {
+        super(mediaRepository, currentUserIdProvider);
         this.brandRepository = brandRepository;
         this.categoryRepository = categoryRepository;
         this.productRepository = productRepository;
+        this.mediaUrlResolver = mediaUrlResolver;
     }
 
     /**
@@ -88,7 +94,7 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
             brands = brandRepository.findStorefrontBrandsByCategoryId(categoryId, BrandStatus.ACTIVE);
         }
         return brands.stream()
-                .map(BrandMapper.INSTANCE::toStorefrontBrandResponse)
+                .map(brand -> BrandMapper.INSTANCE.toStorefrontBrandResponse(brand, mediaUrlResolver))
                 .collect(Collectors.toList());
     }
 
@@ -121,7 +127,8 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
         }
         if (request.imageId() != null) {
             Media image = mediaRepository
-                    .findAttachableById(request.imageId(), MediaPurpose.BRAND_LOGO)
+                    .findAttachableById(
+                            request.imageId(), MediaPurpose.BRAND_LOGO, currentUserIdProvider.getRequiredUserId())
                     .orElseThrow(() -> new ApplicationException(
                             ErrorCode.RESOURCE_NOT_FOUND,
                             Map.of("resourceType", "media", "resourceId", request.imageId())));

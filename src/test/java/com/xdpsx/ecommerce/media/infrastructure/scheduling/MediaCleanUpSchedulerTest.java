@@ -98,11 +98,12 @@ class MediaCleanUpSchedulerTest {
     }
 
     @Test
-    void cleanUpExpiredMedia_ShouldClaimBeforeDeleting() {
+    void cleanUpExpiredMedia_ShouldClaimAndDeleteLegacyMediaWithoutUploader() {
         // Arrange
         Media media = Media.builder()
                 .id("expiredId")
                 .externalId("expired_external_id")
+                .uploadedByUserId(null)
                 .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .build();
         when(mediaRepository.findExpiredTemporaryMedia(any(LocalDateTime.class)))

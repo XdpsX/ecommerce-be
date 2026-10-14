@@ -20,6 +20,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.xdpsx.ecommerce.auth.application.CurrentUserIdProvider;
 import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
 import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
 import com.xdpsx.ecommerce.catalog.brand.persistence.BrandRepository;
@@ -68,6 +69,7 @@ public class ProductServiceImpl implements ProductService {
     private final OrderItemRepository orderItemRepository;
     private final StorePricingProperties storePricingProperties;
     private final Clock pricingClock;
+    private final CurrentUserIdProvider currentUserIdProvider;
 
     @Transactional(readOnly = true)
     @Override
@@ -297,6 +299,7 @@ public class ProductServiceImpl implements ProductService {
     private List<Media> resolveNewMedia(List<String> imageIds) {
         List<String> ids = validateImageIds(imageIds);
         if (ids.isEmpty()) return List.of();
+        Long uploadedByUserId = currentUserIdProvider.getRequiredUserId();
         List<Media> media = resolveByIds(ids);
         if (media.size() != ids.size()) throw notFound("media", ids.get(0));
         Map<String, Media> byId = media.stream().collect(Collectors.toMap(Media::getId, Function.identity()));
@@ -304,7 +307,8 @@ public class ProductServiceImpl implements ProductService {
                 .map(id -> {
                     Media item = byId.get(id);
                     if (item.getPurpose() != MediaPurpose.PRODUCT_IMAGE
-                            || item.getAttachmentStatus() != MediaAttachmentStatus.TEMPORARY) {
+                            || item.getAttachmentStatus() != MediaAttachmentStatus.TEMPORARY
+                            || !uploadedByUserId.equals(item.getUploadedByUserId())) {
                         throw notFound("media", id);
                     }
                     return item;
@@ -314,6 +318,7 @@ public class ProductServiceImpl implements ProductService {
 
     private List<Media> resolveReplacementMedia(Product product, List<String> imageIds) {
         List<String> ids = validateImageIds(imageIds);
+        Long uploadedByUserId = currentUserIdProvider.getRequiredUserId();
         var current = product.getImages().stream()
                 .map(ProductImage::getMedia)
                 .collect(Collectors.toMap(Media::getId, Function.identity()));
@@ -327,7 +332,9 @@ public class ProductServiceImpl implements ProductService {
                             || item.getPurpose() != MediaPurpose.PRODUCT_IMAGE
                             || (item.getAttachmentStatus() != MediaAttachmentStatus.TEMPORARY
                                     && (!current.containsKey(id)
-                                            || item.getAttachmentStatus() != MediaAttachmentStatus.ACTIVE))) {
+                                            || item.getAttachmentStatus() != MediaAttachmentStatus.ACTIVE))
+                            || (item.getAttachmentStatus() == MediaAttachmentStatus.TEMPORARY
+                                    && !uploadedByUserId.equals(item.getUploadedByUserId()))) {
                         throw notFound("media", id);
                     }
                     return item;

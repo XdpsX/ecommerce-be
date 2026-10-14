@@ -22,6 +22,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 
+import com.xdpsx.ecommerce.auth.application.CurrentUserIdProvider;
 import com.xdpsx.ecommerce.catalog.brand.api.dto.AdminBrandResponse;
 import com.xdpsx.ecommerce.catalog.brand.api.dto.CreateBrandRequest;
 import com.xdpsx.ecommerce.catalog.brand.api.dto.DeleteBrandRequest;
@@ -36,6 +37,8 @@ import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
+import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
+import com.xdpsx.ecommerce.media.application.storage.MediaVariant;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
@@ -56,8 +59,19 @@ class BrandServiceImplTest {
     @Mock
     private ProductRepository productRepository;
 
+    @Mock
+    private MediaUrlResolver mediaUrlResolver;
+
+    @Mock
+    private CurrentUserIdProvider currentUserIdProvider;
+
     @InjectMocks
     private BrandServiceImpl brandService;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUpCurrentUser() {
+        lenient().when(currentUserIdProvider.getRequiredUserId()).thenReturn(42L);
+    }
 
     @Test
     void getAdminBrand_ShouldMapLifecycleVersionImageAndCategories() {
@@ -117,13 +131,16 @@ class BrandServiceImplTest {
                 .version(9L)
                 .build();
         when(brandRepository.findStorefrontBrands(BrandStatus.ACTIVE)).thenReturn(List.of(adidas, nike));
+        when(mediaUrlResolver.resolve(adidas.getImage(), MediaVariant.BRAND_LOGO))
+                .thenReturn("https://example.test/adidas-brand-logo.png");
 
         List<StorefrontBrandResponse> result = brandService.getStorefrontBrands(null);
 
         assertEquals(
                 List.of("Adidas", "Nike"),
                 result.stream().map(StorefrontBrandResponse::name).toList());
-        assertEquals("https://example.test/adidas.png", result.get(0).image());
+        assertEquals("https://example.test/adidas-brand-logo.png", result.get(0).image());
+        verify(mediaUrlResolver).resolve(adidas.getImage(), MediaVariant.BRAND_LOGO);
         verify(brandRepository).findStorefrontBrands(BrandStatus.ACTIVE);
         verifyNoInteractions(categoryRepository);
     }
@@ -342,7 +359,7 @@ class BrandServiceImplTest {
                 .build();
         when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
         when(brandRepository.existsByNameIgnoreCaseAndIdNot("New", 1)).thenReturn(false);
-        when(mediaRepository.findAttachableById("missing-logo", MediaPurpose.BRAND_LOGO))
+        when(mediaRepository.findAttachableById("missing-logo", MediaPurpose.BRAND_LOGO, 42L))
                 .thenReturn(Optional.empty());
 
         ApplicationException exception = assertThrows(
@@ -399,7 +416,7 @@ class BrandServiceImplTest {
                 .image(oldImage)
                 .build();
         when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
-        when(mediaRepository.findAttachableById("new-logo", MediaPurpose.BRAND_LOGO))
+        when(mediaRepository.findAttachableById("new-logo", MediaPurpose.BRAND_LOGO, 42L))
                 .thenReturn(Optional.of(newImage));
         when(brandRepository.saveAndFlush(any(Brand.class))).thenAnswer(invocation -> invocation.getArgument(0));
 

@@ -9,6 +9,8 @@ import com.xdpsx.ecommerce.catalog.brand.api.dto.BrandNoCatsDTO;
 import com.xdpsx.ecommerce.catalog.brand.api.dto.CreateBrandRequest;
 import com.xdpsx.ecommerce.catalog.brand.api.dto.StorefrontBrandResponse;
 import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
+import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
+import com.xdpsx.ecommerce.media.application.storage.MediaVariant;
 
 @Mapper
 public interface BrandMapper {
@@ -26,8 +28,10 @@ public interface BrandMapper {
     @Mapping(target = "categories", source = "entity.categories")
     AdminBrandResponse toAdminBrandResponse(Brand entity);
 
-    @Mapping(target = "image", source = "entity.image.url")
-    StorefrontBrandResponse toStorefrontBrandResponse(Brand entity);
+    default StorefrontBrandResponse toStorefrontBrandResponse(Brand entity, MediaUrlResolver mediaUrlResolver) {
+        return new StorefrontBrandResponse(
+                entity.getId(), entity.getName(), mediaUrlResolver.resolve(entity.getImage(), MediaVariant.BRAND_LOGO));
+    }
 
     BrandNoCatsDTO fromEntityToNotCatsDTO(Brand entity);
 }

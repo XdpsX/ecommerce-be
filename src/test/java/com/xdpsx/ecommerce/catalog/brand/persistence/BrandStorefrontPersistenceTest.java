@@ -37,6 +37,7 @@ import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
+import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
@@ -98,7 +99,14 @@ class BrandStorefrontPersistenceTest {
                 BrandRepository brandRepository,
                 CategoryRepository categoryRepository,
                 ProductRepository productRepository) {
-            return new BrandServiceImpl(mediaRepository, brandRepository, categoryRepository, productRepository);
+            return new BrandServiceImpl(
+                    mediaRepository,
+                    brandRepository,
+                    categoryRepository,
+                    productRepository,
+                    new MediaUrlResolver((externalId, purpose) ->
+                            java.util.Map.of("brandLogo", "https://derived.example.test/" + externalId)),
+                    () -> 42L);
         }
     }
 
@@ -158,7 +166,9 @@ class BrandStorefrontPersistenceTest {
         assertThat(result).extracting(StorefrontBrandResponse::name).containsExactly("Adidas", "Nike");
         assertThat(result)
                 .extracting(StorefrontBrandResponse::image)
-                .containsExactly("https://example.test/adidas-logo", "https://example.test/nike-logo");
+                .containsExactly(
+                        "https://derived.example.test/external-adidas-logo",
+                        "https://derived.example.test/external-nike-logo");
         assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
         assertThat(statistics.getEntityFetchCount()).isZero();
     }
@@ -269,6 +279,7 @@ class BrandStorefrontPersistenceTest {
                 .url("https://example.test/" + id)
                 .contentType("image/png")
                 .purpose(MediaPurpose.BRAND_LOGO)
+                .uploadedByUserId(42L)
                 .attachmentStatus(MediaAttachmentStatus.ACTIVE)
                 .build();
     }

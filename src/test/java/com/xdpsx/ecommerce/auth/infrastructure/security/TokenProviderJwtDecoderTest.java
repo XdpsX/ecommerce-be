@@ -76,13 +76,28 @@ class TokenProviderJwtDecoderTest {
         Jwt jwt = jwtDecoder().decode(token);
 
         assertThat(jwt.getSubject()).isEqualTo("user@example.com");
+        assertThat(((Number) jwt.getClaim("uid")).longValue()).isEqualTo(1L);
         assertThat(jwt.getClaimAsString("scope")).isEqualTo("ROLE_USER");
         assertThat(jwt.getExpiresAt()).isAfter(jwt.getIssuedAt());
     }
 
     @Test
+    void generatedToken_shouldRequireUserIdForUidClaim() {
+        CustomUserDetails user = CustomUserDetails.builder()
+                .username("user@example.com")
+                .authProvider(AuthProvider.LOCAL)
+                .role(Role.USER)
+                .build();
+
+        assertThatThrownBy(() -> tokenProvider().generateToken(user))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("User ID is required to issue an access token");
+    }
+
+    @Test
     void localToken_shouldUseConfiguredIssuerAndFifteenMinuteLifetime() {
         CustomUserDetails user = CustomUserDetails.builder()
+                .id(2L)
                 .username("user@example.com")
                 .authProvider(AuthProvider.LOCAL)
                 .role(Role.USER)
@@ -91,6 +106,7 @@ class TokenProviderJwtDecoderTest {
         Jwt jwt = jwtDecoderWithIssuer().decode(tokenProvider().generateLocalToken(user));
 
         assertThat(jwt.getClaimAsString("iss")).isEqualTo("xdpsx.com");
+        assertThat(((Number) jwt.getClaim("uid")).longValue()).isEqualTo(2L);
         assertThat(jwt.getExpiresAt()).isEqualTo(Instant.parse("2026-10-01T00:15:00Z"));
     }
 
@@ -113,6 +129,7 @@ class TokenProviderJwtDecoderTest {
     @Test
     void socialToken_shouldKeepLegacyOneHourLifetime() {
         CustomUserDetails user = CustomUserDetails.builder()
+                .id(3L)
                 .username("google@example.com")
                 .authProvider(AuthProvider.GOOGLE)
                 .role(Role.USER)
@@ -121,6 +138,7 @@ class TokenProviderJwtDecoderTest {
         Jwt jwt = jwtDecoderWithIssuer().decode(tokenProvider().generateToken(user));
 
         assertThat(jwt.getExpiresAt()).isEqualTo(Instant.parse("2026-10-01T01:00:00Z"));
+        assertThat(((Number) jwt.getClaim("uid")).longValue()).isEqualTo(3L);
     }
 
     private JwtDecoder jwtDecoderWithIssuer() {

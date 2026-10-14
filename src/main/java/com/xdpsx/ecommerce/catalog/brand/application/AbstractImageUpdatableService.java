@@ -2,6 +2,7 @@ package com.xdpsx.ecommerce.catalog.brand.application;
 
 import java.util.Map;
 
+import com.xdpsx.ecommerce.auth.application.CurrentUserIdProvider;
 import com.xdpsx.ecommerce.catalog.brand.domain.HasImage;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
@@ -12,9 +13,11 @@ import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 public abstract class AbstractImageUpdatableService {
 
     protected MediaRepository mediaRepository;
+    protected CurrentUserIdProvider currentUserIdProvider;
 
-    public AbstractImageUpdatableService(MediaRepository mediaRepository) {
+    public AbstractImageUpdatableService(MediaRepository mediaRepository, CurrentUserIdProvider currentUserIdProvider) {
         this.mediaRepository = mediaRepository;
+        this.currentUserIdProvider = currentUserIdProvider;
     }
 
     protected <T extends HasImage> void updateImage(T entity, String newImageId, MediaPurpose expectedPurpose) {
@@ -24,7 +27,7 @@ public abstract class AbstractImageUpdatableService {
 
         if (newImageId != null && (oldImage == null || !oldImage.getId().equals(newImageId))) {
             Media newImage = mediaRepository
-                    .findAttachableById(newImageId, expectedPurpose)
+                    .findAttachableById(newImageId, expectedPurpose, currentUserIdProvider.getRequiredUserId())
                     .orElseThrow(() -> new ApplicationException(
                             ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "media", "resourceId", newImageId)));
 

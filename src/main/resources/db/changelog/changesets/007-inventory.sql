@@ -1,7 +1,7 @@
 -- liquibase formatted sql
 
--- changeset xdpsx:inventory-cr1-foundation
--- comment: Add SKU inventory balances and immutable adjustment audit records.
+-- changeset ecommerce:inventory-baseline
+-- comment: Squashed inventory schema for fresh development databases.
 
 CREATE TABLE inventory_balances (
     variant_id BIGINT NOT NULL PRIMARY KEY,
@@ -28,6 +28,6 @@ CREATE TABLE inventory_adjustments (
     INDEX ix_inventory_adjustment_variant_created (variant_id, created_at, id)
 );
 
-INSERT INTO inventory_balances (variant_id, on_hand, reserved)
-SELECT id, 0, 0
-FROM product_variants;
+ALTER TABLE products DROP COLUMN in_stock;
+
+

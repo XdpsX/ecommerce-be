@@ -56,8 +56,12 @@ public class TokenProvider {
     }
 
     private String generateToken(CustomUserDetails user, java.time.Duration lifetime) {
+        if (user.getId() == null) {
+            throw new IllegalArgumentException("User ID is required to issue an access token");
+        }
+
         JWSHeader header = new JWSHeader(JWSAlgorithm.HS256);
-        JWTClaimsSet jwtClaimsSet = new JWTClaimsSet.Builder()
+        JWTClaimsSet.Builder claimsBuilder = new JWTClaimsSet.Builder()
                 .subject(user.getUsername())
                 .issuer(authSessionProperties.getExpectedIssuer())
                 .issueTime(Date.from(clock.instant()))
@@ -67,8 +71,9 @@ public class TokenProvider {
                         user.getAuthorities().stream()
                                 .map(GrantedAuthority::getAuthority)
                                 .toList()
-                                .get(0))
-                .build();
+                                .get(0));
+        claimsBuilder.claim("uid", user.getId());
+        JWTClaimsSet jwtClaimsSet = claimsBuilder.build();
         Payload payload = new Payload(jwtClaimsSet.toJSONObject());
         JWSObject jwsObject = new JWSObject(header, payload);
 

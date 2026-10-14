@@ -15,6 +15,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
 
+import com.xdpsx.ecommerce.auth.application.CurrentUserIdProvider;
 import com.xdpsx.ecommerce.catalog.category.api.dto.*;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.domain.CategorySlug;
@@ -25,6 +26,7 @@ import com.xdpsx.ecommerce.catalog.shared.application.PageMapper;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
+import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
@@ -36,7 +38,9 @@ import lombok.RequiredArgsConstructor;
 public class CategoryServiceImpl implements CategoryService {
     private final CategoryRepository categoryRepository;
     private final MediaRepository mediaRepository;
+    private final MediaUrlResolver mediaUrlResolver;
     private final CategoryHierarchy categoryHierarchy;
+    private final CurrentUserIdProvider currentUserIdProvider;
 
     /**
      * Opens one transaction per write attempt. Programmatic instead of
@@ -98,7 +102,7 @@ public class CategoryServiceImpl implements CategoryService {
     public List<StorefrontCategoryResponse> getStorefrontRootCategories() {
         return visibleCategories().stream()
                 .filter(category -> category.getParent() == null)
-                .map(CategoryMapper.INSTANCE::toStorefrontCategoryResponse)
+                .map(category -> CategoryMapper.INSTANCE.toStorefrontCategoryResponse(category, mediaUrlResolver))
                 .collect(Collectors.toList());
     }
 
@@ -127,7 +131,8 @@ public class CategoryServiceImpl implements CategoryService {
         // sibling group is stable.
         return childrenByParentId.getOrDefault(parentId, List.of()).stream()
                 .map(category -> {
-                    CategoryTreeResponse dto = CategoryMapper.INSTANCE.toCategoryTreeResponse(category);
+                    CategoryTreeResponse dto =
+                            CategoryMapper.INSTANCE.toCategoryTreeResponse(category, mediaUrlResolver);
                     dto.setChildren(buildTreeLevel(category.getId(), childrenByParentId));
                     return dto;
                 })
@@ -141,7 +146,7 @@ public class CategoryServiceImpl implements CategoryService {
                 .filter(Category::isEffectivelyActive)
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", slug)));
-        return CategoryMapper.INSTANCE.toStorefrontCategoryResponse(category);
+        return CategoryMapper.INSTANCE.toStorefrontCategoryResponse(category, mediaUrlResolver);
     }
 
     /**
@@ -453,7 +458,7 @@ public class CategoryServiceImpl implements CategoryService {
 
     private Media activateCategoryImage(String imageId) {
         Media image = mediaRepository
-                .findAttachableById(imageId, MediaPurpose.CATEGORY_IMAGE)
+                .findAttachableById(imageId, MediaPurpose.CATEGORY_IMAGE, currentUserIdProvider.getRequiredUserId())
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "media", "resourceId", imageId)));
         image.activate();

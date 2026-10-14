@@ -43,6 +43,7 @@ import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
+import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
@@ -126,7 +127,13 @@ class BrandAdminPersistenceTest {
                 BrandRepository brandRepository,
                 CategoryRepository categoryRepository,
                 ProductRepository productRepository) {
-            return new BrandServiceImpl(mediaRepository, brandRepository, categoryRepository, productRepository);
+            return new BrandServiceImpl(
+                    mediaRepository,
+                    brandRepository,
+                    categoryRepository,
+                    productRepository,
+                    new MediaUrlResolver((externalId, purpose) -> java.util.Map.of()),
+                    () -> 42L);
         }
     }
 
@@ -153,6 +160,117 @@ class BrandAdminPersistenceTest {
 
     @PersistenceContext
     private EntityManager entityManager;
+
+    @Test
+    void baseline_ShouldApplyModuleChangesetsAndContainCurrentMediaSchema() {
+        List<?> changesetIds = entityManager
+                .createNativeQuery("SELECT id FROM DATABASECHANGELOG ORDER BY orderexecuted")
+                .getResultList();
+        Number uploaderColumnCount = (Number) entityManager
+                .createNativeQuery("SELECT COUNT(*) FROM information_schema.columns "
+                        + "WHERE table_schema = DATABASE() AND table_name = 'media' "
+                        + "AND column_name = 'uploaded_by_user_id'")
+                .getSingleResult();
+
+        assertThat(changesetIds.stream().map(Object::toString).toList())
+                .containsExactly(
+                        "identity-baseline",
+                        "catalog-foundation-baseline",
+                        "media-foundation-baseline",
+                        "commerce-foundation-baseline",
+                        "catalog-model-baseline",
+                        "product-variants-baseline",
+                        "inventory-baseline",
+                        "order-payment-baseline",
+                        "cart-baseline",
+                        "media-processing-ownership-baseline");
+        assertThat(uploaderColumnCount.intValue()).isEqualTo(1);
+    }
+
+    @Test
+    void baseline_ShouldCreateAllModuleTablesAndKeyConstraints() {
+        List<?> tables = entityManager
+                .createNativeQuery(
+                        "SELECT table_name FROM information_schema.tables " + "WHERE table_schema = DATABASE()")
+                .getResultList();
+        List<?> constraints = entityManager
+                .createNativeQuery("SELECT constraint_name FROM information_schema.table_constraints "
+                        + "WHERE constraint_schema = DATABASE()")
+                .getResultList();
+        Number hierarchyAnchorCount = (Number) entityManager
+                .createNativeQuery("SELECT COUNT(*) FROM category_hierarchy_anchor WHERE id = 1")
+                .getSingleResult();
+        List<?> uniqueColumns = entityManager
+                .createNativeQuery("SELECT column_name FROM information_schema.key_column_usage "
+                        + "WHERE constraint_schema = DATABASE() AND table_name = 'users' "
+                        + "AND constraint_name = 'uk_users_email' ORDER BY ordinal_position")
+                .getResultList();
+        String checkClause = String.valueOf(entityManager
+                .createNativeQuery("SELECT check_clause FROM information_schema.check_constraints "
+                        + "WHERE constraint_schema = DATABASE() AND constraint_name = 'ck_cart_items_quantity'")
+                .getSingleResult());
+        String refreshSessionForeignKey = String.valueOf(entityManager
+                .createNativeQuery("SELECT CONCAT(k.column_name, '|', k.referenced_table_name, '|', "
+                        + "k.referenced_column_name, '|', r.delete_rule) "
+                        + "FROM information_schema.key_column_usage k "
+                        + "JOIN information_schema.referential_constraints r "
+                        + "ON r.constraint_schema = k.constraint_schema AND r.table_name = k.table_name "
+                        + "AND r.constraint_name = k.constraint_name "
+                        + "WHERE k.constraint_schema = DATABASE() AND k.table_name = 'refresh_sessions' "
+                        + "AND k.constraint_name = 'fk_refresh_sessions_user'")
+                .getSingleResult());
+
+        assertThat(tables.stream().map(String::valueOf).toList())
+                .contains(
+                        "users",
+                        "refresh_sessions",
+                        "user_addresses",
+                        "categories",
+                        "brands",
+                        "category_brands",
+                        "products",
+                        "product_images",
+                        "media",
+                        "variant_options",
+                        "variant_option_values",
+                        "product_variants",
+                        "product_variant_selections",
+                        "inventory_balances",
+                        "inventory_adjustments",
+                        "orders",
+                        "order_items",
+                        "payments",
+                        "payment_attempts",
+                        "refunds",
+                        "carts",
+                        "cart_items",
+                        "category_hierarchy_anchor");
+        assertThat(constraints.stream().map(String::valueOf).toList())
+                .contains(
+                        "uk_users_email",
+                        "PRIMARY",
+                        "fk_refresh_sessions_user",
+                        "fk_user_addresses_user",
+                        "uk_category_slug",
+                        "fk_product_image_media",
+                        "uk_product_variant_sku",
+                        "fk_inventory_balance_variant",
+                        "uk_orders_user_idempotency",
+                        "uk_payment_attempts_provider_reference",
+                        "uk_refunds_payment_id",
+                        "uk_carts_user_id",
+                        "ck_cart_items_quantity",
+                        "uq_media_processing_reference");
+        assertThat(hierarchyAnchorCount.intValue()).isEqualTo(1);
+        assertThat(uniqueColumns.stream().map(String::valueOf).toList()).containsExactly("email");
+        String normalizedCheckClause = checkClause
+                .toLowerCase(java.util.Locale.ROOT)
+                .replace("`", "")
+                .replace("(", "")
+                .replace(")", "");
+        assertThat(normalizedCheckClause).contains("quantity between 1 and 99");
+        assertThat(refreshSessionForeignKey).isEqualTo("user_id|users|id|CASCADE");
+    }
 
     private Statistics statistics;
 
@@ -304,6 +422,7 @@ class BrandAdminPersistenceTest {
                 .url("https://example.test/" + id + ".png")
                 .contentType("image/png")
                 .purpose(MediaPurpose.BRAND_LOGO)
+                .uploadedByUserId(42L)
                 .attachmentStatus(MediaAttachmentStatus.ACTIVE)
                 .build();
     }

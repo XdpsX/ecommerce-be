@@ -37,6 +37,10 @@ public class Media extends AuditEntity {
     @Column(length = 32, nullable = false)
     private MediaPurpose purpose;
 
+    @Setter(AccessLevel.NONE)
+    @Column(name = "uploaded_by_user_id", updatable = false)
+    private Long uploadedByUserId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "attachment_status", length = 32, nullable = false)
     private MediaAttachmentStatus attachmentStatus;

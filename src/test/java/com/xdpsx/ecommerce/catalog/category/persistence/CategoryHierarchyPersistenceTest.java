@@ -44,6 +44,7 @@ import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
+import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 import com.xdpsx.ecommerce.testsupport.MySqlTestContainerFactory;
 
@@ -99,8 +100,8 @@ class CategoryHierarchyPersistenceTest {
         }
 
         /**
-         * Builds the schema from the real changesets. The composite index and the restrictive FK come from
-         * {@code changeset-6.sql}, so a query plan or lock assertion made here reflects production schema.
+         * Builds the schema from the active master changelog, so query-plan and lock assertions reflect the fresh-install
+         * production schema.
          */
         @Bean
         liquibase.integration.spring.SpringLiquibase liquibase(javax.sql.DataSource dataSource) {
@@ -156,7 +157,9 @@ class CategoryHierarchyPersistenceTest {
             return new CategoryServiceImpl(
                     categoryRepository,
                     mediaRepository,
+                    new MediaUrlResolver((externalId, purpose) -> java.util.Map.of()),
                     new CategoryHierarchy(categoryRepository, 1),
+                    () -> 42L,
                     transactionTemplate);
         }
     }

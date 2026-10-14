@@ -18,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.xdpsx.ecommerce.auth.application.CurrentUserIdProvider;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.api.dto.CreateMediaDTO;
@@ -45,6 +46,14 @@ class MediaServiceImplTest {
 
     @Mock
     private MediaUrlGenerator mediaUrlGenerator;
+
+    @Mock
+    private CurrentUserIdProvider currentUserIdProvider;
+
+    @BeforeEach
+    void setUp() {
+        lenient().when(currentUserIdProvider.getRequiredUserId()).thenReturn(42L);
+    }
 
     @Nested
     @DisplayName("1. createMedia")
@@ -81,6 +90,7 @@ class MediaServiceImplTest {
             assertEquals("test caption", persisted.getCaption());
             assertEquals("image/jpeg", persisted.getContentType());
             assertEquals(purpose, persisted.getPurpose());
+            assertEquals(42L, persisted.getUploadedByUserId());
             assertEquals(MediaAttachmentStatus.TEMPORARY, persisted.getAttachmentStatus());
 
             assertEquals(persisted.getId(), result.id());
@@ -272,13 +282,13 @@ class MediaServiceImplTest {
         @Test
         void deleteMedia_ShouldMarkPendingDeletionAndSave_WhenTemporaryMediaExists() {
             // Arrange
-            when(mediaRepository.claimTemporaryForDeletion(mediaId)).thenReturn(1);
+            when(mediaRepository.claimTemporaryForDeletion(mediaId, 42L)).thenReturn(1);
 
             // Act
             mediaService.deleteMedia(mediaId);
 
             // Assert
-            verify(mediaRepository).claimTemporaryForDeletion(mediaId);
+            verify(mediaRepository).claimTemporaryForDeletion(mediaId, 42L);
             verify(mediaStorage, never()).delete(any());
         }
 
@@ -286,7 +296,7 @@ class MediaServiceImplTest {
         @Test
         void deleteMedia_ShouldThrowResourceNotFound_WhenNoTemporaryMedia() {
             // Arrange
-            when(mediaRepository.claimTemporaryForDeletion(mediaId)).thenReturn(0);
+            when(mediaRepository.claimTemporaryForDeletion(mediaId, 42L)).thenReturn(0);
 
             // Act & Assert
             ApplicationException exception =
@@ -295,7 +305,7 @@ class MediaServiceImplTest {
             assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getCode());
             assertEquals("media", exception.getParameters().get("resourceType"));
             assertEquals(mediaId, exception.getParameters().get("resourceId"));
-            verify(mediaRepository).claimTemporaryForDeletion(mediaId);
+            verify(mediaRepository).claimTemporaryForDeletion(mediaId, 42L);
         }
     }
 

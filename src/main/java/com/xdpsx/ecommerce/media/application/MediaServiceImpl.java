@@ -9,6 +9,7 @@ import javax.imageio.ImageIO;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.xdpsx.ecommerce.auth.application.CurrentUserIdProvider;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.api.dto.CreateMediaDTO;
@@ -33,10 +34,12 @@ public class MediaServiceImpl implements MediaService {
     private final MediaRepository mediaRepository;
     private final MediaStorage mediaStorage;
     private final MediaUrlGenerator mediaUrlGenerator;
+    private final CurrentUserIdProvider currentUserIdProvider;
 
     @Override
     public UploadedMediaDTO createMedia(CreateMediaDTO request, MediaPurpose purpose) {
         validateImageSize(request.file(), purpose);
+        Long uploadedByUserId = currentUserIdProvider.getRequiredUserId();
 
         // Only a confirmed media-provider failure becomes MEDIA_UPLOAD_FAILED.
         StoredMedia storedMedia;
@@ -54,6 +57,7 @@ public class MediaServiceImpl implements MediaService {
                 .caption(request.caption())
                 .contentType(request.file().getContentType())
                 .purpose(purpose)
+                .uploadedByUserId(uploadedByUserId)
                 .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .processingStatus(MediaProcessingStatus.PROCESSING)
                 .processingReference(storedMedia.processingReference())
@@ -91,7 +95,7 @@ public class MediaServiceImpl implements MediaService {
     @Override
     public void deleteMedia(String id) {
         // Only temporary uploads may be discarded through the Media API; active Media belongs to an aggregate.
-        if (mediaRepository.claimTemporaryForDeletion(id) == 0) {
+        if (mediaRepository.claimTemporaryForDeletion(id, currentUserIdProvider.getRequiredUserId()) == 0) {
             throw new ApplicationException(
                     ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "media", "resourceId", id));
         }

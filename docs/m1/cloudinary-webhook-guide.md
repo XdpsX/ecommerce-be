@@ -390,7 +390,7 @@ Các secret khác như database password, JWT secret, OAuth secret và payment s
 Trước khi bật traffic production:
 
 1. Backup database.
-2. Chạy Liquibase migration `changeset-26.sql`.
+2. Production requires a forward migration compatible with the deployed schema to add the processing fields; the development module baselines under `src/main/resources/db/changelog/changesets` must not be applied to a database with existing data.
 3. Kiểm tra các cột processing status/reference đã tồn tại.
 4. Deploy backend với configuration production.
 5. Kiểm tra health/readiness của application.

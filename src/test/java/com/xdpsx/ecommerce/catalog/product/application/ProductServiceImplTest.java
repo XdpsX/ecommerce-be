@@ -22,6 +22,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 
+import com.xdpsx.ecommerce.auth.application.CurrentUserIdProvider;
 import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
 import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
 import com.xdpsx.ecommerce.catalog.brand.persistence.BrandRepository;
@@ -39,6 +40,9 @@ import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionValueR
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.inventory.persistence.InventoryBalanceRepository;
+import com.xdpsx.ecommerce.media.domain.Media;
+import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
+import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 import com.xdpsx.ecommerce.order.persistence.OrderItemRepository;
 
@@ -60,6 +64,9 @@ class ProductServiceImplTest {
     private MediaRepository mediaRepository;
 
     @Mock
+    private CurrentUserIdProvider currentUserIdProvider;
+
+    @Mock
     private InventoryBalanceRepository inventoryBalanceRepository;
 
     @Mock
@@ -77,6 +84,11 @@ class ProductServiceImplTest {
     @InjectMocks
     private ProductServiceImpl productService;
 
+    @org.junit.jupiter.api.BeforeEach
+    void setUpCurrentUser() {
+        lenient().when(currentUserIdProvider.getRequiredUserId()).thenReturn(42L);
+    }
+
     @Test
     void createProduct_ShouldAlwaysCreateAnUnpublishedDraft() {
         Category category = activeCategory(7);
@@ -92,6 +104,28 @@ class ProductServiceImplTest {
 
         assertThat(product.isPublished()).isFalse();
         verify(productMapper).toAdminSummary(product);
+    }
+
+    @Test
+    void createProduct_ShouldRejectTemporaryImageUploadedByAnotherAdmin() {
+        ProductCreateRequest request = createRequest(7);
+        request.setImageIds(List.of("other-admin-upload"));
+        when(productRepository.existsBySlug("keyboard")).thenReturn(false);
+        when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(activeCategory(7)));
+        when(brandRepository.findById(5)).thenReturn(Optional.of(activeBrand(5)));
+        when(mediaRepository.findAllByIdInForUpdate(List.of("other-admin-upload")))
+                .thenReturn(List.of(Media.builder()
+                        .id("other-admin-upload")
+                        .purpose(MediaPurpose.PRODUCT_IMAGE)
+                        .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
+                        .uploadedByUserId(99L)
+                        .build()));
+
+        ApplicationException exception =
+                assertThrows(ApplicationException.class, () -> productService.createProduct(request));
+
+        assertThat(exception.getCode()).isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
+        verify(productRepository, never()).save(any());
     }
 
     @Test

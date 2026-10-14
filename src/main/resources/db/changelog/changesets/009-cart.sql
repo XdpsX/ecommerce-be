@@ -1,7 +1,19 @@
 -- liquibase formatted sql
 
--- changeset xdpsx:cart-renewal-foundation
--- comment: Replace user-owned Cart items with an owner-capable Cart aggregate while preserving legacy rows.
+-- changeset ecommerce:cart-baseline
+-- comment: Squashed cart schema for fresh development databases.
+
+ALTER TABLE cart_items
+    DROP FOREIGN KEY cart_items_ibfk_1,
+    DROP FOREIGN KEY cart_items_ibfk_2,
+    DROP PRIMARY KEY;
+ALTER TABLE cart_items DROP COLUMN product_id;
+ALTER TABLE cart_items ADD COLUMN variant_id BIGINT NOT NULL;
+ALTER TABLE cart_items
+    ADD CONSTRAINT fk_cart_item_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    ADD CONSTRAINT fk_cart_item_variant FOREIGN KEY (variant_id) REFERENCES product_variants(id) ON DELETE CASCADE,
+    ADD PRIMARY KEY (user_id, variant_id),
+    ADD INDEX ix_cart_item_variant (variant_id);
 
 CREATE TABLE carts (
     id BIGINT NOT NULL AUTO_INCREMENT,
@@ -20,24 +32,7 @@ CREATE TABLE carts (
     INDEX ix_carts_guest_expiry (guest_expires_at)
 );
 
-INSERT INTO carts (user_id, created_at)
-SELECT DISTINCT user_id, CURRENT_TIMESTAMP(6)
-FROM cart_items;
-
 ALTER TABLE cart_items ADD COLUMN cart_id BIGINT NULL;
-
-UPDATE cart_items ci
-JOIN carts c ON c.user_id = ci.user_id
-SET ci.cart_id = c.id;
-
--- Legacy Cart accepted any positive quantity. Normalize legacy rows before enforcing the renewed 1..99 invariant.
-UPDATE cart_items
-SET quantity = CASE
-    WHEN quantity < 1 THEN 1
-    WHEN quantity > 99 THEN 99
-    ELSE quantity
-END
-WHERE quantity < 1 OR quantity > 99;
 
 ALTER TABLE cart_items
     DROP FOREIGN KEY fk_cart_item_user,
@@ -52,3 +47,5 @@ ALTER TABLE cart_items
     ADD CONSTRAINT fk_cart_items_cart FOREIGN KEY (cart_id) REFERENCES carts (id) ON DELETE CASCADE,
     ADD CONSTRAINT fk_cart_item_variant FOREIGN KEY (variant_id) REFERENCES product_variants (id) ON DELETE CASCADE,
     ADD CONSTRAINT ck_cart_items_quantity CHECK (quantity BETWEEN 1 AND 99);
+
+

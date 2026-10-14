@@ -221,8 +221,8 @@ class ProductImagePersistenceTest {
             }));
             assertThat(locksReady.await(20, TimeUnit.SECONDS)).isTrue();
 
-            Future<Integer> cleanupClaim = executor.submit(() ->
-                    transactionTemplate.execute(status -> mediaRepository.claimTemporaryForDeletion("media-temp")));
+            Future<Integer> cleanupClaim = executor.submit(() -> transactionTemplate.execute(
+                    status -> mediaRepository.claimTemporaryForDeletion("media-temp", 42L)));
             assertThatThrownBy(() -> cleanupClaim.get(1, TimeUnit.SECONDS)).isInstanceOf(TimeoutException.class);
 
             releaseLocks.countDown();
@@ -307,6 +307,7 @@ class ProductImagePersistenceTest {
                 .url("https://example.test/" + id)
                 .contentType("image/png")
                 .purpose(MediaPurpose.PRODUCT_IMAGE)
+                .uploadedByUserId(42L)
                 .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .build();
     }

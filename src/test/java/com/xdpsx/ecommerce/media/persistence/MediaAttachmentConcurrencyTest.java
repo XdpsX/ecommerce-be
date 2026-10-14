@@ -98,6 +98,7 @@ class MediaAttachmentConcurrencyTest {
                 .url("https://example.test/shared-upload.png")
                 .contentType("image/png")
                 .purpose(MediaPurpose.PRODUCT_IMAGE)
+                .uploadedByUserId(42L)
                 .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .build());
         mediaRepository.save(Media.builder()
@@ -106,6 +107,7 @@ class MediaAttachmentConcurrencyTest {
                 .url("https://example.test/second-upload.png")
                 .contentType("image/png")
                 .purpose(MediaPurpose.PRODUCT_IMAGE)
+                .uploadedByUserId(42L)
                 .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .build());
         mediaRepository.save(Media.builder()
@@ -114,9 +116,18 @@ class MediaAttachmentConcurrencyTest {
                 .url("https://example.test/processing-upload.png")
                 .contentType("image/png")
                 .purpose(MediaPurpose.PRODUCT_IMAGE)
+                .uploadedByUserId(42L)
                 .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .processingStatus(MediaProcessingStatus.PROCESSING)
                 .processingReference("processing-batch")
+                .build());
+        mediaRepository.save(Media.builder()
+                .id("legacy-upload")
+                .externalId("external-legacy-upload")
+                .url("https://example.test/legacy-upload.png")
+                .contentType("image/png")
+                .purpose(MediaPurpose.PRODUCT_IMAGE)
+                .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .build());
     }
 
@@ -134,7 +145,7 @@ class MediaAttachmentConcurrencyTest {
         Future<Void> firstAttachment = executor.submit(() -> {
             transactionTemplate.executeWithoutResult(status -> {
                 Media media = mediaRepository
-                        .findAttachableById("shared-upload", MediaPurpose.PRODUCT_IMAGE)
+                        .findAttachableById("shared-upload", MediaPurpose.PRODUCT_IMAGE, 42L)
                         .orElseThrow();
                 media.activate();
                 entityManager.flush();
@@ -146,7 +157,7 @@ class MediaAttachmentConcurrencyTest {
 
         assertThat(firstHasActivated.await(5, TimeUnit.SECONDS)).isTrue();
         Future<Optional<Media>> competingAttachment = executor.submit(() -> transactionTemplate.execute(
-                status -> mediaRepository.findAttachableById("shared-upload", MediaPurpose.PRODUCT_IMAGE)));
+                status -> mediaRepository.findAttachableById("shared-upload", MediaPurpose.PRODUCT_IMAGE, 42L)));
 
         // H2 may immediately exclude a row whose uncommitted update no longer matches the query, while MySQL
         // waits for the lock owner to commit. Either behavior is safe; seeing the upload as attachable is not.
@@ -164,6 +175,26 @@ class MediaAttachmentConcurrencyTest {
     }
 
     @Test
+    void temporaryOwnership_ShouldRejectAttachAndDeleteByAnotherUser() {
+        transactionTemplate.executeWithoutResult(status -> {
+            assertThat(mediaRepository.findAttachableById("shared-upload", MediaPurpose.PRODUCT_IMAGE, 99L))
+                    .isEmpty();
+            assertThat(mediaRepository.claimTemporaryForDeletion("shared-upload", 99L))
+                    .isZero();
+
+            assertThat(mediaRepository.findAttachableById("shared-upload", MediaPurpose.PRODUCT_IMAGE, 42L))
+                    .isPresent();
+            assertThat(mediaRepository.claimTemporaryForDeletion("second-upload", 42L))
+                    .isEqualTo(1);
+
+            assertThat(mediaRepository.findAttachableById("legacy-upload", MediaPurpose.PRODUCT_IMAGE, 42L))
+                    .isEmpty();
+            assertThat(mediaRepository.claimTemporaryForDeletion("legacy-upload", 42L))
+                    .isZero();
+        });
+    }
+
+    @Test
     void temporaryClaim_ShouldYieldToConcurrentAttachment() throws Exception {
         CountDownLatch firstHasActivated = new CountDownLatch(1);
         CountDownLatch allowFirstCommit = new CountDownLatch(1);
@@ -171,7 +202,7 @@ class MediaAttachmentConcurrencyTest {
         Future<Void> attachment = executor.submit(() -> {
             transactionTemplate.executeWithoutResult(status -> {
                 Media media = mediaRepository
-                        .findAttachableById("shared-upload", MediaPurpose.PRODUCT_IMAGE)
+                        .findAttachableById("shared-upload", MediaPurpose.PRODUCT_IMAGE, 42L)
                         .orElseThrow();
                 media.activate();
                 entityManager.flush();
@@ -183,7 +214,7 @@ class MediaAttachmentConcurrencyTest {
 
         assertThat(firstHasActivated.await(5, TimeUnit.SECONDS)).isTrue();
         Future<Integer> claim = executor.submit(() ->
-                transactionTemplate.execute(status -> mediaRepository.claimTemporaryForDeletion("shared-upload")));
+                transactionTemplate.execute(status -> mediaRepository.claimTemporaryForDeletion("shared-upload", 42L)));
 
         try {
             assertThat(claim.get(250, TimeUnit.MILLISECONDS)).isEqualTo(0);
@@ -215,7 +246,7 @@ class MediaAttachmentConcurrencyTest {
 
         assertThat(bulkLockAcquired.await(5, TimeUnit.SECONDS)).isTrue();
         Future<Optional<Media>> competingAttachment = executor.submit(() -> transactionTemplate.execute(
-                status -> mediaRepository.findAttachableById("shared-upload", MediaPurpose.PRODUCT_IMAGE)));
+                status -> mediaRepository.findAttachableById("shared-upload", MediaPurpose.PRODUCT_IMAGE, 42L)));
 
         try {
             assertThat(competingAttachment.get(250, TimeUnit.MILLISECONDS)).isPresent();

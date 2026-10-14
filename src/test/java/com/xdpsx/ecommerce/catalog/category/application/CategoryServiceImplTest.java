@@ -20,6 +20,7 @@ import org.springframework.transaction.support.SimpleTransactionStatus;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionOperations;
 
+import com.xdpsx.ecommerce.auth.application.CurrentUserIdProvider;
 import com.xdpsx.ecommerce.catalog.category.api.dto.AdminCategoryResponse;
 import com.xdpsx.ecommerce.catalog.category.api.dto.CategoryTreeResponse;
 import com.xdpsx.ecommerce.catalog.category.api.dto.CreateCategoryRequest;
@@ -33,6 +34,7 @@ import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
+import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
@@ -57,6 +59,12 @@ class CategoryServiceImplTest {
     @Mock
     private MediaRepository mediaRepository;
 
+    @Mock
+    private CurrentUserIdProvider currentUserIdProvider;
+
+    @Mock
+    private MediaUrlResolver mediaUrlResolver;
+
     private CategoryServiceImpl categoryService;
 
     @BeforeEach
@@ -71,7 +79,13 @@ class CategoryServiceImplTest {
             }
         };
         categoryService = new CategoryServiceImpl(
-                categoryRepository, mediaRepository, new CategoryHierarchy(categoryRepository), inlineTransaction);
+                categoryRepository,
+                mediaRepository,
+                mediaUrlResolver,
+                new CategoryHierarchy(categoryRepository),
+                currentUserIdProvider,
+                inlineTransaction);
+        lenient().when(currentUserIdProvider.getRequiredUserId()).thenReturn(42L);
         // Every hierarchy write takes the anchor first. Lenient because the read-only
         // cases never reach it.
         lenient().when(categoryRepository.hierarchyAnchorExists()).thenReturn(true);
@@ -192,7 +206,7 @@ class CategoryServiceImplTest {
         stubAncestorChain(7, null);
         when(categoryRepository.findChildrenForUpdate(7))
                 .thenReturn(new ArrayList<>(List.of(category(8, "Phones", "phones", 0))));
-        when(mediaRepository.findAttachableById(imageId, MediaPurpose.CATEGORY_IMAGE))
+        when(mediaRepository.findAttachableById(imageId, MediaPurpose.CATEGORY_IMAGE, 42L))
                 .thenReturn(Optional.of(media));
         when(categoryRepository.save(any(Category.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -391,7 +405,7 @@ class CategoryServiceImplTest {
         UpdateCategoryRequest request = new UpdateCategoryRequest("Shoes", CategoryStatus.ACTIVE, null, newImageId, 0L);
 
         when(categoryRepository.findByIdForUpdate(categoryId)).thenReturn(Optional.of(category));
-        when(mediaRepository.findAttachableById(newImageId, MediaPurpose.CATEGORY_IMAGE))
+        when(mediaRepository.findAttachableById(newImageId, MediaPurpose.CATEGORY_IMAGE, 42L))
                 .thenReturn(Optional.of(newImage));
         when(categoryRepository.saveAndFlush(any(Category.class))).thenAnswer(invocation -> invocation.getArgument(0));
 

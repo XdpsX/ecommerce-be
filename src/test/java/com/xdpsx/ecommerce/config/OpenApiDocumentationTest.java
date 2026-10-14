@@ -272,6 +272,7 @@ class OpenApiDocumentationTest {
         assertThat(properties.has("id")).isTrue();
         assertThat(properties.has("name")).isTrue();
         assertThat(properties.has("image")).isTrue();
+        assertThat(properties.path("image").path("description").asString()).contains("Brand-logo");
         assertThat(properties.has("status")).isFalse();
         assertThat(properties.has("version")).isFalse();
         assertThat(properties.has("categories")).isFalse();
@@ -401,6 +402,7 @@ class OpenApiDocumentationTest {
 
         assertThat(operation.isMissingNode()).isFalse();
         assertThat(operation.path("summary").asString()).isEqualTo("Upload image");
+        assertThat(operation.path("description").asString()).contains("authenticated uploader");
         assertThat(operation.path("requestBody").path("content").has("multipart/form-data"))
                 .isTrue();
         assertThat(operation
@@ -471,6 +473,7 @@ class OpenApiDocumentationTest {
         JsonNode imageProperties = openApi.at("/components/schemas/ProductImageDTO/properties");
         assertThat(imageProperties.has("id")).isTrue();
         assertThat(imageProperties.has("url")).isTrue();
+        assertThat(imageProperties.path("url").path("description").asString()).contains("productDetail");
         assertThat(imageProperties.has("displayOrder")).isTrue();
     }
 
@@ -510,6 +513,8 @@ class OpenApiDocumentationTest {
         assertThat(storefrontProperties.has("name")).isTrue();
         assertThat(storefrontProperties.has("slug")).isTrue();
         assertThat(storefrontProperties.has("image")).isTrue();
+        assertThat(storefrontProperties.path("image").path("description").asString())
+                .contains("Category-card");
         assertThat(storefrontProperties.has("status")).isFalse();
         assertThat(storefrontProperties.has("effectivelyActive")).isFalse();
         assertThat(storefrontProperties.has("displayOrder")).isFalse();
@@ -580,6 +585,7 @@ class OpenApiDocumentationTest {
 
         assertThat(operation.isMissingNode()).isFalse();
         assertThat(operation.path("summary").asString()).isEqualTo("Delete media");
+        assertThat(operation.path("description").asString()).contains("Only the authenticated uploader");
         assertThat(operation.path("tags").get(0).asString()).isEqualTo("Media API");
     }
 
@@ -753,10 +759,16 @@ class OpenApiDocumentationTest {
         assertThat(storefrontSummary.has("maximumPrice")).isTrue();
         assertThat(storefrontSummary.has("currency")).isTrue();
         assertThat(storefrontSummary.has("inStock")).isTrue();
+        assertThat(storefrontSummary.path("mainImage").path("description").asString())
+                .contains("Product-card");
         JsonNode storefrontDetail = openApi.at("/components/schemas/StorefrontProductDetailResponse/properties");
         assertThat(storefrontDetail.has("minimumPrice")).isTrue();
         assertThat(storefrontDetail.has("maximumPrice")).isTrue();
         assertThat(storefrontDetail.has("currency")).isTrue();
+        assertThat(storefrontDetail.path("mainImage").path("description").asString())
+                .contains("Product-detail");
+        assertThat(storefrontDetail.path("description").path("description").asString())
+                .contains("returned as stored", "not rewritten or validated", "productContent");
         assertThat(variantProperties.has("basePrice")).isTrue();
         assertThat(variantProperties.has("discountAmount")).isTrue();
         assertThat(variantProperties.has("finalUnitPrice")).isTrue();

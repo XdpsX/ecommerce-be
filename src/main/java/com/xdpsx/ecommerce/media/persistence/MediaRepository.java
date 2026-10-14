@@ -41,8 +41,10 @@ public interface MediaRepository extends CrudRepository<Media, String> {
     @Transactional
     @Query(
             "UPDATE Media m SET m.attachmentStatus = com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus.PENDING_DELETE "
-                    + "WHERE m.id = :id AND m.attachmentStatus = com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus.TEMPORARY")
-    int claimTemporaryForDeletion(@Param("id") String id);
+                    + "WHERE m.id = :id "
+                    + "AND m.attachmentStatus = com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus.TEMPORARY "
+                    + "AND m.uploadedByUserId = :uploadedByUserId")
+    int claimTemporaryForDeletion(@Param("id") String id, @Param("uploadedByUserId") Long uploadedByUserId);
 
     /** Claims an expired temporary Media only if it is still temporary and still expired. */
     @Modifying
@@ -60,8 +62,12 @@ public interface MediaRepository extends CrudRepository<Media, String> {
 		WHERE m.id = :id
 			AND m.attachmentStatus = com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus.TEMPORARY
 			AND m.purpose = :purpose
+			AND m.uploadedByUserId = :uploadedByUserId
 	""")
-    Optional<Media> findAttachableById(@Param("id") String id, @Param("purpose") MediaPurpose purpose);
+    Optional<Media> findAttachableById(
+            @Param("id") String id,
+            @Param("purpose") MediaPurpose purpose,
+            @Param("uploadedByUserId") Long uploadedByUserId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT m FROM Media m WHERE m.processingReference = :reference")
