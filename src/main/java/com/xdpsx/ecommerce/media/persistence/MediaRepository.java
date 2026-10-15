@@ -23,17 +23,20 @@ public interface MediaRepository extends CrudRepository<Media, String> {
     @Query("SELECT m FROM Media m WHERE m.id IN :ids ORDER BY m.id")
     List<Media> findAllByIdInForUpdate(@Param("ids") Collection<String> ids);
 
-    @Query("SELECT m FROM Media m WHERE m.attachmentStatus = :status AND m.uploadStatus = "
-            + "com.xdpsx.ecommerce.media.domain.MediaUploadStatus.UPLOADED")
-    List<Media> findAllByAttachmentStatus(@Param("status") MediaAttachmentStatus status);
+    @Query("SELECT m FROM Media m WHERE m.attachmentStatus = :status AND "
+            + "(m.uploadAuthorizationExpiresAt IS NULL OR m.uploadAuthorizationExpiresAt <= :replayBoundary)")
+    List<Media> findAllByAttachmentStatusBeforeReplayBoundary(
+            @Param("status") MediaAttachmentStatus status, @Param("replayBoundary") LocalDateTime replayBoundary);
 
     @Query("""
 		SELECT m FROM Media m
 		WHERE m.attachmentStatus = com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus.TEMPORARY
 			AND m.uploadStatus = com.xdpsx.ecommerce.media.domain.MediaUploadStatus.UPLOADED
 			AND m.createdAt < :expiryTime
+			AND (m.uploadAuthorizationExpiresAt IS NULL OR m.uploadAuthorizationExpiresAt <= :replayBoundary)
 		""")
-    List<Media> findExpiredTemporaryMedia(@Param("expiryTime") LocalDateTime expiryTime);
+    List<Media> findExpiredTemporaryMedia(
+            @Param("expiryTime") LocalDateTime expiryTime, @Param("replayBoundary") LocalDateTime replayBoundary);
 
     /**
      * Atomically claims a temporary Media for deletion. The update is deliberately short-lived so the storage
@@ -45,7 +48,9 @@ public interface MediaRepository extends CrudRepository<Media, String> {
             "UPDATE Media m SET m.attachmentStatus = com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus.PENDING_DELETE "
                     + "WHERE m.id = :id "
                     + "AND m.attachmentStatus = com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus.TEMPORARY "
-                    + "AND m.uploadStatus = com.xdpsx.ecommerce.media.domain.MediaUploadStatus.UPLOADED "
+                    + "AND (m.uploadStatus = com.xdpsx.ecommerce.media.domain.MediaUploadStatus.UPLOADED OR "
+                    + "(m.uploadStatus = com.xdpsx.ecommerce.media.domain.MediaUploadStatus.PENDING_UPLOAD "
+                    + "AND m.uploadAuthorizationIssuedAt IS NOT NULL)) "
                     + "AND m.uploadedByUserId = :uploadedByUserId")
     int claimTemporaryForDeletion(@Param("id") String id, @Param("uploadedByUserId") Long uploadedByUserId);
 
@@ -73,6 +78,17 @@ public interface MediaRepository extends CrudRepository<Media, String> {
             @Param("id") String id,
             @Param("purpose") MediaPurpose purpose,
             @Param("uploadedByUserId") Long uploadedByUserId);
+
+    @Query("SELECT m FROM Media m WHERE m.id = :id AND m.uploadedByUserId = :uploaderId")
+    Optional<Media> findOwnedById(@Param("id") String id, @Param("uploaderId") Long uploaderId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT m FROM Media m WHERE m.id = :id AND m.uploadedByUserId = :uploaderId")
+    Optional<Media> findOwnedByIdForUpdate(@Param("id") String id, @Param("uploaderId") Long uploaderId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT m FROM Media m WHERE m.id = :id")
+    Optional<Media> findByIdForUpdate(@Param("id") String id);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT m FROM Media m WHERE m.processingReference = :reference")

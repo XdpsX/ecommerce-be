@@ -46,7 +46,9 @@ import com.xdpsx.ecommerce.checkout.application.CheckoutService;
 import com.xdpsx.ecommerce.media.api.CloudinaryWebhookController;
 import com.xdpsx.ecommerce.media.api.MediaController;
 import com.xdpsx.ecommerce.media.application.CloudinaryEagerWebhookHandler;
+import com.xdpsx.ecommerce.media.application.MediaDirectUploadService;
 import com.xdpsx.ecommerce.media.application.MediaService;
+import com.xdpsx.ecommerce.media.application.MediaUploadIntentService;
 import com.xdpsx.ecommerce.media.infrastructure.cloudinary.NotificationSignatureVerifier;
 import com.xdpsx.ecommerce.order.api.AdminOrderController;
 import com.xdpsx.ecommerce.order.api.OrderController;
@@ -128,6 +130,12 @@ class OpenApiDocumentationTest {
 
     @MockitoBean
     private MediaService mediaService;
+
+    @MockitoBean
+    private MediaUploadIntentService mediaUploadIntentService;
+
+    @MockitoBean
+    private MediaDirectUploadService mediaDirectUploadService;
 
     @MockitoBean
     private CartService cartService;
@@ -557,6 +565,30 @@ class OpenApiDocumentationTest {
         JsonNode schema = openApi.at("/paths/~1media~1image-upload/post/responses/201/content/*~1*/schema");
 
         assertThat(schema.path("$ref").asString()).isEqualTo("#/components/schemas/UploadedMediaDTO");
+    }
+
+    @Test
+    void directMediaRoutes_shouldExposeConcreteBackofficeContractsOnly() {
+        assertThat(backofficeOpenApi
+                        .at("/paths/~1media~1upload-intents/post/responses/201/content/*~1*/schema/$ref")
+                        .asString())
+                .isEqualTo("#/components/schemas/MediaUploadIntentResponse");
+        assertThat(backofficeOpenApi
+                        .at("/paths/~1media~1{id}~1complete/post/responses/200/content/*~1*/schema/$ref")
+                        .asString())
+                .isEqualTo("#/components/schemas/MediaDirectStatusResponse");
+        assertThat(backofficeOpenApi
+                        .at("/paths/~1media~1{id}/get/responses/200/content/*~1*/schema/$ref")
+                        .asString())
+                .isEqualTo("#/components/schemas/MediaDirectStatusResponse");
+        assertThat(storefrontOpenApi.at("/paths/~1media~1upload-intents/post").isMissingNode())
+                .isTrue();
+        assertThat(integrationOpenApi.at("/paths/~1media~1upload-intents/post").isMissingNode())
+                .isTrue();
+        assertThat(backofficeOpenApi
+                        .at("/paths/~1media~1image-upload/post/responses/201/content/*~1*/schema/$ref")
+                        .asString())
+                .isEqualTo("#/components/schemas/UploadedMediaDTO");
     }
 
     @Test

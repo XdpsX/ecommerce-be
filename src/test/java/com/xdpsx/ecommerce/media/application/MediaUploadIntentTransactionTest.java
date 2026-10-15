@@ -1,7 +1,6 @@
 package com.xdpsx.ecommerce.media.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import jakarta.persistence.EntityManagerFactory;
 
@@ -83,11 +82,31 @@ class MediaUploadIntentTransactionTest {
 
         @Bean
         MediaUploadIntentService mediaUploadIntentService(
-                MediaRepository repository,
+                MediaUploadIntentPersistence persistence,
+                MediaUploadAuthorizer authorizer,
                 CurrentUserIdProvider userIdProvider,
                 MediaUploadProperties properties,
                 java.time.Clock clock) {
-            return new MediaUploadIntentService(repository, userIdProvider, properties, clock);
+            return new MediaUploadIntentService(persistence, authorizer, userIdProvider, properties, clock);
+        }
+
+        @Bean
+        MediaUploadIntentPersistence mediaUploadIntentPersistence(MediaRepository repository) {
+            return new MediaUploadIntentPersistence(repository);
+        }
+
+        @Bean
+        MediaUploadAuthorizer mediaUploadAuthorizer(java.time.Clock clock) {
+            return request -> {
+                java.time.LocalDateTime issued = java.time.LocalDateTime.ofInstant(
+                                clock.instant(), java.time.ZoneOffset.UTC)
+                        .withNano(0);
+                return new MediaUploadAuthorizer.UploadAuthorization(
+                        "https://api.cloudinary.com/v1_1/test/image/upload",
+                        java.util.Map.of("signature", "test"),
+                        issued,
+                        issued.plusHours(1));
+            };
         }
     }
 
@@ -101,22 +120,15 @@ class MediaUploadIntentTransactionTest {
     private TransactionTemplate transactionTemplate;
 
     @Test
-    void create_ShouldCommitIntentBeforeAnOuterTransactionRollsBack() {
-        String[] createdMediaId = new String[1];
-        assertThrows(
-                OuterRollback.class,
-                () -> transactionTemplate.executeWithoutResult(status -> {
-                    UploadIntentView result = service.create(
-                            new CreateUploadIntentCommand(MediaPurpose.PRODUCT_IMAGE, "image.png", "image/png", 1024));
-                    createdMediaId[0] = result.mediaId();
-                    throw new OuterRollback();
-                }));
+    void create_ShouldPersistIntentBeforeReturningUploadAuthorization() {
+        UploadIntentView result = service.create(
+                new CreateUploadIntentCommand(MediaPurpose.PRODUCT_IMAGE, "image.png", "image/png", 1024));
 
-        assertThat(repository.findById(createdMediaId[0]))
+        assertThat(repository.findById(result.mediaId()))
                 .get()
                 .extracting(Media::getUploadedByUserId)
                 .isEqualTo(42L);
+        assertThat(repository.findById(result.mediaId()).orElseThrow().getUploadAuthorizationIssuedAt())
+                .isNotNull();
     }
-
-    private static final class OuterRollback extends RuntimeException {}
 }

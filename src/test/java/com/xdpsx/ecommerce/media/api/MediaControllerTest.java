@@ -19,10 +19,18 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.api.dto.CreateMediaDTO;
 import com.xdpsx.ecommerce.media.api.dto.UploadedMediaDTO;
+import com.xdpsx.ecommerce.media.application.MediaDirectUploadService;
 import com.xdpsx.ecommerce.media.application.MediaService;
+import com.xdpsx.ecommerce.media.application.MediaUploadIntentService;
+import com.xdpsx.ecommerce.media.application.UploadIntentView;
+import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
+import com.xdpsx.ecommerce.media.domain.MediaProcessingStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
+import com.xdpsx.ecommerce.media.domain.MediaUploadStatus;
 import com.xdpsx.ecommerce.testsupport.SecurityConfigForControllerTests;
 
 @WebMvcTest(controllers = MediaController.class)
@@ -35,6 +43,12 @@ class MediaControllerTest {
     @MockitoBean
     private MediaService mediaService;
 
+    @MockitoBean
+    private MediaUploadIntentService mediaUploadIntentService;
+
+    @MockitoBean
+    private MediaDirectUploadService mediaDirectUploadService;
+
     private MockMultipartFile createValidImageFile(String filename, String contentType) throws Exception {
         BufferedImage image = new BufferedImage(10, 10, BufferedImage.TYPE_INT_RGB);
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -44,6 +58,54 @@ class MediaControllerTest {
     }
 
     private final String validResource = MediaPurpose.PRODUCT_IMAGE.resource();
+
+    @Test
+    void createUploadIntent_ShouldReturnSignedInstructionsAndLifecycleStatus() throws Exception {
+        java.time.LocalDateTime expiry = java.time.LocalDateTime.of(2026, 10, 15, 4, 0);
+        when(mediaUploadIntentService.create(any()))
+                .thenReturn(new UploadIntentView(
+                        "media-123",
+                        "product/media-123",
+                        expiry,
+                        MediaUploadStatus.PENDING_UPLOAD,
+                        MediaProcessingStatus.PENDING,
+                        MediaAttachmentStatus.TEMPORARY,
+                        expiry,
+                        "https://api.cloudinary.com/v1_1/test/image/upload",
+                        Map.of("api_key", "public-key", "signature", "signature-value")));
+
+        mockMvc.perform(post("/media/upload-intents")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"purpose":"PRODUCT_IMAGE","filename":"front.png","contentType":"image/png","sizeBytes":2048}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.mediaId").value("media-123"))
+                .andExpect(jsonPath("$.upload.provider").value("CLOUDINARY"))
+                .andExpect(jsonPath("$.upload.fields.signature").value("signature-value"))
+                .andExpect(jsonPath("$.status.upload").value("PENDING_UPLOAD"))
+                .andExpect(jsonPath("$.intentExpiresAt").value("2026-10-15T04:00:00Z"))
+                .andExpect(jsonPath("$.uploadAuthorizationExpiresAt").value("2026-10-15T04:00:00Z"));
+    }
+
+    @Test
+    void createUploadIntent_ShouldReturnBadRequest_WhenContentTypeIsNotAllowed() throws Exception {
+        when(mediaUploadIntentService.create(argThat(command -> "image/webp".equals(command.expectedContentType()))))
+                .thenThrow(new ApplicationException(ErrorCode.VALIDATION_FAILED, Map.of("field", "contentType")));
+
+        mockMvc.perform(post("/media/upload-intents")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"purpose":"PRODUCT_IMAGE","filename":"front.webp","contentType":"image/webp","sizeBytes":2048}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.parameters.field").value("contentType"));
+
+        verify(mediaUploadIntentService).create(argThat(command -> "image/webp".equals(command.expectedContentType())));
+    }
 
     @Nested
     @DisplayName("1. createMedia")
@@ -143,14 +205,14 @@ class MediaControllerTest {
         @Test
         void deleteMedia_ShouldReturnNoContent_WhenValidId() throws Exception {
             // Arrange
-            doNothing().when(mediaService).deleteMedia("mediaId");
+            doNothing().when(mediaDirectUploadService).delete("mediaId");
 
             // Act + Assert
             mockMvc.perform(delete("/media/mediaId"))
                     .andExpect(status().isNoContent())
                     .andExpect(content().string(""));
 
-            verify(mediaService).deleteMedia("mediaId");
+            verify(mediaDirectUploadService).delete("mediaId");
         }
     }
 }

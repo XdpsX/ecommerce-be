@@ -184,7 +184,8 @@ class BrandAdminPersistenceTest {
                         "order-payment-baseline",
                         "cart-baseline",
                         "media-processing-ownership-baseline",
-                        "media-upload-lifecycle");
+                        "media-upload-lifecycle",
+                        "media-direct-upload-verification");
         assertThat(uploaderColumnCount.intValue()).isEqualTo(1);
     }
 

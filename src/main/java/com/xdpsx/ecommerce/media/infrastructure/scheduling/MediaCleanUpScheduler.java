@@ -1,10 +1,13 @@
 package com.xdpsx.ecommerce.media.infrastructure.scheduling;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import com.xdpsx.ecommerce.config.MediaUploadProperties;
 import com.xdpsx.ecommerce.media.application.storage.MediaStorage;
 import com.xdpsx.ecommerce.media.application.storage.MediaStorageException;
 import com.xdpsx.ecommerce.media.domain.Media;
@@ -27,6 +30,8 @@ import lombok.extern.slf4j.Slf4j;
 public class MediaCleanUpScheduler {
     private final MediaStorage mediaStorage;
     private final MediaRepository mediaRepository;
+    private final MediaUploadProperties uploadProperties;
+    private final Clock clock;
 
     /**
      * This method is used to clean up media that are marked as deleted.
@@ -35,7 +40,8 @@ public class MediaCleanUpScheduler {
     @Scheduled(cron = "0 5 0 * * ?") // Every day at 00:05
     public void cleanUpDeletedMedia() {
         mediaRepository
-                .findAllByAttachmentStatus(MediaAttachmentStatus.PENDING_DELETE)
+                .findAllByAttachmentStatusBeforeReplayBoundary(
+                        MediaAttachmentStatus.PENDING_DELETE, now().minus(uploadProperties.getReplayGrace()))
                 .forEach(this::deleteAssetAndRecord);
     }
 
@@ -46,8 +52,9 @@ public class MediaCleanUpScheduler {
      */
     @Scheduled(cron = "0 5 1 * * ?") // Every day at 01:05
     public void cleanUpExpiredMedia() {
-        LocalDateTime expiryTime = LocalDateTime.now().minusDays(1);
-        mediaRepository.findExpiredTemporaryMedia(expiryTime).forEach(media -> {
+        LocalDateTime expiryTime = now().minusDays(1);
+        LocalDateTime replayBoundary = now().minus(uploadProperties.getReplayGrace());
+        mediaRepository.findExpiredTemporaryMedia(expiryTime, replayBoundary).forEach(media -> {
             // Claim in a separate short transaction. An attachment that wins the race changes the row to ACTIVE,
             // making this update affect zero rows and preventing deletion of an in-use asset.
             if (mediaRepository.claimExpiredTemporaryForDeletion(media.getId(), expiryTime) == 1) {
@@ -57,6 +64,8 @@ public class MediaCleanUpScheduler {
     }
 
     private void deleteAssetAndRecord(Media media) {
+        // Defensive invariant in case a query is later weakened or a stale candidate is passed in.
+        if (!media.isPastReplayBoundary(now(), uploadProperties.getReplayGrace())) return;
         try {
             mediaStorage.delete(media.getExternalId());
         } catch (MediaStorageException e) {
@@ -68,5 +77,9 @@ public class MediaCleanUpScheduler {
             return;
         }
         mediaRepository.delete(media);
+    }
+
+    private LocalDateTime now() {
+        return LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
     }
 }

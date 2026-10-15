@@ -108,7 +108,7 @@ class MediaUploadLifecycleMigrationTest {
     @Test
     void activeBaseline_ShouldApplyUploadLifecycleSchemaAndPersistIntent() {
         assertThat(jdbcTemplate.queryForList("SELECT id FROM DATABASECHANGELOG ORDER BY orderexecuted", String.class))
-                .contains("media-upload-lifecycle");
+                .contains("media-upload-lifecycle", "media-direct-upload-verification");
         assertThat(jdbcTemplate.queryForObject(
                         "SELECT is_nullable FROM information_schema.columns "
                                 + "WHERE table_schema = DATABASE() AND table_name = 'media' "
@@ -123,14 +123,17 @@ class MediaUploadLifecycleMigrationTest {
                 .isEqualTo("YES");
 
         String id = transactionTemplate.execute(status -> {
-            Media media = Media.createPendingUpload(
+            java.time.LocalDateTime issued = java.time.LocalDateTime.now().minusMinutes(1);
+            Media media = Media.createSignedPendingUpload(
                     "pending-migration-test",
                     "product/pending-migration-test",
                     42L,
                     MediaPurpose.PRODUCT_IMAGE,
                     "image/png",
                     2048,
-                    java.time.LocalDateTime.now().plusHours(1));
+                    java.time.LocalDateTime.now().plusHours(1),
+                    issued,
+                    issued.plusHours(1));
             entityManager.persist(media);
             entityManager.flush();
             entityManager.clear();
@@ -143,6 +146,59 @@ class MediaUploadLifecycleMigrationTest {
         assertThat(loaded.getAttachmentStatus()).isEqualTo(MediaAttachmentStatus.TEMPORARY);
         assertThat(loaded.getUrl()).isNull();
         assertThat(loaded.getContentType()).isNull();
+    }
+
+    @Test
+    void directUploadColumns_ShouldPersistVerifiedMetadataAndKeepLegacyColumnsNullable() {
+        transactionTemplate.executeWithoutResult(status -> {
+            Media legacy = Media.createUploaded(
+                    "legacy-direct-migration",
+                    "legacy/public-id",
+                    "https://cdn.example.test/legacy.png",
+                    null,
+                    "image/png",
+                    MediaPurpose.PRODUCT_IMAGE,
+                    null,
+                    MediaAttachmentStatus.TEMPORARY,
+                    "legacy-batch");
+            entityManager.persist(legacy);
+
+            java.time.LocalDateTime issued = java.time.LocalDateTime.now().minusMinutes(1);
+            Media direct = Media.createSignedPendingUpload(
+                    "direct-migration",
+                    "product/direct-migration",
+                    42L,
+                    MediaPurpose.PRODUCT_IMAGE,
+                    "image/png",
+                    4096,
+                    java.time.LocalDateTime.now().plusHours(1),
+                    issued,
+                    issued.plusHours(1));
+            direct.completeUpload(
+                    "asset-direct-1",
+                    "https://cdn.example.test/direct.png",
+                    "image/png",
+                    4096,
+                    800,
+                    600,
+                    "png",
+                    issued.plusSeconds(5));
+            entityManager.persist(direct);
+            entityManager.flush();
+            entityManager.clear();
+
+            Media reloadedLegacy = mediaRepository.findById(legacy.getId()).orElseThrow();
+            assertThat(reloadedLegacy.getAssetId()).isNull();
+            assertThat(reloadedLegacy.getUploadAuthorizationIssuedAt()).isNull();
+            assertThat(reloadedLegacy.getBytes()).isNull();
+
+            Media reloadedDirect = mediaRepository.findById(direct.getId()).orElseThrow();
+            assertThat(reloadedDirect.getAssetId()).isEqualTo("asset-direct-1");
+            assertThat(reloadedDirect.getBytes()).isEqualTo(4096L);
+            assertThat(reloadedDirect.getWidth()).isEqualTo(800);
+            assertThat(reloadedDirect.getHeight()).isEqualTo(600);
+            assertThat(reloadedDirect.getFormat()).isEqualTo("png");
+        });
     }
 
     @Test
@@ -161,5 +217,41 @@ class MediaUploadLifecycleMigrationTest {
                         "INSERT INTO media (id, external_id, purpose, upload_status, attachment_status, processing_status) "
                                 + "VALUES ('invalid-uploaded', 'invalid/uploaded', 'PRODUCT_IMAGE', 'UPLOADED', "
                                 + "'TEMPORARY', 'PROCESSING')"));
+    }
+
+    @Test
+    void directUploadChecks_ShouldRejectIncompleteSignedUploadedMetadata() {
+        assertThrows(
+                org.springframework.dao.DataAccessException.class,
+                () -> jdbcTemplate.update(
+                        "INSERT INTO media (id, external_id, purpose, upload_status, attachment_status, processing_status, "
+                                + "url, content_type, upload_authorization_issued_at, upload_authorization_expires_at) "
+                                + "VALUES ('incomplete-direct', 'product/incomplete-direct', 'PRODUCT_IMAGE', 'UPLOADED', "
+                                + "'TEMPORARY', 'PROCESSING', 'https://cdn.example.test/a.png', 'image/png', "
+                                + "CURRENT_TIMESTAMP(6), DATE_ADD(CURRENT_TIMESTAMP(6), INTERVAL 1 HOUR))"));
+    }
+
+    @Test
+    void directUploadAssetIdentity_ShouldBeUnique() {
+        String columns = "(id, external_id, purpose, upload_status, attachment_status, processing_status, url, "
+                + "content_type, created_at, asset_id, upload_authorization_issued_at, "
+                + "upload_authorization_expires_at, uploaded_at, bytes, width, height, format) ";
+        String values = "VALUES (?, ?, 'PRODUCT_IMAGE', 'UPLOADED', 'TEMPORARY', 'PROCESSING', "
+                + "'https://cdn.example.test/asset.png', 'image/png', CURRENT_TIMESTAMP(6), ?, "
+                + "CURRENT_TIMESTAMP(6), DATE_ADD(CURRENT_TIMESTAMP(6), INTERVAL 1 HOUR), "
+                + "CURRENT_TIMESTAMP(6), 2048, 800, 600, 'png')";
+        jdbcTemplate.update(
+                "INSERT INTO media " + columns + values,
+                "asset-unique-one",
+                "product/asset-unique-one",
+                "provider-asset-id");
+
+        assertThrows(
+                org.springframework.dao.DataAccessException.class,
+                () -> jdbcTemplate.update(
+                        "INSERT INTO media " + columns + values,
+                        "asset-unique-two",
+                        "product/asset-unique-two",
+                        "provider-asset-id"));
     }
 }

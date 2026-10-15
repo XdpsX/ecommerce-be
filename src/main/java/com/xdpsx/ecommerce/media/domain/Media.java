@@ -63,6 +63,42 @@ public class Media extends AuditEntity {
     @Setter(AccessLevel.NONE)
     private Long expectedSizeBytes;
 
+    @Column(name = "asset_id", length = 255, unique = true)
+    @Setter(AccessLevel.NONE)
+    private String assetId;
+
+    @Column(name = "upload_authorization_issued_at")
+    @Setter(AccessLevel.NONE)
+    private LocalDateTime uploadAuthorizationIssuedAt;
+
+    @Column(name = "upload_authorization_expires_at")
+    @Setter(AccessLevel.NONE)
+    private LocalDateTime uploadAuthorizationExpiresAt;
+
+    @Column(name = "uploaded_at")
+    @Setter(AccessLevel.NONE)
+    private LocalDateTime uploadedAt;
+
+    @Column(name = "bytes")
+    @Setter(AccessLevel.NONE)
+    private Long bytes;
+
+    @Column(name = "width")
+    @Setter(AccessLevel.NONE)
+    private Integer width;
+
+    @Column(name = "height")
+    @Setter(AccessLevel.NONE)
+    private Integer height;
+
+    @Column(name = "format", length = 32)
+    @Setter(AccessLevel.NONE)
+    private String format;
+
+    @Column(name = "upload_failure_reason", length = 500)
+    @Setter(AccessLevel.NONE)
+    private String uploadFailureReason;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "attachment_status", length = 32, nullable = false)
     private MediaAttachmentStatus attachmentStatus;
@@ -129,6 +165,29 @@ public class Media extends AuditEntity {
         return media;
     }
 
+    public static Media createSignedPendingUpload(
+            String id,
+            String publicId,
+            Long uploadedByUserId,
+            MediaPurpose purpose,
+            String expectedContentType,
+            long expectedSizeBytes,
+            LocalDateTime intentExpiresAt,
+            LocalDateTime authorizationIssuedAt,
+            LocalDateTime authorizationExpiresAt) {
+        Media media = createPendingUpload(
+                id, publicId, uploadedByUserId, purpose, expectedContentType, expectedSizeBytes, intentExpiresAt);
+        if (authorizationIssuedAt == null
+                || authorizationExpiresAt == null
+                || !authorizationIssuedAt.isBefore(authorizationExpiresAt)) {
+            throw new IllegalArgumentException("Upload authorization must have an increasing validity window");
+        }
+        media.uploadAuthorizationIssuedAt = authorizationIssuedAt;
+        media.uploadAuthorizationExpiresAt = authorizationExpiresAt;
+        media.validateState();
+        return media;
+    }
+
     @PrePersist
     @PreUpdate
     private void validateBeforePersistence() {
@@ -153,6 +212,11 @@ public class Media extends AuditEntity {
             if (url != null || contentType != null) {
                 throw new IllegalStateException("Pending uploads cannot contain an unverified asset URL or type");
             }
+            if ((uploadAuthorizationIssuedAt == null) != (uploadAuthorizationExpiresAt == null)
+                    || (uploadAuthorizationIssuedAt != null
+                            && !uploadAuthorizationIssuedAt.isBefore(uploadAuthorizationExpiresAt))) {
+                throw new IllegalStateException("Upload authorization timestamps are invalid");
+            }
         } else {
             if (processingStatus == MediaProcessingStatus.PENDING) {
                 throw new IllegalStateException("Uploaded media cannot have pending processing status");
@@ -160,7 +224,82 @@ public class Media extends AuditEntity {
             if (url == null || url.isBlank() || contentType == null || contentType.isBlank()) {
                 throw new IllegalStateException("Uploaded media requires URL and content type");
             }
+            if (uploadAuthorizationIssuedAt != null
+                    && (assetId == null
+                            || assetId.isBlank()
+                            || uploadedAt == null
+                            || bytes == null
+                            || bytes <= 0
+                            || width == null
+                            || width <= 0
+                            || height == null
+                            || height <= 0
+                            || format == null
+                            || format.isBlank())) {
+                throw new IllegalStateException("Completed signed uploads require authoritative provider metadata");
+            }
         }
+    }
+
+    /** Finalizes this signed intent using only metadata verified by the trusted provider adapter. */
+    public void completeUpload(
+            String verifiedAssetId,
+            String secureUrl,
+            String normalizedContentType,
+            long actualBytes,
+            int actualWidth,
+            int actualHeight,
+            String actualFormat,
+            LocalDateTime providerCreatedAt) {
+        validateState();
+        if (uploadAuthorizationIssuedAt == null || uploadAuthorizationExpiresAt == null) {
+            throw new IllegalStateException("Legacy uploads cannot be completed as signed intents");
+        }
+        if (attachmentStatus != MediaAttachmentStatus.TEMPORARY || uploadStatus != MediaUploadStatus.PENDING_UPLOAD) {
+            throw new IllegalStateException("Only pending temporary uploads can be completed");
+        }
+        if (verifiedAssetId == null || verifiedAssetId.isBlank()) {
+            throw new IllegalArgumentException("Verified asset identity is required");
+        }
+        if (assetId != null && !assetId.equals(verifiedAssetId)) {
+            throw new IllegalStateException("Provider asset identity is immutable");
+        }
+        if (secureUrl == null
+                || secureUrl.isBlank()
+                || normalizedContentType == null
+                || normalizedContentType.isBlank()
+                || actualBytes <= 0
+                || actualWidth <= 0
+                || actualHeight <= 0
+                || actualFormat == null
+                || actualFormat.isBlank()
+                || providerCreatedAt == null) {
+            throw new IllegalArgumentException("Verified provider metadata is incomplete");
+        }
+        assetId = verifiedAssetId;
+        url = secureUrl;
+        contentType = normalizedContentType;
+        bytes = actualBytes;
+        width = actualWidth;
+        height = actualHeight;
+        format = actualFormat;
+        uploadedAt = providerCreatedAt;
+        uploadStatus = MediaUploadStatus.UPLOADED;
+        if (processingStatus == MediaProcessingStatus.PENDING) {
+            processingStatus = MediaProcessingStatus.PROCESSING;
+        }
+        validateState();
+    }
+
+    /** Records a definitive provider-policy rejection and retains the row as a replay-safe tombstone. */
+    public void rejectSignedUpload(String reason) {
+        if (uploadAuthorizationIssuedAt == null
+                || uploadStatus != MediaUploadStatus.PENDING_UPLOAD
+                || attachmentStatus != MediaAttachmentStatus.TEMPORARY) {
+            throw new IllegalStateException("Only a pending signed upload can be rejected");
+        }
+        uploadFailureReason = sanitizeFailureReason(reason);
+        attachmentStatus = MediaAttachmentStatus.PENDING_DELETE;
     }
 
     /**
@@ -192,6 +331,14 @@ public class Media extends AuditEntity {
             throw new IllegalStateException("Media attachment status is not set");
         }
         attachmentStatus = MediaAttachmentStatus.PENDING_DELETE;
+    }
+
+    public boolean isSignedUpload() {
+        return uploadAuthorizationIssuedAt != null;
+    }
+
+    public boolean isPastReplayBoundary(LocalDateTime now, java.time.Duration replayGrace) {
+        return uploadAuthorizationExpiresAt == null || !now.isBefore(uploadAuthorizationExpiresAt.plus(replayGrace));
     }
 
     /** Marks all eager transformations as ready. Repeated success notifications are no-ops. */

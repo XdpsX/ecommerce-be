@@ -5,6 +5,9 @@ import org.springframework.http.MediaType;
 import com.xdpsx.ecommerce.common.error.ApiProblemSchema;
 import com.xdpsx.ecommerce.common.error.ValidationProblemSchema;
 import com.xdpsx.ecommerce.media.api.dto.CreateMediaDTO;
+import com.xdpsx.ecommerce.media.api.dto.CreateMediaUploadIntentRequest;
+import com.xdpsx.ecommerce.media.api.dto.MediaDirectStatusResponse;
+import com.xdpsx.ecommerce.media.api.dto.MediaUploadIntentResponse;
 import com.xdpsx.ecommerce.media.api.dto.UploadedMediaDTO;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -17,6 +20,60 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 @Tag(name = "Media API")
 public interface MediaApi {
+
+    @Operation(
+            summary = "Create a signed media upload intent",
+            responses = {
+                @ApiResponse(
+                        responseCode = "201",
+                        description = "Upload authorization created",
+                        content = @Content(schema = @Schema(implementation = MediaUploadIntentResponse.class))),
+                @ApiResponse(
+                        responseCode = "400",
+                        description = "Invalid request",
+                        content = @Content(schema = @Schema(implementation = ValidationProblemSchema.class)))
+            })
+    MediaUploadIntentResponse createUploadIntent(CreateMediaUploadIntentRequest request);
+
+    @Operation(
+            summary = "Verify and complete a direct media upload",
+            responses = {
+                @ApiResponse(
+                        responseCode = "200",
+                        description = "Verified media status",
+                        content = @Content(schema = @Schema(implementation = MediaDirectStatusResponse.class))),
+                @ApiResponse(
+                        responseCode = "404",
+                        description = "Media not found",
+                        content = @Content(schema = @Schema(implementation = ApiProblemSchema.class))),
+                @ApiResponse(
+                        responseCode = "409",
+                        description = "Upload is not completable",
+                        content = @Content(schema = @Schema(implementation = ApiProblemSchema.class))),
+                @ApiResponse(
+                        responseCode = "422",
+                        description = "Provider asset rejected",
+                        content = @Content(schema = @Schema(implementation = ApiProblemSchema.class))),
+                @ApiResponse(
+                        responseCode = "503",
+                        description = "Provider unavailable",
+                        content = @Content(schema = @Schema(implementation = ApiProblemSchema.class)))
+            })
+    MediaDirectStatusResponse completeUpload(String id);
+
+    @Operation(
+            summary = "Get media upload and processing status",
+            responses = {
+                @ApiResponse(
+                        responseCode = "200",
+                        description = "Media status",
+                        content = @Content(schema = @Schema(implementation = MediaDirectStatusResponse.class))),
+                @ApiResponse(
+                        responseCode = "404",
+                        description = "Media not found",
+                        content = @Content(schema = @Schema(implementation = ApiProblemSchema.class)))
+            })
+    MediaDirectStatusResponse getMediaStatus(String id);
 
     @Operation(
             summary = "Upload image",
@@ -69,13 +126,17 @@ public interface MediaApi {
 
     @Operation(
             summary = "Delete media",
-            description = "Requests deletion of the caller's temporary Media. Only the authenticated uploader can "
-                    + "delete it; active Media and another user's temporary Media are not deletable through this API.",
+            description = "Claims the caller's pending signed intent or temporary Media for later cleanup. Only the "
+                    + "authenticated uploader can delete it; active Media and another user's Media are not deletable.",
             responses = {
                 @ApiResponse(responseCode = "204", description = "No Content", content = @Content),
                 @ApiResponse(
                         responseCode = "404",
                         description = "Not Found",
+                        content = @Content(schema = @Schema(implementation = ApiProblemSchema.class))),
+                @ApiResponse(
+                        responseCode = "409",
+                        description = "Active Media cannot be deleted independently",
                         content = @Content(schema = @Schema(implementation = ApiProblemSchema.class))),
                 @ApiResponse(
                         responseCode = "500",

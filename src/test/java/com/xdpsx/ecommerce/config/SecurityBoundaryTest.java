@@ -63,7 +63,9 @@ import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.config.security.SecurityConfig;
 import com.xdpsx.ecommerce.media.api.MediaController;
+import com.xdpsx.ecommerce.media.application.MediaDirectUploadService;
 import com.xdpsx.ecommerce.media.application.MediaService;
+import com.xdpsx.ecommerce.media.application.MediaUploadIntentService;
 import com.xdpsx.ecommerce.order.api.AdminOrderController;
 import com.xdpsx.ecommerce.order.api.OrderController;
 import com.xdpsx.ecommerce.order.application.OrderCancellationService;
@@ -148,6 +150,12 @@ class SecurityBoundaryTest {
 
     @MockitoBean
     private MediaService mediaService;
+
+    @MockitoBean
+    private MediaDirectUploadService mediaDirectUploadService;
+
+    @MockitoBean
+    private MediaUploadIntentService mediaUploadIntentService;
 
     @MockitoBean
     private OrderService orderService;
@@ -303,7 +311,7 @@ class SecurityBoundaryTest {
         mockMvc.perform(delete("/media/upload-id")
                         .with(user("admin@example.test").roles("ADMIN")))
                 .andExpect(status().isNoContent());
-        verify(mediaService).deleteMedia("upload-id");
+        verify(mediaDirectUploadService).delete("upload-id");
     }
 
     @Test

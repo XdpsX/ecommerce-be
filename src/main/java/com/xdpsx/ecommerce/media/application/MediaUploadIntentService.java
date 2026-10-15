@@ -2,18 +2,21 @@ package com.xdpsx.ecommerce.media.application;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 
 import com.xdpsx.ecommerce.auth.application.CurrentUserIdProvider;
+import com.xdpsx.ecommerce.common.error.ApplicationException;
+import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.config.MediaUploadProperties;
-import com.xdpsx.ecommerce.media.domain.Media;
-import com.xdpsx.ecommerce.media.persistence.MediaRepository;
+import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
+import com.xdpsx.ecommerce.media.domain.MediaProcessingStatus;
+import com.xdpsx.ecommerce.media.domain.MediaUploadStatus;
 
 import lombok.RequiredArgsConstructor;
 
@@ -22,57 +25,68 @@ import lombok.RequiredArgsConstructor;
 public class MediaUploadIntentService {
     private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of("image/jpeg", "image/png", "image/gif");
 
-    private final MediaRepository mediaRepository;
+    private final MediaUploadIntentPersistence persistence;
+    private final MediaUploadAuthorizer authorizer;
     private final CurrentUserIdProvider currentUserIdProvider;
     private final MediaUploadProperties properties;
-    private final Clock pricingClock;
+    private final Clock clock;
 
-    /**
-     * Persists an intent in its own short transaction. The proxy commits this method before returning, including
-     * when a future caller already has a transaction; PR C must only sign after this invocation returns.
-     */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    /** Signs in memory, persists in one short REQUIRED transaction, and only returns after that commit succeeds. */
     public UploadIntentView create(CreateUploadIntentCommand command) {
         validate(command);
-
         String mediaId = UUID.randomUUID().toString();
         String publicId = command.purpose().resource() + "/" + mediaId;
-        LocalDateTime intentExpiresAt = LocalDateTime.now(pricingClock).plus(properties.getIntentLifetime());
-        Media media = Media.createPendingUpload(
+        Long uploaderId = currentUserIdProvider.getRequiredUserId();
+        MediaUploadAuthorizer.UploadAuthorization authorization = authorizer.authorize(
+                new MediaUploadAuthorizer.UploadAuthorizationRequest(mediaId, publicId, command.purpose()));
+        LocalDateTime intentExpiresAt =
+                LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC).plus(properties.getIntentLifetime());
+
+        // This proxied bean commits before control returns; no usable signature escapes on persistence failure.
+        persistence.persist(
                 mediaId,
                 publicId,
-                currentUserIdProvider.getRequiredUserId(),
+                uploaderId,
                 command.purpose(),
-                command.expectedContentType().trim(),
+                command.expectedContentType().trim().toLowerCase(Locale.ROOT),
                 command.expectedSizeBytes(),
-                intentExpiresAt);
-        Media saved = mediaRepository.save(media);
+                intentExpiresAt,
+                authorization.issuedAt(),
+                authorization.expiresAt());
+
         return new UploadIntentView(
-                saved.getId(),
-                saved.getExternalId(),
-                saved.getIntentExpiresAt(),
-                saved.getUploadStatus(),
-                saved.getProcessingStatus(),
-                saved.getAttachmentStatus());
+                mediaId,
+                publicId,
+                intentExpiresAt,
+                MediaUploadStatus.PENDING_UPLOAD,
+                MediaProcessingStatus.PENDING,
+                MediaAttachmentStatus.TEMPORARY,
+                authorization.expiresAt(),
+                authorization.uploadUrl(),
+                authorization.fields());
     }
 
     private void validate(CreateUploadIntentCommand command) {
         if (command == null || command.purpose() == null) {
-            throw new IllegalArgumentException("A media purpose is required");
+            throw validationError("purpose", "required");
         }
         if (command.filename() == null
                 || command.filename().trim().isEmpty()
                 || command.filename().trim().length() > 255) {
-            throw new IllegalArgumentException("Filename must contain between 1 and 255 characters");
+            throw validationError("filename", "must contain between 1 and 255 characters");
         }
         if (command.expectedContentType() == null
                 || !ALLOWED_CONTENT_TYPES.contains(
                         command.expectedContentType().trim().toLowerCase(Locale.ROOT))) {
-            throw new IllegalArgumentException("Unsupported image content type");
+            throw validationError("contentType", "unsupported image content type");
         }
         if (command.expectedSizeBytes() <= 0
                 || command.expectedSizeBytes() > properties.getMaxFileSize().toBytes()) {
-            throw new IllegalArgumentException("Expected file size is outside the allowed range");
+            throw validationError("sizeBytes", "outside the allowed range");
         }
+    }
+
+    private static ApplicationException validationError(String field, String reason) {
+        return new ApplicationException(ErrorCode.VALIDATION_FAILED, Map.of("field", field, "reason", reason));
     }
 }

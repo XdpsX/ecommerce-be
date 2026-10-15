@@ -31,7 +31,7 @@ class MediaTest {
     }
 
     @Test
-    void markPendingDeletion_ShouldBeIdempotentFromAnyLiveStatus() {
+    void markPendingDeletion_ShouldBeIdempotentForTemporaryMediaAndAllowAggregateDeletionOfActiveMedia() {
         // Arrange
         Media temporary = Media.builder()
                 .id("temp")
@@ -44,7 +44,6 @@ class MediaTest {
 
         // Act
         temporary.markPendingDeletion();
-        active.markPendingDeletion();
         active.markPendingDeletion();
 
         // Assert

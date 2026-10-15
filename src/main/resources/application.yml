@@ -51,6 +51,10 @@ media:
   upload:
     intent-lifetime: ${MEDIA_UPLOAD_INTENT_LIFETIME:1h}
     max-file-size: ${MEDIA_UPLOAD_MAX_FILE_SIZE:2MB}
+    authorization-lifetime: ${MEDIA_UPLOAD_AUTHORIZATION_LIFETIME:1h}
+    completion-grace: ${MEDIA_UPLOAD_COMPLETION_GRACE:10m}
+    clock-skew-tolerance: ${MEDIA_UPLOAD_CLOCK_SKEW_TOLERANCE:2m}
+    replay-grace: ${MEDIA_UPLOAD_REPLAY_GRACE:10m}
   cloudinary:
     eager-notification-url: ${CLOUDINARY_EAGER_NOTIFICATION_URL:}
     webhook-timestamp-tolerance: ${CLOUDINARY_WEBHOOK_TIMESTAMP_TOLERANCE:2h}
