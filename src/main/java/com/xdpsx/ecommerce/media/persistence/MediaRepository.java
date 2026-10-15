@@ -23,12 +23,14 @@ public interface MediaRepository extends CrudRepository<Media, String> {
     @Query("SELECT m FROM Media m WHERE m.id IN :ids ORDER BY m.id")
     List<Media> findAllByIdInForUpdate(@Param("ids") Collection<String> ids);
 
-    @Query("SELECT m FROM Media m WHERE m.attachmentStatus = :status")
+    @Query("SELECT m FROM Media m WHERE m.attachmentStatus = :status AND m.uploadStatus = "
+            + "com.xdpsx.ecommerce.media.domain.MediaUploadStatus.UPLOADED")
     List<Media> findAllByAttachmentStatus(@Param("status") MediaAttachmentStatus status);
 
     @Query("""
 		SELECT m FROM Media m
 		WHERE m.attachmentStatus = com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus.TEMPORARY
+			AND m.uploadStatus = com.xdpsx.ecommerce.media.domain.MediaUploadStatus.UPLOADED
 			AND m.createdAt < :expiryTime
 		""")
     List<Media> findExpiredTemporaryMedia(@Param("expiryTime") LocalDateTime expiryTime);
@@ -43,6 +45,7 @@ public interface MediaRepository extends CrudRepository<Media, String> {
             "UPDATE Media m SET m.attachmentStatus = com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus.PENDING_DELETE "
                     + "WHERE m.id = :id "
                     + "AND m.attachmentStatus = com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus.TEMPORARY "
+                    + "AND m.uploadStatus = com.xdpsx.ecommerce.media.domain.MediaUploadStatus.UPLOADED "
                     + "AND m.uploadedByUserId = :uploadedByUserId")
     int claimTemporaryForDeletion(@Param("id") String id, @Param("uploadedByUserId") Long uploadedByUserId);
 
@@ -53,6 +56,7 @@ public interface MediaRepository extends CrudRepository<Media, String> {
             "UPDATE Media m SET m.attachmentStatus = com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus.PENDING_DELETE "
                     + "WHERE m.id = :id "
                     + "AND m.attachmentStatus = com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus.TEMPORARY "
+                    + "AND m.uploadStatus = com.xdpsx.ecommerce.media.domain.MediaUploadStatus.UPLOADED "
                     + "AND m.createdAt < :expiryTime")
     int claimExpiredTemporaryForDeletion(@Param("id") String id, @Param("expiryTime") LocalDateTime expiryTime);
 
@@ -61,6 +65,7 @@ public interface MediaRepository extends CrudRepository<Media, String> {
 		SELECT m FROM Media m
 		WHERE m.id = :id
 			AND m.attachmentStatus = com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus.TEMPORARY
+			AND m.uploadStatus = com.xdpsx.ecommerce.media.domain.MediaUploadStatus.UPLOADED
 			AND m.purpose = :purpose
 			AND m.uploadedByUserId = :uploadedByUserId
 	""")

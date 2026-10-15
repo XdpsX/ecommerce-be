@@ -30,7 +30,9 @@ import com.xdpsx.ecommerce.media.application.storage.MediaUrlGenerator;
 import com.xdpsx.ecommerce.media.application.storage.StoredMedia;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
+import com.xdpsx.ecommerce.media.domain.MediaProcessingStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
+import com.xdpsx.ecommerce.media.domain.MediaUploadStatus;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
 @ExtendWith(MockitoExtension.class)
@@ -91,6 +93,8 @@ class MediaServiceImplTest {
             assertEquals("image/jpeg", persisted.getContentType());
             assertEquals(purpose, persisted.getPurpose());
             assertEquals(42L, persisted.getUploadedByUserId());
+            assertEquals(MediaUploadStatus.UPLOADED, persisted.getUploadStatus());
+            assertEquals(MediaProcessingStatus.PROCESSING, persisted.getProcessingStatus());
             assertEquals(MediaAttachmentStatus.TEMPORARY, persisted.getAttachmentStatus());
 
             assertEquals(persisted.getId(), result.id());

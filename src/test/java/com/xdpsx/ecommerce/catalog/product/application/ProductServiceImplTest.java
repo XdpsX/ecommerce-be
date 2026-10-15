@@ -9,6 +9,7 @@ import static org.mockito.Mockito.*;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -31,6 +32,7 @@ import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.product.api.dto.*;
 import com.xdpsx.ecommerce.catalog.product.domain.Product;
+import com.xdpsx.ecommerce.catalog.product.domain.ProductImage;
 import com.xdpsx.ecommerce.catalog.product.domain.ProductVariant;
 import com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
@@ -126,6 +128,87 @@ class ProductServiceImplTest {
 
         assertThat(exception.getCode()).isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
         verify(productRepository, never()).save(any());
+    }
+
+    @Test
+    void createProduct_ShouldRejectPendingUpload() {
+        ProductCreateRequest request = createRequest(7);
+        request.setImageIds(List.of("pending-upload"));
+        when(productRepository.existsBySlug("keyboard")).thenReturn(false);
+        when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(activeCategory(7)));
+        when(brandRepository.findById(5)).thenReturn(Optional.of(activeBrand(5)));
+        when(mediaRepository.findAllByIdInForUpdate(List.of("pending-upload")))
+                .thenReturn(List.of(pendingProductImage("pending-upload")));
+
+        ApplicationException exception =
+                assertThrows(ApplicationException.class, () -> productService.createProduct(request));
+
+        assertThat(exception.getCode()).isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
+        verify(productRepository, never()).save(any());
+    }
+
+    @Test
+    void createProduct_ShouldActivateUploadedImageWhenAttached() {
+        ProductCreateRequest request = createRequest(7);
+        request.setImageIds(List.of("uploaded-image"));
+        Product product = new Product();
+        Media media = uploadedProductImage("uploaded-image", MediaAttachmentStatus.TEMPORARY);
+        when(productRepository.existsBySlug("keyboard")).thenReturn(false);
+        when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(activeCategory(7)));
+        when(brandRepository.findById(5)).thenReturn(Optional.of(activeBrand(5)));
+        when(mediaRepository.findAllByIdInForUpdate(List.of("uploaded-image"))).thenReturn(List.of(media));
+        when(productMapper.fromCreateRequestToEntity(request)).thenReturn(product);
+        when(productRepository.save(product)).thenReturn(product);
+
+        productService.createProduct(request);
+
+        assertThat(media.getAttachmentStatus()).isEqualTo(MediaAttachmentStatus.ACTIVE);
+        assertThat(product.getImages()).extracting(ProductImage::getMedia).containsExactly(media);
+    }
+
+    @Test
+    void updateProduct_ShouldRejectPendingUploadReplacement() {
+        Product product = product(1L, activeCategory(7), activeBrand(5));
+        ProductUpdateRequest request = updateRequest();
+        request.setImageIds(List.of("pending-upload"));
+        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
+        when(mediaRepository.findAllByIdInForUpdate(List.of("pending-upload")))
+                .thenReturn(List.of(pendingProductImage("pending-upload")));
+
+        ApplicationException exception =
+                assertThrows(ApplicationException.class, () -> productService.updateProduct(1L, request));
+
+        assertThat(exception.getCode()).isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
+        verify(productRepository, never()).save(any());
+    }
+
+    @Test
+    void updateProduct_ShouldActivateNewImageAndKeepRetainedImageActive() {
+        Product product = product(1L, activeCategory(7), activeBrand(5));
+        Media retained = uploadedProductImage("retained-image", MediaAttachmentStatus.ACTIVE);
+        Media replacement = uploadedProductImage("replacement-image", MediaAttachmentStatus.TEMPORARY);
+        product.getImages()
+                .add(ProductImage.builder()
+                        .product(product)
+                        .media(retained)
+                        .displayOrder(0)
+                        .build());
+        ProductUpdateRequest request = updateRequest();
+        request.setImageIds(List.of("retained-image", "replacement-image"));
+        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
+        when(mediaRepository.findAllByIdInForUpdate(List.of("retained-image", "replacement-image")))
+                .thenReturn(List.of(retained, replacement));
+        when(productRepository.save(product)).thenReturn(product);
+        when(productVariantRepository.findAdminPriceRanges(eq(List.of(1L)), any(Instant.class)))
+                .thenReturn(List.of());
+        when(inventoryBalanceRepository.findActiveProductInventoryTotals(List.of(1L)))
+                .thenReturn(List.of());
+
+        productService.updateProduct(1L, request);
+
+        assertThat(retained.getAttachmentStatus()).isEqualTo(MediaAttachmentStatus.ACTIVE);
+        assertThat(replacement.getAttachmentStatus()).isEqualTo(MediaAttachmentStatus.ACTIVE);
+        assertThat(product.getImages()).extracting(ProductImage::getMedia).containsExactly(retained, replacement);
     }
 
     @Test
@@ -435,6 +518,30 @@ class ProductServiceImplTest {
         product.setBrand(brand);
         product.setImages(new ArrayList<>());
         return product;
+    }
+
+    private static Media pendingProductImage(String id) {
+        return Media.createPendingUpload(
+                id,
+                "products/" + id,
+                42L,
+                MediaPurpose.PRODUCT_IMAGE,
+                "image/png",
+                1024,
+                LocalDateTime.now().plusHours(1));
+    }
+
+    private static Media uploadedProductImage(String id, MediaAttachmentStatus status) {
+        return Media.createUploaded(
+                id,
+                "products/" + id,
+                "https://example.test/" + id + ".png",
+                null,
+                "image/png",
+                MediaPurpose.PRODUCT_IMAGE,
+                42L,
+                status,
+                null);
     }
 
     private static Category activeCategory(Integer id) {

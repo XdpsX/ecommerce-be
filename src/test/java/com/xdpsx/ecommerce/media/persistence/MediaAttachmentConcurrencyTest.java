@@ -33,6 +33,7 @@ import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaProcessingStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
+import com.xdpsx.ecommerce.media.domain.MediaUploadStatus;
 
 @SpringJUnitConfig(MediaAttachmentConcurrencyTest.PersistenceConfig.class)
 class MediaAttachmentConcurrencyTest {
@@ -191,6 +192,34 @@ class MediaAttachmentConcurrencyTest {
                     .isEmpty();
             assertThat(mediaRepository.claimTemporaryForDeletion("legacy-upload", 42L))
                     .isZero();
+        });
+    }
+
+    @Test
+    void pendingIntent_ShouldNotBeAttachableOrClaimedByLegacyCleanup() {
+        java.time.LocalDateTime futureExpiry = java.time.LocalDateTime.now().plusDays(2);
+        Media pending = Media.createPendingUpload(
+                "pending-intent",
+                "product/pending-intent",
+                42L,
+                MediaPurpose.PRODUCT_IMAGE,
+                "image/png",
+                1024,
+                futureExpiry);
+        pending.markPendingDeletion();
+        mediaRepository.save(pending);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            assertThat(mediaRepository.findAttachableById("pending-intent", MediaPurpose.PRODUCT_IMAGE, 42L))
+                    .isEmpty();
+            assertThat(mediaRepository.findExpiredTemporaryMedia(futureExpiry))
+                    .extracting(Media::getUploadStatus)
+                    .doesNotContain(MediaUploadStatus.PENDING_UPLOAD);
+            assertThat(mediaRepository.claimExpiredTemporaryForDeletion("pending-intent", futureExpiry))
+                    .isZero();
+            assertThat(mediaRepository.findAllByAttachmentStatus(MediaAttachmentStatus.PENDING_DELETE))
+                    .extracting(Media::getId)
+                    .doesNotContain("pending-intent");
         });
     }
 

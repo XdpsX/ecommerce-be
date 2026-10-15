@@ -405,6 +405,8 @@ class BrandServiceImplTest {
                 .build();
         Media newImage = Media.builder()
                 .id("new-logo")
+                .url("https://example.test/new-logo.png")
+                .contentType("image/png")
                 .purpose(MediaPurpose.BRAND_LOGO)
                 .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .build();

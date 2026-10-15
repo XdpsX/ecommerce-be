@@ -22,7 +22,6 @@ import com.xdpsx.ecommerce.media.application.storage.MediaUrlGenerator;
 import com.xdpsx.ecommerce.media.application.storage.StoredMedia;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
-import com.xdpsx.ecommerce.media.domain.MediaProcessingStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
@@ -50,18 +49,16 @@ public class MediaServiceImpl implements MediaService {
             throw new ApplicationException(ErrorCode.MEDIA_UPLOAD_FAILED, e);
         }
 
-        Media media = Media.builder()
-                .id(UUID.randomUUID().toString())
-                .externalId(storedMedia.externalId())
-                .url(storedMedia.url())
-                .caption(request.caption())
-                .contentType(request.file().getContentType())
-                .purpose(purpose)
-                .uploadedByUserId(uploadedByUserId)
-                .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
-                .processingStatus(MediaProcessingStatus.PROCESSING)
-                .processingReference(storedMedia.processingReference())
-                .build();
+        Media media = Media.createUploaded(
+                UUID.randomUUID().toString(),
+                storedMedia.externalId(),
+                storedMedia.url(),
+                request.caption(),
+                request.file().getContentType(),
+                purpose,
+                uploadedByUserId,
+                MediaAttachmentStatus.TEMPORARY,
+                storedMedia.processingReference());
 
         Media savedMedia;
         try {

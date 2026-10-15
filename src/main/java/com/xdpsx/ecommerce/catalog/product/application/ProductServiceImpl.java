@@ -47,6 +47,7 @@ import com.xdpsx.ecommerce.inventory.persistence.InventoryBalanceRepository;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
+import com.xdpsx.ecommerce.media.domain.MediaUploadStatus;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 import com.xdpsx.ecommerce.order.persistence.OrderItemRepository;
 
@@ -307,6 +308,7 @@ public class ProductServiceImpl implements ProductService {
                 .map(id -> {
                     Media item = byId.get(id);
                     if (item.getPurpose() != MediaPurpose.PRODUCT_IMAGE
+                            || item.getUploadStatus() != MediaUploadStatus.UPLOADED
                             || item.getAttachmentStatus() != MediaAttachmentStatus.TEMPORARY
                             || !uploadedByUserId.equals(item.getUploadedByUserId())) {
                         throw notFound("media", id);
@@ -330,6 +332,7 @@ public class ProductServiceImpl implements ProductService {
                     Media item = byId.get(id);
                     if (item == null
                             || item.getPurpose() != MediaPurpose.PRODUCT_IMAGE
+                            || item.getUploadStatus() != MediaUploadStatus.UPLOADED
                             || (item.getAttachmentStatus() != MediaAttachmentStatus.TEMPORARY
                                     && (!current.containsKey(id)
                                             || item.getAttachmentStatus() != MediaAttachmentStatus.ACTIVE))

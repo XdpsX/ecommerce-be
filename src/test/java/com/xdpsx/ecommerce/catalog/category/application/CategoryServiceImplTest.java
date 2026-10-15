@@ -195,6 +195,8 @@ class CategoryServiceImplTest {
         Category parent = Category.builder().id(7).name("Electronics").build();
         Media media = Media.builder()
                 .id(imageId)
+                .url("https://example.test/category.png")
+                .contentType("image/png")
                 .purpose(MediaPurpose.CATEGORY_IMAGE)
                 .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .build();
@@ -396,6 +398,8 @@ class CategoryServiceImplTest {
                 .build();
         Media newImage = Media.builder()
                 .id(newImageId)
+                .url("https://example.test/new-category.png")
+                .contentType("image/png")
                 .purpose(MediaPurpose.CATEGORY_IMAGE)
                 .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .build();
