@@ -16,7 +16,6 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
@@ -42,6 +41,7 @@ import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionValueR
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.inventory.persistence.InventoryBalanceRepository;
+import com.xdpsx.ecommerce.media.application.MediaAttachmentService;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
@@ -65,6 +65,8 @@ class ProductServiceImplTest {
     @Mock
     private MediaRepository mediaRepository;
 
+    private MediaAttachmentService mediaAttachmentService;
+
     @Mock
     private CurrentUserIdProvider currentUserIdProvider;
 
@@ -83,12 +85,26 @@ class ProductServiceImplTest {
     @Mock
     private VariantOptionValueRepository variantOptionValueRepository;
 
-    @InjectMocks
     private ProductServiceImpl productService;
 
     @org.junit.jupiter.api.BeforeEach
     void setUpCurrentUser() {
         lenient().when(currentUserIdProvider.getRequiredUserId()).thenReturn(42L);
+        mediaAttachmentService = new MediaAttachmentService(
+                mediaRepository, currentUserIdProvider, mock(jakarta.persistence.EntityManager.class));
+        productService = new ProductServiceImpl(
+                productMapper,
+                productRepository,
+                categoryRepository,
+                brandRepository,
+                productSpecification,
+                productVariantRepository,
+                variantOptionValueRepository,
+                mediaAttachmentService,
+                inventoryBalanceRepository,
+                orderItemRepository,
+                null,
+                null);
     }
 
     @Test
@@ -112,9 +128,17 @@ class ProductServiceImplTest {
     void createProduct_ShouldRejectTemporaryImageUploadedByAnotherAdmin() {
         ProductCreateRequest request = createRequest(7);
         request.setImageIds(List.of("other-admin-upload"));
+        Product product = new Product();
         when(productRepository.existsBySlug("keyboard")).thenReturn(false);
         when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(activeCategory(7)));
         when(brandRepository.findById(5)).thenReturn(Optional.of(activeBrand(5)));
+        when(productMapper.fromCreateRequestToEntity(request)).thenReturn(product);
+        when(productRepository.save(any(Product.class))).thenAnswer(invocation -> {
+            Product saved = invocation.getArgument(0);
+            saved.setId(1L);
+            return saved;
+        });
+        when(productRepository.saveAndFlush(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(mediaRepository.findAllByIdInForUpdate(List.of("other-admin-upload")))
                 .thenReturn(List.of(Media.builder()
                         .id("other-admin-upload")
@@ -127,16 +151,24 @@ class ProductServiceImplTest {
                 assertThrows(ApplicationException.class, () -> productService.createProduct(request));
 
         assertThat(exception.getCode()).isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
-        verify(productRepository, never()).save(any());
+        verify(mediaRepository, never()).saveAll(anyList());
     }
 
     @Test
     void createProduct_ShouldRejectPendingUpload() {
         ProductCreateRequest request = createRequest(7);
         request.setImageIds(List.of("pending-upload"));
+        Product product = new Product();
         when(productRepository.existsBySlug("keyboard")).thenReturn(false);
         when(categoryRepository.findByIdWithAncestry(7)).thenReturn(Optional.of(activeCategory(7)));
         when(brandRepository.findById(5)).thenReturn(Optional.of(activeBrand(5)));
+        when(productMapper.fromCreateRequestToEntity(request)).thenReturn(product);
+        when(productRepository.save(any(Product.class))).thenAnswer(invocation -> {
+            Product saved = invocation.getArgument(0);
+            saved.setId(1L);
+            return saved;
+        });
+        when(productRepository.saveAndFlush(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(mediaRepository.findAllByIdInForUpdate(List.of("pending-upload")))
                 .thenReturn(List.of(pendingProductImage("pending-upload")));
 
@@ -144,7 +176,7 @@ class ProductServiceImplTest {
                 assertThrows(ApplicationException.class, () -> productService.createProduct(request));
 
         assertThat(exception.getCode()).isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
-        verify(productRepository, never()).save(any());
+        verify(mediaRepository, never()).saveAll(anyList());
     }
 
     @Test
@@ -159,6 +191,10 @@ class ProductServiceImplTest {
         when(mediaRepository.findAllByIdInForUpdate(List.of("uploaded-image"))).thenReturn(List.of(media));
         when(productMapper.fromCreateRequestToEntity(request)).thenReturn(product);
         when(productRepository.save(product)).thenReturn(product);
+        when(productRepository.saveAndFlush(product)).thenAnswer(invocation -> {
+            product.setId(1L);
+            return product;
+        });
 
         productService.createProduct(request);
 
@@ -196,7 +232,7 @@ class ProductServiceImplTest {
         ProductUpdateRequest request = updateRequest();
         request.setImageIds(List.of("retained-image", "replacement-image"));
         when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
-        when(mediaRepository.findAllByIdInForUpdate(List.of("retained-image", "replacement-image")))
+        when(mediaRepository.findAllByIdInForUpdate(List.of("replacement-image", "retained-image")))
                 .thenReturn(List.of(retained, replacement));
         when(productRepository.save(product)).thenReturn(product);
         when(productVariantRepository.findAdminPriceRanges(eq(List.of(1L)), any(Instant.class)))
@@ -532,7 +568,7 @@ class ProductServiceImplTest {
     }
 
     private static Media uploadedProductImage(String id, MediaAttachmentStatus status) {
-        return Media.createUploaded(
+        Media media = Media.createUploaded(
                 id,
                 "products/" + id,
                 "https://example.test/" + id + ".png",
@@ -542,6 +578,22 @@ class ProductServiceImplTest {
                 42L,
                 status,
                 null);
+        if (status == MediaAttachmentStatus.ACTIVE) {
+            media = Media.builder()
+                    .id(media.getId())
+                    .externalId(media.getExternalId())
+                    .url(media.getUrl())
+                    .contentType(media.getContentType())
+                    .purpose(media.getPurpose())
+                    .uploadedByUserId(media.getUploadedByUserId())
+                    .uploadStatus(media.getUploadStatus())
+                    .processingStatus(media.getProcessingStatus())
+                    .attachmentStatus(MediaAttachmentStatus.ACTIVE)
+                    .attachmentOwnerType(com.xdpsx.ecommerce.media.domain.MediaOwnerType.PRODUCT)
+                    .attachmentOwnerId("1")
+                    .build();
+        }
+        return media;
     }
 
     private static Category activeCategory(Integer id) {

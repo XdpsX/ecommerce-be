@@ -37,6 +37,7 @@ import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
+import com.xdpsx.ecommerce.media.application.MediaAttachmentService;
 import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
@@ -94,19 +95,24 @@ class BrandStorefrontPersistenceTest {
         }
 
         @Bean
+        MediaAttachmentService mediaAttachmentService(
+                MediaRepository mediaRepository, jakarta.persistence.EntityManager entityManager) {
+            return new MediaAttachmentService(mediaRepository, () -> 42L, entityManager);
+        }
+
+        @Bean
         BrandService brandService(
-                MediaRepository mediaRepository,
                 BrandRepository brandRepository,
                 CategoryRepository categoryRepository,
-                ProductRepository productRepository) {
+                ProductRepository productRepository,
+                MediaAttachmentService mediaAttachmentService) {
             return new BrandServiceImpl(
-                    mediaRepository,
                     brandRepository,
                     categoryRepository,
                     productRepository,
                     new MediaUrlResolver((externalId, purpose) ->
                             java.util.Map.of("brandLogo", "https://derived.example.test/" + externalId)),
-                    () -> 42L);
+                    mediaAttachmentService);
         }
     }
 

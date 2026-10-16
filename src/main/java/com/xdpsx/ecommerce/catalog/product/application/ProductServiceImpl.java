@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.springframework.dao.DataIntegrityViolationException;
@@ -20,7 +19,6 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.xdpsx.ecommerce.auth.application.CurrentUserIdProvider;
 import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
 import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
 import com.xdpsx.ecommerce.catalog.brand.persistence.BrandRepository;
@@ -44,11 +42,11 @@ import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
 import com.xdpsx.ecommerce.config.StorePricingProperties;
 import com.xdpsx.ecommerce.inventory.persistence.InventoryBalanceRepository;
+import com.xdpsx.ecommerce.media.application.MediaAttachmentService;
+import com.xdpsx.ecommerce.media.application.MediaOwner;
 import com.xdpsx.ecommerce.media.domain.Media;
-import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
+import com.xdpsx.ecommerce.media.domain.MediaOwnerType;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
-import com.xdpsx.ecommerce.media.domain.MediaUploadStatus;
-import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 import com.xdpsx.ecommerce.order.persistence.OrderItemRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -65,12 +63,11 @@ public class ProductServiceImpl implements ProductService {
     private final ProductSpecification spec;
     private final ProductVariantRepository productVariantRepository;
     private final VariantOptionValueRepository variantOptionValueRepository;
-    private final MediaRepository mediaRepository;
+    private final MediaAttachmentService mediaAttachmentService;
     private final InventoryBalanceRepository inventoryBalanceRepository;
     private final OrderItemRepository orderItemRepository;
     private final StorePricingProperties storePricingProperties;
     private final Clock pricingClock;
-    private final CurrentUserIdProvider currentUserIdProvider;
 
     @Transactional(readOnly = true)
     @Override
@@ -191,6 +188,7 @@ public class ProductServiceImpl implements ProductService {
     @Transactional
     @Override
     public AdminProductSummaryResponse createProduct(ProductCreateRequest request) {
+        List<String> desiredImageIds = validateImageIds(request.getImageIds());
         String slug = normalizeSlug(request.getSlug());
         if (productRepository.existsBySlug(slug)) {
             throw new ApplicationException(
@@ -199,22 +197,27 @@ public class ProductServiceImpl implements ProductService {
         }
         Category category = requireEffectivelyActiveCategory(request.getCategoryId());
         Brand brand = requireActiveBrand(request.getBrandId());
-        List<Media> media = resolveNewMedia(request.getImageIds());
         Product product = productMapper.fromCreateRequestToEntity(request);
         product.setSlug(slug);
         product.setCategory(category);
         product.setBrand(brand);
-        replaceImages(product, media);
-        media.forEach(Media::activate);
-        return productMapper.toAdminSummary(productRepository.save(product));
+        Product saved = productRepository.save(product);
+        if (!desiredImageIds.isEmpty()) {
+            saved = productRepository.saveAndFlush(saved);
+            List<Media> media = mediaAttachmentService.synchronizeAttachments(
+                    productOwner(saved), MediaPurpose.PRODUCT_IMAGE, List.of(), desiredImageIds);
+            replaceImages(saved, media);
+            saved = productRepository.saveAndFlush(saved);
+        }
+        return productMapper.toAdminSummary(saved);
     }
 
     @Transactional
     @Override
     public AdminProductSummaryResponse updateProduct(Long id, ProductUpdateRequest request) {
         Product product = productRepository.findByIdForUpdate(id).orElseThrow(() -> notFound("product", id));
-        List<Media> replacementMedia =
-                request.getImageIds() == null ? null : resolveReplacementMedia(product, request.getImageIds());
+        List<Media> replacementMedia = null;
+        List<String> desiredImageIds = request.getImageIds() == null ? null : validateImageIds(request.getImageIds());
         Category targetCategory = product.getCategory();
         if (request.getCategoryId() != null && !Objects.equals(targetCategory.getId(), request.getCategoryId())) {
             targetCategory = requireEffectivelyActiveCategory(request.getCategoryId());
@@ -236,18 +239,16 @@ public class ProductServiceImpl implements ProductService {
         }
         product.setCategory(targetCategory);
         product.setBrand(targetBrand);
-        if (replacementMedia != null) {
-            product.getImages().stream()
+        if (desiredImageIds != null) {
+            List<String> currentIds = product.getImages().stream()
                     .map(ProductImage::getMedia)
-                    .filter(item -> replacementMedia.stream()
-                            .noneMatch(retained -> retained.getId().equals(item.getId())))
-                    .forEach(Media::markPendingDeletion);
+                    .map(Media::getId)
+                    .toList();
+            replacementMedia = mediaAttachmentService.synchronizeAttachments(
+                    productOwner(product), MediaPurpose.PRODUCT_IMAGE, currentIds, desiredImageIds);
             product.getImages().clear();
             productRepository.flush();
             appendImages(product, replacementMedia);
-            replacementMedia.stream()
-                    .filter(item -> item.getAttachmentStatus() == MediaAttachmentStatus.TEMPORARY)
-                    .forEach(Media::activate);
         }
         Product saved = productRepository.save(product);
         return toAdminSummaryWithInventory(saved);
@@ -256,12 +257,18 @@ public class ProductServiceImpl implements ProductService {
     @Transactional
     @Override
     public void deleteProduct(Long id) {
-        Product product = productRepository.findAdminProductById(id).orElseThrow(() -> notFound("product", id));
+        Product product = productRepository.findByIdForUpdate(id).orElseThrow(() -> notFound("product", id));
         if (orderItemRepository.existsByProductId(id)) {
             throw new ApplicationException(
                     ErrorCode.RESOURCE_IN_USE, Map.of("resourceType", "product", "resourceId", id));
         }
-        product.getImages().stream().map(ProductImage::getMedia).forEach(Media::markPendingDeletion);
+        List<String> currentIds = product.getImages().stream()
+                .map(ProductImage::getMedia)
+                .map(Media::getId)
+                .toList();
+        mediaAttachmentService.synchronizeAttachments(
+                productOwner(product), MediaPurpose.PRODUCT_IMAGE, currentIds, List.of());
+        product.getImages().clear();
         try {
             productRepository.delete(product);
             productRepository.flush();
@@ -297,61 +304,6 @@ public class ProductServiceImpl implements ProductService {
         return normalized;
     }
 
-    private List<Media> resolveNewMedia(List<String> imageIds) {
-        List<String> ids = validateImageIds(imageIds);
-        if (ids.isEmpty()) return List.of();
-        Long uploadedByUserId = currentUserIdProvider.getRequiredUserId();
-        List<Media> media = resolveByIds(ids);
-        if (media.size() != ids.size()) throw notFound("media", ids.get(0));
-        Map<String, Media> byId = media.stream().collect(Collectors.toMap(Media::getId, Function.identity()));
-        return ids.stream()
-                .map(id -> {
-                    Media item = byId.get(id);
-                    if (item.getPurpose() != MediaPurpose.PRODUCT_IMAGE
-                            || item.getUploadStatus() != MediaUploadStatus.UPLOADED
-                            || item.getAttachmentStatus() != MediaAttachmentStatus.TEMPORARY
-                            || !uploadedByUserId.equals(item.getUploadedByUserId())) {
-                        throw notFound("media", id);
-                    }
-                    return item;
-                })
-                .toList();
-    }
-
-    private List<Media> resolveReplacementMedia(Product product, List<String> imageIds) {
-        List<String> ids = validateImageIds(imageIds);
-        Long uploadedByUserId = currentUserIdProvider.getRequiredUserId();
-        var current = product.getImages().stream()
-                .map(ProductImage::getMedia)
-                .collect(Collectors.toMap(Media::getId, Function.identity()));
-        if (ids.isEmpty()) return List.of();
-        List<Media> media = resolveByIds(ids);
-        Map<String, Media> byId = media.stream().collect(Collectors.toMap(Media::getId, Function.identity()));
-        return ids.stream()
-                .map(id -> {
-                    Media item = byId.get(id);
-                    if (item == null
-                            || item.getPurpose() != MediaPurpose.PRODUCT_IMAGE
-                            || item.getUploadStatus() != MediaUploadStatus.UPLOADED
-                            || (item.getAttachmentStatus() != MediaAttachmentStatus.TEMPORARY
-                                    && (!current.containsKey(id)
-                                            || item.getAttachmentStatus() != MediaAttachmentStatus.ACTIVE))
-                            || (item.getAttachmentStatus() == MediaAttachmentStatus.TEMPORARY
-                                    && !uploadedByUserId.equals(item.getUploadedByUserId()))) {
-                        throw notFound("media", id);
-                    }
-                    return item;
-                })
-                .toList();
-    }
-
-    private List<Media> resolveByIds(List<String> ids) {
-        List<Media> loaded = mediaRepository.findAllByIdInForUpdate(ids);
-        if (loaded == null) loaded = List.of();
-        Map<String, Media> byId = loaded.stream().collect(Collectors.toMap(Media::getId, Function.identity()));
-        return ids.stream().map(byId::get).filter(Objects::nonNull).toList();
-    }
-
     private List<String> validateImageIds(List<String> imageIds) {
         if (imageIds == null) return List.of();
         if (imageIds.size() > MAX_IMAGES
@@ -365,6 +317,10 @@ public class ProductServiceImpl implements ProductService {
     private void replaceImages(Product product, List<Media> media) {
         product.getImages().clear();
         appendImages(product, media);
+    }
+
+    private static MediaOwner productOwner(Product product) {
+        return new MediaOwner(MediaOwnerType.PRODUCT, product.getId().toString());
     }
 
     private void appendImages(Product product, List<Media> media) {

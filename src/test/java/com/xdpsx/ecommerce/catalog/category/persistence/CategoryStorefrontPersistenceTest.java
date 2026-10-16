@@ -38,6 +38,7 @@ import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
+import com.xdpsx.ecommerce.media.application.MediaAttachmentService;
 import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
@@ -102,17 +103,22 @@ class CategoryStorefrontPersistenceTest {
         }
 
         @Bean
+        MediaAttachmentService mediaAttachmentService(
+                MediaRepository mediaRepository, jakarta.persistence.EntityManager entityManager) {
+            return new MediaAttachmentService(mediaRepository, () -> 42L, entityManager);
+        }
+
+        @Bean
         CategoryServiceImpl categoryService(
                 CategoryRepository categoryRepository,
-                MediaRepository mediaRepository,
+                MediaAttachmentService mediaAttachmentService,
                 TransactionTemplate transactionTemplate) {
             return new CategoryServiceImpl(
                     categoryRepository,
-                    mediaRepository,
+                    mediaAttachmentService,
                     new MediaUrlResolver((externalId, purpose) ->
                             java.util.Map.of("categoryCard", "https://derived.example.test/" + externalId)),
                     new CategoryHierarchy(categoryRepository),
-                    () -> 42L,
                     transactionTemplate);
         }
     }

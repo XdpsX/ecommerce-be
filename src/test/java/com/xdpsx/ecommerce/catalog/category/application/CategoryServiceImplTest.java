@@ -34,6 +34,7 @@ import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
+import com.xdpsx.ecommerce.media.application.MediaAttachmentService;
 import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
@@ -59,6 +60,8 @@ class CategoryServiceImplTest {
     @Mock
     private MediaRepository mediaRepository;
 
+    private MediaAttachmentService mediaAttachmentService;
+
     @Mock
     private CurrentUserIdProvider currentUserIdProvider;
 
@@ -78,14 +81,20 @@ class CategoryServiceImplTest {
                 return action.doInTransaction(new SimpleTransactionStatus());
             }
         };
+        lenient().when(currentUserIdProvider.getRequiredUserId()).thenReturn(42L);
+        mediaAttachmentService = new MediaAttachmentService(
+                mediaRepository, currentUserIdProvider, mock(jakarta.persistence.EntityManager.class));
         categoryService = new CategoryServiceImpl(
                 categoryRepository,
-                mediaRepository,
+                mediaAttachmentService,
                 mediaUrlResolver,
                 new CategoryHierarchy(categoryRepository),
-                currentUserIdProvider,
                 inlineTransaction);
-        lenient().when(currentUserIdProvider.getRequiredUserId()).thenReturn(42L);
+        lenient().when(categoryRepository.saveAndFlush(any(Category.class))).thenAnswer(invocation -> {
+            Category category = invocation.getArgument(0);
+            if (category.getId() == null) category.setId(100);
+            return category;
+        });
         // Every hierarchy write takes the anchor first. Lenient because the read-only
         // cases never reach it.
         lenient().when(categoryRepository.hierarchyAnchorExists()).thenReturn(true);
@@ -168,14 +177,14 @@ class CategoryServiceImplTest {
         when(categoryRepository.existsByName(request.name())).thenReturn(false);
         when(categoryRepository.existsBySlug("do-choi-tre-em")).thenReturn(false);
         when(categoryRepository.findRootsForUpdate()).thenReturn(roots);
-        when(categoryRepository.save(any(Category.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(categoryRepository.saveAndFlush(any(Category.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // Act
         AdminCategoryResponse response = categoryService.createCategory(request);
 
         // Assert
         ArgumentCaptor<Category> captor = ArgumentCaptor.forClass(Category.class);
-        verify(categoryRepository).save(captor.capture());
+        verify(categoryRepository, atLeastOnce()).saveAndFlush(captor.capture());
         Category saved = captor.getValue();
 
         assertEquals("do-choi-tre-em", saved.getSlug());
@@ -193,13 +202,16 @@ class CategoryServiceImplTest {
         // Arrange
         String imageId = "media-id";
         Category parent = Category.builder().id(7).name("Electronics").build();
-        Media media = Media.builder()
-                .id(imageId)
-                .url("https://example.test/category.png")
-                .contentType("image/png")
-                .purpose(MediaPurpose.CATEGORY_IMAGE)
-                .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
-                .build();
+        Media media = Media.createUploaded(
+                imageId,
+                "category/" + imageId,
+                "https://example.test/category.png",
+                null,
+                "image/png",
+                MediaPurpose.CATEGORY_IMAGE,
+                42L,
+                MediaAttachmentStatus.TEMPORARY,
+                null);
         CreateCategoryRequest request = new CreateCategoryRequest("Laptops", CategoryStatus.ACTIVE, imageId, 7);
 
         when(categoryRepository.existsByName("Laptops")).thenReturn(false);
@@ -208,9 +220,7 @@ class CategoryServiceImplTest {
         stubAncestorChain(7, null);
         when(categoryRepository.findChildrenForUpdate(7))
                 .thenReturn(new ArrayList<>(List.of(category(8, "Phones", "phones", 0))));
-        when(mediaRepository.findAttachableById(imageId, MediaPurpose.CATEGORY_IMAGE, 42L))
-                .thenReturn(Optional.of(media));
-        when(categoryRepository.save(any(Category.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(mediaRepository.findAllByIdInForUpdate(List.of(imageId))).thenReturn(List.of(media));
 
         // Act
         categoryService.createCategory(request);
@@ -219,10 +229,12 @@ class CategoryServiceImplTest {
         assertEquals(MediaAttachmentStatus.ACTIVE, media.getAttachmentStatus());
 
         ArgumentCaptor<Category> captor = ArgumentCaptor.forClass(Category.class);
-        verify(categoryRepository).save(captor.capture());
-        assertSame(parent, captor.getValue().getParent());
-        assertEquals(1, captor.getValue().getDisplayOrder());
-        assertSame(media, captor.getValue().getImage());
+        verify(categoryRepository, times(2)).saveAndFlush(captor.capture());
+        Category saved = captor.getAllValues().get(1);
+        assertSame(parent, saved.getParent());
+        assertEquals(1, saved.getDisplayOrder());
+        assertSame(media, saved.getImage());
+        assertEquals(MediaAttachmentStatus.ACTIVE, media.getAttachmentStatus());
     }
 
     @Test
@@ -232,14 +244,13 @@ class CategoryServiceImplTest {
         when(categoryRepository.existsByName("Shoes")).thenReturn(false);
         when(categoryRepository.existsBySlug("shoes")).thenReturn(false);
         when(categoryRepository.findRootsForUpdate()).thenReturn(new ArrayList<>());
-        when(categoryRepository.save(any(Category.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // Act
         categoryService.createCategory(request);
 
         // Assert
         ArgumentCaptor<Category> captor = ArgumentCaptor.forClass(Category.class);
-        verify(categoryRepository).save(captor.capture());
+        verify(categoryRepository).saveAndFlush(captor.capture());
         assertEquals(CategoryStatus.INACTIVE, captor.getValue().getStatus());
         assertEquals(0, captor.getValue().getDisplayOrder());
     }
@@ -391,26 +402,35 @@ class CategoryServiceImplTest {
         int categoryId = 1;
         String oldImageId = "old-media";
         String newImageId = "new-media";
-        Media oldImage = Media.builder()
-                .id(oldImageId)
-                .purpose(MediaPurpose.CATEGORY_IMAGE)
-                .attachmentStatus(MediaAttachmentStatus.ACTIVE)
-                .build();
-        Media newImage = Media.builder()
-                .id(newImageId)
-                .url("https://example.test/new-category.png")
-                .contentType("image/png")
-                .purpose(MediaPurpose.CATEGORY_IMAGE)
-                .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
-                .build();
+        Media oldImage = Media.createUploaded(
+                oldImageId,
+                "category/old",
+                "https://example.test/old.png",
+                null,
+                "image/png",
+                MediaPurpose.CATEGORY_IMAGE,
+                42L,
+                MediaAttachmentStatus.TEMPORARY,
+                null);
+        oldImage.attach(com.xdpsx.ecommerce.media.domain.MediaOwnerType.CATEGORY, "1");
+        Media newImage = Media.createUploaded(
+                newImageId,
+                "category/new",
+                "https://example.test/new.png",
+                null,
+                "image/png",
+                MediaPurpose.CATEGORY_IMAGE,
+                42L,
+                MediaAttachmentStatus.TEMPORARY,
+                null);
         Category category = category(categoryId, "Shoes", "shoes", 0);
         category.setImage(oldImage);
 
         UpdateCategoryRequest request = new UpdateCategoryRequest("Shoes", CategoryStatus.ACTIVE, null, newImageId, 0L);
 
         when(categoryRepository.findByIdForUpdate(categoryId)).thenReturn(Optional.of(category));
-        when(mediaRepository.findAttachableById(newImageId, MediaPurpose.CATEGORY_IMAGE, 42L))
-                .thenReturn(Optional.of(newImage));
+        when(mediaRepository.findAllByIdInForUpdate(List.of(newImageId, oldImageId)))
+                .thenReturn(List.of(newImage, oldImage));
         when(categoryRepository.saveAndFlush(any(Category.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // Act
@@ -423,7 +443,7 @@ class CategoryServiceImplTest {
         ArgumentCaptor<Category> captor = ArgumentCaptor.forClass(Category.class);
         verify(categoryRepository).saveAndFlush(captor.capture());
         assertSame(newImage, captor.getValue().getImage());
-        verify(mediaRepository, times(2)).save(any(Media.class));
+        verify(mediaRepository).saveAll(List.of(newImage, oldImage));
     }
 
     @Test
@@ -713,15 +733,22 @@ class CategoryServiceImplTest {
     void deleteCategory_ShouldMarkImagePendingDeletionAndDelete() {
         // Arrange
         int categoryId = 1;
-        Media image = Media.builder()
-                .id("media-id")
-                .purpose(MediaPurpose.CATEGORY_IMAGE)
-                .attachmentStatus(MediaAttachmentStatus.ACTIVE)
-                .build();
+        Media image = Media.createUploaded(
+                "media-id",
+                "category/media-id",
+                "https://example.test/image.png",
+                null,
+                "image/png",
+                MediaPurpose.CATEGORY_IMAGE,
+                42L,
+                MediaAttachmentStatus.TEMPORARY,
+                null);
+        image.attach(com.xdpsx.ecommerce.media.domain.MediaOwnerType.CATEGORY, "1");
         Category category = category(categoryId, "Shoes", "shoes", 0);
         category.setImage(image);
 
         when(categoryRepository.findByIdForUpdate(categoryId)).thenReturn(Optional.of(category));
+        when(mediaRepository.findAllByIdInForUpdate(List.of("media-id"))).thenReturn(List.of(image));
         when(categoryRepository.existsByParentId(categoryId)).thenReturn(false);
         when(categoryRepository.countCategoriesInOtherTables(categoryId)).thenReturn(0L);
         when(categoryRepository.findRootsForUpdate()).thenReturn(new ArrayList<>(List.of(category)));
@@ -731,7 +758,7 @@ class CategoryServiceImplTest {
 
         // Assert
         assertEquals(MediaAttachmentStatus.PENDING_DELETE, image.getAttachmentStatus());
-        verify(mediaRepository).save(image);
+        verify(mediaRepository).saveAll(List.of(image));
         verify(categoryRepository).delete(category);
     }
 

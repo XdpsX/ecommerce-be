@@ -44,6 +44,7 @@ import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
+import com.xdpsx.ecommerce.media.application.MediaAttachmentService;
 import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 import com.xdpsx.ecommerce.testsupport.MySqlTestContainerFactory;
@@ -150,16 +151,21 @@ class CategoryHierarchyPersistenceTest {
          * ever not serialized by the anchor.
          */
         @Bean
+        MediaAttachmentService mediaAttachmentService(
+                MediaRepository mediaRepository, jakarta.persistence.EntityManager entityManager) {
+            return new MediaAttachmentService(mediaRepository, () -> 42L, entityManager);
+        }
+
+        @Bean
         CategoryServiceImpl categoryService(
                 CategoryRepository categoryRepository,
-                MediaRepository mediaRepository,
+                MediaAttachmentService mediaAttachmentService,
                 TransactionTemplate transactionTemplate) {
             return new CategoryServiceImpl(
                     categoryRepository,
-                    mediaRepository,
+                    mediaAttachmentService,
                     new MediaUrlResolver((externalId, purpose) -> java.util.Map.of()),
                     new CategoryHierarchy(categoryRepository, 1),
-                    () -> 42L,
                     transactionTemplate);
         }
     }

@@ -13,7 +13,6 @@ import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentMatchers;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -37,6 +36,7 @@ import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
+import com.xdpsx.ecommerce.media.application.MediaAttachmentService;
 import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
 import com.xdpsx.ecommerce.media.application.storage.MediaVariant;
 import com.xdpsx.ecommerce.media.domain.Media;
@@ -62,15 +62,20 @@ class BrandServiceImplTest {
     @Mock
     private MediaUrlResolver mediaUrlResolver;
 
+    private MediaAttachmentService mediaAttachmentService;
+
     @Mock
     private CurrentUserIdProvider currentUserIdProvider;
 
-    @InjectMocks
     private BrandServiceImpl brandService;
 
     @org.junit.jupiter.api.BeforeEach
-    void setUpCurrentUser() {
+    void setUp() {
         lenient().when(currentUserIdProvider.getRequiredUserId()).thenReturn(42L);
+        mediaAttachmentService = new MediaAttachmentService(
+                mediaRepository, currentUserIdProvider, mock(jakarta.persistence.EntityManager.class));
+        brandService = new BrandServiceImpl(
+                brandRepository, categoryRepository, productRepository, mediaUrlResolver, mediaAttachmentService);
     }
 
     @Test
@@ -269,7 +274,7 @@ class BrandServiceImplTest {
                 .status(BrandStatus.ACTIVE)
                 .version(2L)
                 .build();
-        when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
+        when(brandRepository.findByIdForUpdate(1)).thenReturn(Optional.of(brand));
         when(brandRepository.existsByNameIgnoreCaseAndIdNot("New", 1)).thenReturn(false);
         DataIntegrityViolationException integrityViolation =
                 new DataIntegrityViolationException("Cannot add or update a child row for constraint 'fk_brand_media'");
@@ -294,7 +299,7 @@ class BrandServiceImplTest {
                         .attachmentStatus(MediaAttachmentStatus.ACTIVE)
                         .build())
                 .build();
-        when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
+        when(brandRepository.findByIdForUpdate(1)).thenReturn(Optional.of(brand));
         UpdateBrandRequest request = new UpdateBrandRequest("New", BrandStatus.INACTIVE, null, Set.of(), 1L);
 
         ApplicationException exception =
@@ -310,29 +315,26 @@ class BrandServiceImplTest {
 
     @Test
     void deleteBrand_ShouldMarkLogoPendingDeleteAndRemoveBrand() {
-        Media image = Media.builder()
-                .id("logo")
-                .attachmentStatus(MediaAttachmentStatus.ACTIVE)
-                .build();
+        Media image = uploadedBrandLogo("logo");
+        image.attach(com.xdpsx.ecommerce.media.domain.MediaOwnerType.BRAND, "1");
         Brand brand = Brand.builder().id(1).version(4L).image(image).build();
-        when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
+        when(brandRepository.findByIdForUpdate(1)).thenReturn(Optional.of(brand));
+        when(mediaRepository.findAllByIdInForUpdate(List.of("logo"))).thenReturn(List.of(image));
 
         brandService.deleteBrand(1, new DeleteBrandRequest(4L));
 
         assertEquals(MediaAttachmentStatus.PENDING_DELETE, image.getAttachmentStatus());
-        verify(mediaRepository).save(image);
+        verify(mediaRepository).saveAll(List.of(image));
         verify(brandRepository).delete(brand);
         verify(brandRepository).flush();
     }
 
     @Test
     void deleteBrand_ShouldRejectBrandReferencedByProductBeforeChangingMedia() {
-        Media image = Media.builder()
-                .id("logo")
-                .attachmentStatus(MediaAttachmentStatus.ACTIVE)
-                .build();
+        Media image = uploadedBrandLogo("logo");
+        image.attach(com.xdpsx.ecommerce.media.domain.MediaOwnerType.BRAND, "1");
         Brand brand = Brand.builder().id(1).version(4L).image(image).build();
-        when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
+        when(brandRepository.findByIdForUpdate(1)).thenReturn(Optional.of(brand));
         when(productRepository.existsByBrandId(1)).thenReturn(true);
 
         ApplicationException exception =
@@ -346,10 +348,8 @@ class BrandServiceImplTest {
 
     @Test
     void updateBrand_ShouldLeaveOldLogoWhenReplacementIsNotAttachable() {
-        Media oldImage = Media.builder()
-                .id("old-logo")
-                .attachmentStatus(MediaAttachmentStatus.ACTIVE)
-                .build();
+        Media oldImage = uploadedBrandLogo("old-logo");
+        oldImage.attach(com.xdpsx.ecommerce.media.domain.MediaOwnerType.BRAND, "1");
         Brand brand = Brand.builder()
                 .id(1)
                 .name("Old")
@@ -357,10 +357,10 @@ class BrandServiceImplTest {
                 .version(2L)
                 .image(oldImage)
                 .build();
-        when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
+        when(brandRepository.findByIdForUpdate(1)).thenReturn(Optional.of(brand));
         when(brandRepository.existsByNameIgnoreCaseAndIdNot("New", 1)).thenReturn(false);
-        when(mediaRepository.findAttachableById("missing-logo", MediaPurpose.BRAND_LOGO, 42L))
-                .thenReturn(Optional.empty());
+        when(mediaRepository.findAllByIdInForUpdate(List.of("missing-logo", "old-logo")))
+                .thenReturn(List.of(oldImage));
 
         ApplicationException exception = assertThrows(
                 ApplicationException.class,
@@ -383,7 +383,7 @@ class BrandServiceImplTest {
                 .status(BrandStatus.ACTIVE)
                 .version(2L)
                 .build();
-        when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
+        when(brandRepository.findByIdForUpdate(1)).thenReturn(Optional.of(brand));
         when(brandRepository.existsByNameIgnoreCaseAndIdNot("adidas", 1)).thenReturn(true);
 
         ApplicationException exception = assertThrows(
@@ -399,17 +399,9 @@ class BrandServiceImplTest {
 
     @Test
     void updateBrand_ShouldActivateReplacementAndMarkOldLogoPendingDelete() {
-        Media oldImage = Media.builder()
-                .id("old-logo")
-                .attachmentStatus(MediaAttachmentStatus.ACTIVE)
-                .build();
-        Media newImage = Media.builder()
-                .id("new-logo")
-                .url("https://example.test/new-logo.png")
-                .contentType("image/png")
-                .purpose(MediaPurpose.BRAND_LOGO)
-                .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
-                .build();
+        Media oldImage = uploadedBrandLogo("old-logo");
+        oldImage.attach(com.xdpsx.ecommerce.media.domain.MediaOwnerType.BRAND, "1");
+        Media newImage = uploadedBrandLogo("new-logo");
         Brand brand = Brand.builder()
                 .id(1)
                 .name("Nike")
@@ -417,9 +409,9 @@ class BrandServiceImplTest {
                 .version(2L)
                 .image(oldImage)
                 .build();
-        when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
-        when(mediaRepository.findAttachableById("new-logo", MediaPurpose.BRAND_LOGO, 42L))
-                .thenReturn(Optional.of(newImage));
+        when(brandRepository.findByIdForUpdate(1)).thenReturn(Optional.of(brand));
+        when(mediaRepository.findAllByIdInForUpdate(List.of("new-logo", "old-logo")))
+                .thenReturn(List.of(newImage, oldImage));
         when(brandRepository.saveAndFlush(any(Brand.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         brandService.updateBrand(1, new UpdateBrandRequest("Nike", BrandStatus.ACTIVE, "new-logo", null, 2L));
@@ -427,8 +419,7 @@ class BrandServiceImplTest {
         assertEquals(MediaAttachmentStatus.PENDING_DELETE, oldImage.getAttachmentStatus());
         assertEquals(MediaAttachmentStatus.ACTIVE, newImage.getAttachmentStatus());
         assertSame(newImage, brand.getImage());
-        verify(mediaRepository).save(oldImage);
-        verify(mediaRepository).save(newImage);
+        verify(mediaRepository).saveAll(List.of(newImage, oldImage));
     }
 
     @Test
@@ -440,7 +431,7 @@ class BrandServiceImplTest {
                 .version(2L)
                 .categories(List.of(activeCategory(1)))
                 .build();
-        when(brandRepository.findById(1)).thenReturn(Optional.of(brand));
+        when(brandRepository.findByIdForUpdate(1)).thenReturn(Optional.of(brand));
         when(brandRepository.saveAndFlush(any(Brand.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         brandService.updateBrand(1, new UpdateBrandRequest("Nike", BrandStatus.ACTIVE, null, Set.of(), 2L));
@@ -469,5 +460,18 @@ class BrandServiceImplTest {
                 .name("Category " + id)
                 .status(CategoryStatus.ACTIVE)
                 .build();
+    }
+
+    private static Media uploadedBrandLogo(String id) {
+        return Media.createUploaded(
+                id,
+                "brand/" + id,
+                "https://example.test/" + id + ".png",
+                null,
+                "image/png",
+                MediaPurpose.BRAND_LOGO,
+                42L,
+                MediaAttachmentStatus.TEMPORARY,
+                null);
     }
 }

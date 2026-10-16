@@ -41,6 +41,8 @@ public enum ErrorCode {
     INVALID_IMAGE_WIDTH("Invalid image width", "The image width is below the required minimum"),
     MEDIA_UPLOAD_FAILED("Media upload failed", "The media provider failed to process the upload"),
     MEDIA_UPLOAD_CONFLICT("Media upload conflict", "The media upload cannot be completed in its current state"),
+    MEDIA_ATTACHMENT_CONFLICT(
+            "Media attachment conflict", "The media attachment does not match its owner or lifecycle"),
     MEDIA_UPLOAD_EXPIRED("Media upload expired", "The media upload authorization is no longer valid"),
     MEDIA_ASSET_INVALID("Media asset rejected", "The uploaded asset does not meet the media policy"),
     MEDIA_PROVIDER_UNAVAILABLE("Media provider unavailable", "The media provider could not verify the uploaded asset"),

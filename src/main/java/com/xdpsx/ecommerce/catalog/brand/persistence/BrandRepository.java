@@ -3,8 +3,11 @@ package com.xdpsx.ecommerce.catalog.brand.persistence;
 import java.util.List;
 import java.util.Optional;
 
+import jakarta.persistence.LockModeType;
+
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -12,6 +15,10 @@ import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
 import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
 
 public interface BrandRepository extends JpaRepository<Brand, Integer>, JpaSpecificationExecutor<Brand> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT b FROM Brand b WHERE b.id = :id")
+    Optional<Brand> findByIdForUpdate(@Param("id") Integer id);
+
     boolean existsByNameIgnoreCase(String name);
 
     boolean existsByNameIgnoreCaseAndIdNot(String name, Integer id);

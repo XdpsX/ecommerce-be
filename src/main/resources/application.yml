@@ -77,3 +77,11 @@ media:
     pending-upload-retry-delay: ${MEDIA_RECONCILIATION_PENDING_UPLOAD_RETRY_DELAY:15m}
     pending-upload-retry-max-delay: ${MEDIA_RECONCILIATION_PENDING_UPLOAD_RETRY_MAX_DELAY:24h}
     legacy-lookup-race-window: ${MEDIA_RECONCILIATION_LEGACY_LOOKUP_RACE_WINDOW:10m}
+  cleanup:
+    enabled: ${MEDIA_CLEANUP_ENABLED:false}
+    fixed-delay: ${MEDIA_CLEANUP_FIXED_DELAY:5m}
+    temporary-lifetime: ${MEDIA_CLEANUP_TEMPORARY_LIFETIME:24h}
+    retry-delay: ${MEDIA_CLEANUP_RETRY_DELAY:15m}
+    signed-tombstone-recheck: ${MEDIA_CLEANUP_SIGNED_TOMBSTONE_RECHECK:24h}
+    batch-size: ${MEDIA_CLEANUP_BATCH_SIZE:10}
+    provider-request-budget: ${MEDIA_CLEANUP_PROVIDER_REQUEST_BUDGET:30}

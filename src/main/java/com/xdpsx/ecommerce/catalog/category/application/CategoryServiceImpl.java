@@ -15,7 +15,6 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
 
-import com.xdpsx.ecommerce.auth.application.CurrentUserIdProvider;
 import com.xdpsx.ecommerce.catalog.category.api.dto.*;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.domain.CategorySlug;
@@ -26,10 +25,12 @@ import com.xdpsx.ecommerce.catalog.shared.application.PageMapper;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
+import com.xdpsx.ecommerce.media.application.MediaAttachmentService;
+import com.xdpsx.ecommerce.media.application.MediaOwner;
 import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
 import com.xdpsx.ecommerce.media.domain.Media;
+import com.xdpsx.ecommerce.media.domain.MediaOwnerType;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
-import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
 import lombok.RequiredArgsConstructor;
 
@@ -37,10 +38,9 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class CategoryServiceImpl implements CategoryService {
     private final CategoryRepository categoryRepository;
-    private final MediaRepository mediaRepository;
+    private final MediaAttachmentService mediaAttachmentService;
     private final MediaUrlResolver mediaUrlResolver;
     private final CategoryHierarchy categoryHierarchy;
-    private final CurrentUserIdProvider currentUserIdProvider;
 
     /**
      * Opens one transaction per write attempt. Programmatic instead of
@@ -210,11 +210,13 @@ public class CategoryServiceImpl implements CategoryService {
         categoryHierarchy.normalizeSiblingOrder(siblings);
         category.setDisplayOrder(siblings.size());
 
+        Category savedCategory = categoryRepository.saveAndFlush(category);
         if (request.imageId() != null) {
-            category.setImage(activateCategoryImage(request.imageId()));
+            List<Media> desiredImages = mediaAttachmentService.synchronizeAttachments(
+                    categoryOwner(savedCategory), MediaPurpose.CATEGORY_IMAGE, List.of(), List.of(request.imageId()));
+            savedCategory.setImage(desiredImages.get(0));
+            savedCategory = categoryRepository.saveAndFlush(savedCategory);
         }
-
-        Category savedCategory = categoryRepository.save(category);
         return CategoryMapper.INSTANCE.toAdminCategoryResponse(savedCategory);
     }
 
@@ -378,7 +380,15 @@ public class CategoryServiceImpl implements CategoryService {
             category.setStatus(request.status());
         }
 
-        updateCategoryImage(category, request.imageId());
+        List<String> currentImageIds = category.getImage() == null
+                ? List.of()
+                : List.of(category.getImage().getId());
+        List<Media> desiredImages = mediaAttachmentService.synchronizeAttachments(
+                categoryOwner(category),
+                MediaPurpose.CATEGORY_IMAGE,
+                currentImageIds,
+                request.imageId() == null ? List.of() : List.of(request.imageId()));
+        category.setImage(desiredImages.isEmpty() ? null : desiredImages.get(0));
 
         // Flush before mapping so the response carries the version incremented by Hibernate.
         Category savedCategory = categoryRepository.saveAndFlush(category);
@@ -427,11 +437,12 @@ public class CategoryServiceImpl implements CategoryService {
         List<Category> siblings = categoryHierarchy.lockSiblingGroup(parentId);
         siblings.removeIf(sibling -> sibling.getId().equals(category.getId()));
 
-        if (category.getImage() != null) {
-            Media image = category.getImage();
-            image.markPendingDeletion();
-            mediaRepository.save(image);
-        }
+        List<String> currentImageIds = category.getImage() == null
+                ? List.of()
+                : List.of(category.getImage().getId());
+        mediaAttachmentService.synchronizeAttachments(
+                categoryOwner(category), MediaPurpose.CATEGORY_IMAGE, currentImageIds, List.of());
+        category.setImage(null);
         categoryRepository.delete(category);
 
         categoryHierarchy.normalizeSiblingOrder(siblings);
@@ -456,35 +467,7 @@ public class CategoryServiceImpl implements CategoryService {
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", categoryId)));
     }
 
-    private Media activateCategoryImage(String imageId) {
-        Media image = mediaRepository
-                .findAttachableById(imageId, MediaPurpose.CATEGORY_IMAGE, currentUserIdProvider.getRequiredUserId())
-                .orElseThrow(() -> new ApplicationException(
-                        ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "media", "resourceId", imageId)));
-        image.activate();
-        return image;
-    }
-
-    private void updateCategoryImage(Category category, String newImageId) {
-        Media oldImage = category.getImage();
-
-        if (oldImage == null && newImageId == null) return;
-
-        // If have old image:
-        // 1. No new image (newImageId == null) => Delete old image
-        // 2. New image != old image => Delete old image
-        if (oldImage != null && !oldImage.getId().equals(newImageId)) {
-            oldImage.markPendingDeletion();
-            mediaRepository.save(oldImage);
-            category.setImage(null);
-        }
-
-        // if have new image and new image != old image => Update image
-        if (newImageId != null && (oldImage == null || !oldImage.getId().equals(newImageId))) {
-            Media newImage = activateCategoryImage(newImageId);
-            mediaRepository.save(newImage);
-
-            category.setImage(newImage);
-        }
+    private static MediaOwner categoryOwner(Category category) {
+        return new MediaOwner(MediaOwnerType.CATEGORY, category.getId().toString());
     }
 }

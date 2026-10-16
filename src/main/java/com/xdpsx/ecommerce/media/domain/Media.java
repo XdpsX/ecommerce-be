@@ -45,6 +45,15 @@ public class Media extends AuditEntity {
     @Column(name = "uploaded_by_user_id", updatable = false)
     private Long uploadedByUserId;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "attachment_owner_type", length = 32)
+    @Setter(AccessLevel.NONE)
+    private MediaOwnerType attachmentOwnerType;
+
+    @Column(name = "attachment_owner_id", length = 64)
+    @Setter(AccessLevel.NONE)
+    private String attachmentOwnerId;
+
     @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "upload_status", length = 32, nullable = false)
@@ -101,6 +110,7 @@ public class Media extends AuditEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "attachment_status", length = 32, nullable = false)
+    @Setter(AccessLevel.NONE)
     private MediaAttachmentStatus attachmentStatus;
 
     @Builder.Default
@@ -119,6 +129,10 @@ public class Media extends AuditEntity {
     @Column(name = "processing_reconciliation_attempts", nullable = false)
     @Setter(AccessLevel.NONE)
     private int processingReconciliationAttempts = 0;
+
+    @Column(name = "cleanup_next_attempt_at")
+    @Setter(AccessLevel.NONE)
+    private LocalDateTime cleanupNextAttemptAt;
 
     @Column(name = "processing_reference", length = 255, unique = true)
     private String processingReference;
@@ -248,6 +262,15 @@ public class Media extends AuditEntity {
                 throw new IllegalStateException("Completed signed uploads require authoritative provider metadata");
             }
         }
+        if ((attachmentOwnerType == null) != (attachmentOwnerId == null)) {
+            throw new IllegalStateException("Media attachment owner fields must be both null or both set");
+        }
+        if (attachmentOwnerId != null && attachmentOwnerId.isBlank()) {
+            throw new IllegalStateException("Media attachment owner ID must not be blank");
+        }
+        if (attachmentOwnerType != null && !attachmentOwnerType.supports(purpose)) {
+            throw new IllegalStateException("Media purpose does not match its attachment owner type");
+        }
     }
 
     /** Finalizes this signed intent using only metadata verified by the trusted provider adapter. */
@@ -350,6 +373,13 @@ public class Media extends AuditEntity {
         reconciliationNextAttemptAt = null;
     }
 
+    public void scheduleCleanup(LocalDateTime nextAttemptAt) {
+        if (attachmentStatus != MediaAttachmentStatus.PENDING_DELETE || nextAttemptAt == null) {
+            throw new IllegalStateException("Only pending deletion Media can be scheduled for cleanup");
+        }
+        cleanupNextAttemptAt = nextAttemptAt;
+    }
+
     /** Records a definitive provider-policy rejection and retains the row as a replay-safe tombstone. */
     public void rejectSignedUpload(String reason) {
         if (uploadAuthorizationIssuedAt == null
@@ -367,7 +397,7 @@ public class Media extends AuditEntity {
      *
      * @throws IllegalStateException when the Media lifecycle is invalid or is not {@link MediaAttachmentStatus#TEMPORARY}
      */
-    public void activate() {
+    public void attach(MediaOwnerType ownerType, String ownerId) {
         validateState();
         if (uploadStatus != MediaUploadStatus.UPLOADED || processingStatus == MediaProcessingStatus.PENDING) {
             throw new IllegalStateException("Only uploaded and verified media can be activated");
@@ -376,8 +406,42 @@ public class Media extends AuditEntity {
             throw new IllegalStateException(
                     "Only temporary media can be activated, current status: " + attachmentStatus);
         }
+        if (ownerType == null || ownerId == null || ownerId.isBlank() || ownerId.length() > 64) {
+            throw new IllegalArgumentException("A valid attachment owner is required");
+        }
+        if (!ownerType.supports(purpose)) {
+            throw new IllegalStateException("Media purpose is not valid for this attachment owner");
+        }
+        if (attachmentOwnerType != null || attachmentOwnerId != null) {
+            throw new IllegalStateException("Previously attached Media cannot be attached again");
+        }
+        attachmentOwnerType = ownerType;
+        attachmentOwnerId = ownerId;
         attachmentStatus = MediaAttachmentStatus.ACTIVE;
         validateState();
+    }
+
+    public boolean retain(MediaOwnerType ownerType, String ownerId) {
+        if (attachmentStatus != MediaAttachmentStatus.ACTIVE
+                || attachmentOwnerType == null
+                || attachmentOwnerId == null
+                || attachmentOwnerType != ownerType
+                || !attachmentOwnerId.equals(ownerId)
+                || !ownerType.supports(purpose)) {
+            return false;
+        }
+        return true;
+    }
+
+    public void detach(MediaOwnerType ownerType, String ownerId) {
+        if (attachmentStatus == MediaAttachmentStatus.PENDING_DELETE
+                && attachmentOwnerType == ownerType
+                && java.util.Objects.equals(attachmentOwnerId, ownerId)) return;
+        if (!retain(ownerType, ownerId)) {
+            throw new IllegalStateException("Media cannot be detached by a different or unknown owner");
+        }
+        attachmentStatus = MediaAttachmentStatus.PENDING_DELETE;
+        reconciliationNextAttemptAt = null;
     }
 
     /**
@@ -389,6 +453,10 @@ public class Media extends AuditEntity {
     public void markPendingDeletion() {
         if (attachmentStatus == null) {
             throw new IllegalStateException("Media attachment status is not set");
+        }
+        if (attachmentStatus == MediaAttachmentStatus.PENDING_DELETE) return;
+        if (attachmentStatus != MediaAttachmentStatus.TEMPORARY) {
+            throw new IllegalStateException("Only unowned temporary Media can be claimed without its owner");
         }
         attachmentStatus = MediaAttachmentStatus.PENDING_DELETE;
         reconciliationNextAttemptAt = null;

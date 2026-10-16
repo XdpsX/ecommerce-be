@@ -43,6 +43,7 @@ import com.xdpsx.ecommerce.catalog.product.persistence.ProductRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
+import com.xdpsx.ecommerce.media.application.MediaAttachmentService;
 import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
@@ -122,18 +123,23 @@ class BrandAdminPersistenceTest {
         }
 
         @Bean
+        MediaAttachmentService mediaAttachmentService(
+                MediaRepository mediaRepository, jakarta.persistence.EntityManager entityManager) {
+            return new MediaAttachmentService(mediaRepository, () -> 42L, entityManager);
+        }
+
+        @Bean
         BrandService brandService(
-                MediaRepository mediaRepository,
                 BrandRepository brandRepository,
                 CategoryRepository categoryRepository,
-                ProductRepository productRepository) {
+                ProductRepository productRepository,
+                MediaAttachmentService mediaAttachmentService) {
             return new BrandServiceImpl(
-                    mediaRepository,
                     brandRepository,
                     categoryRepository,
                     productRepository,
                     new MediaUrlResolver((externalId, purpose) -> java.util.Map.of()),
-                    () -> 42L);
+                    mediaAttachmentService);
         }
     }
 
@@ -186,7 +192,10 @@ class BrandAdminPersistenceTest {
                         "media-processing-ownership-baseline",
                         "media-upload-lifecycle",
                         "media-direct-upload-verification",
-                        "media-reconciliation");
+                        "media-reconciliation",
+                        "media-attachment-owner-and-cleanup",
+                        "category-media-delete-restrict",
+                        "brand-media-delete-restrict");
         assertThat(uploaderColumnCount.intValue()).isEqualTo(1);
     }
 

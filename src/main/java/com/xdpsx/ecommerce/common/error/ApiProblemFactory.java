@@ -52,7 +52,8 @@ public final class ApiProblemFactory {
                     VARIANT_OPTION_DEACTIVATION_UNAVAILABLE,
                     CONCURRENT_MODIFICATION,
                     CONCURRENT_WRITE_CONFLICT,
-                    INVENTORY_ADJUSTMENT_REJECTED -> HttpStatus.CONFLICT;
+                    INVENTORY_ADJUSTMENT_REJECTED,
+                    MEDIA_ATTACHMENT_CONFLICT -> HttpStatus.CONFLICT;
             case INVALID_MEDIA_RESOURCE_TYPE -> HttpStatus.UNPROCESSABLE_CONTENT;
             case MEDIA_UPLOAD_CONFLICT, MEDIA_UPLOAD_EXPIRED -> HttpStatus.CONFLICT;
             case MEDIA_ASSET_INVALID -> HttpStatus.UNPROCESSABLE_CONTENT;

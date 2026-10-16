@@ -470,6 +470,14 @@ LIMIT 100;
 
 Các row trong kết quả cần điều tra bằng Cloudinary Admin API/logs. Không sửa counter hoặc đánh dấu `FAILED` thủ công chỉ vì đã hết retry/horizon; chỉ bằng chứng provider failure rõ ràng mới tạo terminal `FAILED`. Reconciliation không phát hiện asset mồ côi ngoài DB và không thay thế replay-aware cleanup.
 
+## 11. PR E — attachment ownership và cleanup
+
+Cleanup scheduler dùng duy nhất `MEDIA_CLEANUP_ENABLED` và mặc định disabled. Trước khi bật, hoàn tất owner audit, áp dụng/kiểm tra changeset `014-media-attachment-cleanup.sql`, kiểm tra các namespace Cloudinary thực tế và làm smoke test bằng asset disposable. Chỉ bật trên một instance; quy trình audit, retry và inventory nằm trong [Media attachment audit, cleanup and inventory runbook](media-attachment-cleanup-runbook.md).
+
+Worker chỉ physical-delete Media không còn được Catalog tham chiếu, ở trạng thái eligible và sau replay boundary. `ACTIVE` không bao giờ được cleanup; signed `PENDING_DELETE` vẫn là tombstone trong PR E ngay cả khi lần inspect hiện tại báo asset absent. Provider timeout, rate limit hoặc response không xác định chỉ tạo retry, không phải bằng chứng absent. Không xóa thủ công row/asset chỉ dựa vào một kết quả inventory; asset ngoài DB cần review riêng theo runbook.
+
+Tắt cleanup bằng `MEDIA_CLEANUP_ENABLED=false` sẽ dừng physical cleanup, nhưng không dừng attach/detach hay webhook. Theo dõi backlog và chỉ bật lại sau khi nguyên nhân provider/configuration được xử lý.
+
 ## Tài liệu tham khảo
 
 - [Cloudinary notifications](https://cloudinary.com/documentation/notifications)

@@ -111,7 +111,13 @@ class MediaUploadLifecycleMigrationTest {
     @Test
     void activeBaseline_ShouldApplyUploadLifecycleSchemaAndPersistIntent() {
         assertThat(jdbcTemplate.queryForList("SELECT id FROM DATABASECHANGELOG ORDER BY orderexecuted", String.class))
-                .contains("media-upload-lifecycle", "media-direct-upload-verification", "media-reconciliation");
+                .contains(
+                        "media-upload-lifecycle",
+                        "media-direct-upload-verification",
+                        "media-reconciliation",
+                        "media-attachment-owner-and-cleanup",
+                        "category-media-delete-restrict",
+                        "brand-media-delete-restrict");
         assertThat(jdbcTemplate.queryForObject(
                         "SELECT is_nullable FROM information_schema.columns "
                                 + "WHERE table_schema = DATABASE() AND table_name = 'media' "
@@ -308,6 +314,138 @@ class MediaUploadLifecycleMigrationTest {
                                 + "processing_status, processing_reconciliation_attempts) "
                                 + "VALUES ('negative-attempt', 'negative-attempt', 'PRODUCT_IMAGE', 'UPLOADED', "
                                 + "'TEMPORARY', 'PROCESSING', -1)"));
+    }
+
+    @Test
+    void attachmentCleanupMigration_ShouldKeepLegacyOwnerNullAndChangeCatalogMediaFksToRestrict() {
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() "
+                                + "AND table_name='media' AND column_name IN "
+                                + "('attachment_owner_type','attachment_owner_id','cleanup_next_attempt_at')",
+                        Integer.class))
+                .isEqualTo(3);
+        assertThat(jdbcTemplate.queryForList(
+                        "SELECT table_name FROM information_schema.referential_constraints "
+                                + "WHERE constraint_schema=DATABASE() AND constraint_name IN "
+                                + "('fk_category_media','fk_brand_media') ORDER BY table_name",
+                        String.class))
+                .containsExactly("brands", "categories");
+        assertThat(jdbcTemplate.queryForList(
+                        "SELECT delete_rule FROM information_schema.referential_constraints "
+                                + "WHERE constraint_schema=DATABASE() AND constraint_name IN "
+                                + "('fk_category_media','fk_brand_media') ORDER BY table_name",
+                        String.class))
+                .containsOnly("RESTRICT");
+
+        assertThrows(
+                org.springframework.dao.DataAccessException.class,
+                () -> jdbcTemplate.update(
+                        "INSERT INTO media (id, external_id, url, content_type, purpose, attachment_status, "
+                                + "upload_status, processing_status, attachment_owner_type, attachment_owner_id) "
+                                + "VALUES ('invalid-owner-pair', 'invalid-owner-pair', 'https://cdn.example.test/a.png', "
+                                + "'image/png', 'CATEGORY_IMAGE', 'ACTIVE', 'UPLOADED', 'READY', 'CATEGORY', NULL)"));
+
+        Media legacyWithoutOwner = Media.createUploaded(
+                "legacy-owner-null",
+                "legacy/owner-null",
+                "https://cdn.example.test/legacy-owner-null.png",
+                null,
+                "image/png",
+                MediaPurpose.CATEGORY_IMAGE,
+                null,
+                MediaAttachmentStatus.TEMPORARY,
+                null);
+        mediaRepository.save(legacyWithoutOwner);
+        assertThat(mediaRepository.findById("legacy-owner-null").orElseThrow().getAttachmentOwnerType())
+                .isNull();
+        assertThat(mediaRepository.findById("legacy-owner-null").orElseThrow().getAttachmentOwnerId())
+                .isNull();
+
+        jdbcTemplate.update(
+                "INSERT INTO media (id, external_id, url, content_type, purpose, attachment_status, upload_status, "
+                        + "processing_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "fk-protected-media",
+                "fk-protected-public-id",
+                "https://cdn.example.test/fk-protected.png",
+                "image/png",
+                "CATEGORY_IMAGE",
+                "ACTIVE",
+                "UPLOADED",
+                "READY");
+        jdbcTemplate.update(
+                "INSERT INTO categories (name, status, slug, display_order, version, image_id, created_at) "
+                        + "VALUES ('FK protected category', 'ACTIVE', 'fk-protected-category', 0, 0, ?, CURRENT_TIMESTAMP(6))",
+                "fk-protected-media");
+        jdbcTemplate.update(
+                "INSERT INTO brands (name, status, version, image_id, created_at) "
+                        + "VALUES ('FK protected brand', 'ACTIVE', 0, ?, CURRENT_TIMESTAMP(6))",
+                "fk-protected-media");
+
+        assertThrows(
+                org.springframework.dao.DataAccessException.class,
+                () -> jdbcTemplate.update("DELETE FROM media WHERE id='fk-protected-media'"));
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM categories WHERE image_id='fk-protected-media'", Integer.class))
+                .isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM brands WHERE image_id='fk-protected-media'", Integer.class))
+                .isEqualTo(1);
+
+        jdbcTemplate.update("UPDATE categories SET image_id=NULL WHERE image_id='fk-protected-media'");
+        jdbcTemplate.update("UPDATE brands SET image_id=NULL WHERE image_id='fk-protected-media'");
+        jdbcTemplate.update("DELETE FROM categories WHERE slug='fk-protected-category'");
+        jdbcTemplate.update("DELETE FROM brands WHERE name='FK protected brand'");
+        jdbcTemplate.update("DELETE FROM media WHERE id='fk-protected-media'");
+    }
+
+    @Test
+    void cleanupCandidateQueries_ShouldHonorSeparateGroupsDueRetryAndReplayBoundary() {
+        jdbcTemplate.update("DELETE FROM media WHERE id LIKE 'recon-%'");
+        LocalDateTime now =
+                LocalDateTime.ofInstant(java.time.Instant.now(), ZoneOffset.UTC).withNano(0);
+        insertCleanupMedia(
+                "cleanup-delete-due", "PENDING_DELETE", "UPLOADED", now.minusHours(2), now.minusMinutes(1), null);
+        insertCleanupMedia(
+                "cleanup-delete-future", "PENDING_DELETE", "UPLOADED", now.minusHours(3), now.plusHours(1), null);
+        insertCleanupMedia(
+                "cleanup-signed-live", "PENDING_DELETE", "UPLOADED", now.minusHours(4), null, now.plusHours(1));
+        insertCleanupMedia("cleanup-temp-expired", "TEMPORARY", "UPLOADED", now.minusDays(2), null, null);
+        insertCleanupMedia("cleanup-active-expired", "ACTIVE", "UPLOADED", now.minusDays(3), null, null);
+
+        var pendingDeletes = mediaRepository.findPendingDeletionCleanupCandidates(
+                now, now.minusMinutes(10), org.springframework.data.domain.PageRequest.of(0, 10));
+        var expiredTemporary = mediaRepository.findExpiredTemporaryCleanupCandidates(
+                now.minusHours(24), now.minusMinutes(10), org.springframework.data.domain.PageRequest.of(0, 10));
+
+        assertThat(pendingDeletes).extracting(Media::getId).containsExactly("cleanup-delete-due");
+        assertThat(expiredTemporary).extracting(Media::getId).containsExactly("cleanup-temp-expired");
+    }
+
+    private void insertCleanupMedia(
+            String id,
+            String attachmentStatus,
+            String uploadStatus,
+            LocalDateTime createdAt,
+            LocalDateTime nextAttemptAt,
+            LocalDateTime authorizationExpiresAt) {
+        jdbcTemplate.update(
+                "INSERT INTO media (id, external_id, url, content_type, purpose, attachment_status, upload_status, "
+                        + "processing_status, created_at, cleanup_next_attempt_at, upload_authorization_issued_at, "
+                        + "upload_authorization_expires_at, asset_id, uploaded_at, bytes, width, height, format) "
+                        + "VALUES (?, ?, ?, 'image/png', 'PRODUCT_IMAGE', ?, ?, 'READY', ?, ?, "
+                        + "CASE WHEN ? IS NULL THEN NULL ELSE DATE_SUB(?, INTERVAL 1 HOUR) END, ?, ?, ?, 1024, 800, 600, 'png')",
+                id,
+                "cleanup/" + id,
+                "https://cdn.example.test/" + id + ".png",
+                attachmentStatus,
+                uploadStatus,
+                createdAt,
+                nextAttemptAt,
+                authorizationExpiresAt,
+                authorizationExpiresAt,
+                authorizationExpiresAt,
+                "asset-" + id,
+                createdAt);
     }
 
     private void insertPending(String id, LocalDateTime expiresAt, LocalDateTime nextAttemptAt) {

@@ -23,6 +23,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -37,9 +38,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.config.MediaUploadProperties;
 import com.xdpsx.ecommerce.media.application.MediaAssetInspector;
+import com.xdpsx.ecommerce.media.application.MediaAttachmentService;
 import com.xdpsx.ecommerce.media.application.MediaDirectUploadPersistence;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
+import com.xdpsx.ecommerce.media.domain.MediaOwnerType;
 import com.xdpsx.ecommerce.media.domain.MediaProcessingStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 import com.xdpsx.ecommerce.media.domain.MediaUploadStatus;
@@ -186,6 +189,18 @@ class MediaAttachmentConcurrencyTest {
                 .purpose(MediaPurpose.PRODUCT_IMAGE)
                 .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .build());
+        Media preloadedDetach = Media.builder()
+                .id("preloaded-detach")
+                .externalId("external-preloaded-detach")
+                .url("https://example.test/preloaded-detach.png")
+                .contentType("image/png")
+                .purpose(MediaPurpose.PRODUCT_IMAGE)
+                .uploadedByUserId(42L)
+                .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
+                .processingStatus(MediaProcessingStatus.PROCESSING)
+                .build();
+        preloadedDetach.attach(MediaOwnerType.PRODUCT, "303");
+        mediaRepository.save(preloadedDetach);
     }
 
     @AfterEach
@@ -204,7 +219,7 @@ class MediaAttachmentConcurrencyTest {
                 Media media = mediaRepository
                         .findAttachableById("shared-upload", MediaPurpose.PRODUCT_IMAGE, 42L)
                         .orElseThrow();
-                media.activate();
+                media.attach(MediaOwnerType.PRODUCT, "101");
                 entityManager.flush();
                 firstHasActivated.countDown();
                 await(allowFirstCommit);
@@ -229,6 +244,102 @@ class MediaAttachmentConcurrencyTest {
         assertThat(competingAttachment.get(5, TimeUnit.SECONDS)).isEmpty();
         assertThat(mediaRepository.findById("shared-upload").orElseThrow().getAttachmentStatus())
                 .isEqualTo(MediaAttachmentStatus.ACTIVE);
+    }
+
+    @Test
+    void attachmentService_ShouldSerializeOwnersAndBindMediaOnlyOnce() throws Exception {
+        CountDownLatch firstAttached = new CountDownLatch(1);
+        CountDownLatch allowFirstCommit = new CountDownLatch(1);
+        MediaAttachmentService attachmentService =
+                new MediaAttachmentService(mediaRepository, () -> 42L, entityManager);
+
+        Future<Void> first = executor.submit(() -> {
+            transactionTemplate.executeWithoutResult(status -> {
+                attachmentService.synchronizeAttachments(
+                        new com.xdpsx.ecommerce.media.application.MediaOwner(MediaOwnerType.PRODUCT, "101"),
+                        MediaPurpose.PRODUCT_IMAGE,
+                        java.util.List.of(),
+                        java.util.List.of("second-upload"));
+                firstAttached.countDown();
+                await(allowFirstCommit);
+            });
+            return null;
+        });
+
+        assertThat(firstAttached.await(2, TimeUnit.SECONDS)).isTrue();
+        Future<Throwable> competing = executor.submit(() -> {
+            try {
+                transactionTemplate.executeWithoutResult(status -> attachmentService.synchronizeAttachments(
+                        new com.xdpsx.ecommerce.media.application.MediaOwner(MediaOwnerType.PRODUCT, "202"),
+                        MediaPurpose.PRODUCT_IMAGE,
+                        java.util.List.of(),
+                        java.util.List.of("second-upload")));
+                return null;
+            } catch (Throwable throwable) {
+                return throwable;
+            }
+        });
+
+        try {
+            allowFirstCommit.countDown();
+            first.get(3, TimeUnit.SECONDS);
+            Throwable conflict = competing.get(3, TimeUnit.SECONDS);
+            assertThat(conflict).isInstanceOf(ApplicationException.class);
+            assertThat(((ApplicationException) conflict).getCode())
+                    .isEqualTo(com.xdpsx.ecommerce.common.error.ErrorCode.RESOURCE_NOT_FOUND);
+        } finally {
+            allowFirstCommit.countDown();
+        }
+
+        Media attached = mediaRepository.findById("second-upload").orElseThrow();
+        assertThat(attached.getAttachmentStatus()).isEqualTo(MediaAttachmentStatus.ACTIVE);
+        assertThat(attached.getAttachmentOwnerType()).isEqualTo(MediaOwnerType.PRODUCT);
+        assertThat(attached.getAttachmentOwnerId()).isEqualTo("101");
+    }
+
+    @Test
+    void attachmentService_ShouldRefreshPreloadedMediaAfterWebhookCommits() throws Exception {
+        CountDownLatch catalogPreloaded = new CountDownLatch(1);
+        CountDownLatch webhookCommitted = new CountDownLatch(1);
+        MediaAttachmentService attachmentService =
+                new MediaAttachmentService(mediaRepository, () -> 42L, entityManager);
+
+        Future<Void> catalogDetach = executor.submit(() -> {
+            transactionTemplate.executeWithoutResult(status -> {
+                Media stale = mediaRepository.findById("preloaded-detach").orElseThrow();
+                assertThat(stale.getProcessingStatus()).isEqualTo(MediaProcessingStatus.PROCESSING);
+                catalogPreloaded.countDown();
+                await(webhookCommitted);
+                attachmentService.synchronizeAttachments(
+                        new com.xdpsx.ecommerce.media.application.MediaOwner(MediaOwnerType.PRODUCT, "303"),
+                        MediaPurpose.PRODUCT_IMAGE,
+                        java.util.List.of("preloaded-detach"),
+                        java.util.List.of());
+            });
+            return null;
+        });
+
+        assertThat(catalogPreloaded.await(5, TimeUnit.SECONDS)).isTrue();
+        Future<Void> webhook = executor.submit(() -> {
+            transactionTemplate.executeWithoutResult(status -> {
+                Media media = mediaRepository
+                        .findByExternalIdForUpdate("external-preloaded-detach")
+                        .orElseThrow();
+                assertThat(media.bindWebhookIdentity("immutable-webhook-asset")).isTrue();
+                assertThat(media.applyWebhookProcessingOutcome(true, null)).isTrue();
+                entityManager.flush();
+            });
+            webhookCommitted.countDown();
+            return null;
+        });
+
+        webhook.get(5, TimeUnit.SECONDS);
+        catalogDetach.get(5, TimeUnit.SECONDS);
+
+        Media result = mediaRepository.findById("preloaded-detach").orElseThrow();
+        assertThat(result.getAttachmentStatus()).isEqualTo(MediaAttachmentStatus.PENDING_DELETE);
+        assertThat(result.getProcessingStatus()).isEqualTo(MediaProcessingStatus.READY);
+        assertThat(result.getAssetId()).isEqualTo("immutable-webhook-asset");
     }
 
     @Test
@@ -273,13 +384,18 @@ class MediaAttachmentConcurrencyTest {
             assertThat(mediaRepository.findAttachableById("pending-intent", MediaPurpose.PRODUCT_IMAGE, 42L))
                     .isEmpty();
             LocalDateTime replayBoundary = LocalDateTime.now().minusMinutes(10);
-            assertThat(mediaRepository.findExpiredTemporaryMedia(futureExpiry, replayBoundary))
+            assertThat(mediaRepository.findPendingDeletionCleanupCandidates(
+                            LocalDateTime.now(), replayBoundary, PageRequest.of(0, 10)))
                     .extracting(Media::getUploadStatus)
                     .doesNotContain(MediaUploadStatus.PENDING_UPLOAD);
-            assertThat(mediaRepository.claimExpiredTemporaryForDeletion("pending-intent", futureExpiry))
+            assertThat(mediaRepository.findExpiredTemporaryCleanupCandidates(
+                            futureExpiry, replayBoundary, PageRequest.of(0, 10)))
+                    .extracting(Media::getUploadStatus)
+                    .doesNotContain(MediaUploadStatus.PENDING_UPLOAD);
+            assertThat(mediaRepository.claimExpiredTemporaryForDeletion("pending-intent", futureExpiry, replayBoundary))
                     .isZero();
-            assertThat(mediaRepository.findAllByAttachmentStatusBeforeReplayBoundary(
-                            MediaAttachmentStatus.PENDING_DELETE, replayBoundary))
+            assertThat(mediaRepository.findPendingDeletionCleanupCandidates(
+                            LocalDateTime.now(), replayBoundary, PageRequest.of(0, 10)))
                     .extracting(Media::getId)
                     .doesNotContain("pending-intent");
         });
@@ -329,7 +445,7 @@ class MediaAttachmentConcurrencyTest {
                 Media media = mediaRepository
                         .findAttachableById("shared-upload", MediaPurpose.PRODUCT_IMAGE, 42L)
                         .orElseThrow();
-                media.activate();
+                media.attach(MediaOwnerType.PRODUCT, "101");
                 entityManager.flush();
                 firstHasActivated.countDown();
                 await(allowFirstCommit);

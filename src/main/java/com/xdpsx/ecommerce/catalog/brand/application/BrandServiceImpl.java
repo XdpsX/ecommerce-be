@@ -16,7 +16,6 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.xdpsx.ecommerce.auth.application.CurrentUserIdProvider;
 import com.xdpsx.ecommerce.catalog.brand.api.dto.*;
 import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
 import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
@@ -29,30 +28,32 @@ import com.xdpsx.ecommerce.catalog.shared.application.PageMapper;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
+import com.xdpsx.ecommerce.media.application.MediaAttachmentService;
+import com.xdpsx.ecommerce.media.application.MediaOwner;
 import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
 import com.xdpsx.ecommerce.media.domain.Media;
+import com.xdpsx.ecommerce.media.domain.MediaOwnerType;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
-import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 
 @Service
-public class BrandServiceImpl extends AbstractImageUpdatableService implements BrandService {
+public class BrandServiceImpl implements BrandService {
     private final BrandRepository brandRepository;
     private final CategoryRepository categoryRepository;
     private final ProductRepository productRepository;
     private final MediaUrlResolver mediaUrlResolver;
+    private final MediaAttachmentService mediaAttachmentService;
 
     public BrandServiceImpl(
-            MediaRepository mediaRepository,
             BrandRepository brandRepository,
             CategoryRepository categoryRepository,
             ProductRepository productRepository,
             MediaUrlResolver mediaUrlResolver,
-            CurrentUserIdProvider currentUserIdProvider) {
-        super(mediaRepository, currentUserIdProvider);
+            MediaAttachmentService mediaAttachmentService) {
         this.brandRepository = brandRepository;
         this.categoryRepository = categoryRepository;
         this.productRepository = productRepository;
         this.mediaUrlResolver = mediaUrlResolver;
+        this.mediaAttachmentService = mediaAttachmentService;
     }
 
     /**
@@ -125,19 +126,14 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
             List<Category> categories = fetchCategories(request.categoryIds());
             brand.setCategories(categories);
         }
-        if (request.imageId() != null) {
-            Media image = mediaRepository
-                    .findAttachableById(
-                            request.imageId(), MediaPurpose.BRAND_LOGO, currentUserIdProvider.getRequiredUserId())
-                    .orElseThrow(() -> new ApplicationException(
-                            ErrorCode.RESOURCE_NOT_FOUND,
-                            Map.of("resourceType", "media", "resourceId", request.imageId())));
-            image.activate();
-            brand.setImage(image);
-        }
-
         try {
             Brand savedBrand = brandRepository.saveAndFlush(brand);
+            if (request.imageId() != null) {
+                List<Media> desiredImages = mediaAttachmentService.synchronizeAttachments(
+                        brandOwner(savedBrand), MediaPurpose.BRAND_LOGO, List.of(), List.of(request.imageId()));
+                savedBrand.setImage(desiredImages.get(0));
+                savedBrand = brandRepository.saveAndFlush(savedBrand);
+            }
             return BrandMapper.INSTANCE.toAdminBrandResponse(savedBrand);
         } catch (DataIntegrityViolationException exception) {
             if (isBrandNameUniqueViolation(exception)) {
@@ -151,7 +147,7 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
     @Override
     public AdminBrandResponse updateBrand(Integer id, UpdateBrandRequest request) {
         Brand brand = brandRepository
-                .findById(id)
+                .findByIdForUpdate(id)
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "brand", "resourceId", id)));
 
@@ -182,7 +178,14 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
 
         // Resolve all requested associations before mutating the aggregate. The image helper also validates a
         // replacement before marking the old image for deletion.
-        updateImage(brand, request.imageId(), MediaPurpose.BRAND_LOGO);
+        List<String> currentImageIds =
+                brand.getImage() == null ? List.of() : List.of(brand.getImage().getId());
+        List<Media> desiredImages = mediaAttachmentService.synchronizeAttachments(
+                brandOwner(brand),
+                MediaPurpose.BRAND_LOGO,
+                currentImageIds,
+                request.imageId() == null ? List.of() : List.of(request.imageId()));
+        brand.setImage(desiredImages.isEmpty() ? null : desiredImages.get(0));
         if (categories != null) {
             brand.setCategories(categories);
         }
@@ -205,7 +208,7 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
     @Override
     public void deleteBrand(Integer id, DeleteBrandRequest request) {
         Brand brand = brandRepository
-                .findById(id)
+                .findByIdForUpdate(id)
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "brand", "resourceId", id)));
         if (!Objects.equals(brand.getVersion(), request.version())) {
@@ -216,11 +219,11 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
             throw new ApplicationException(
                     ErrorCode.RESOURCE_IN_USE, Map.of("resourceType", "brand", "resourceId", id));
         }
-        if (brand.getImage() != null) {
-            Media image = brand.getImage();
-            image.markPendingDeletion();
-            mediaRepository.save(image);
-        }
+        List<String> currentImageIds =
+                brand.getImage() == null ? List.of() : List.of(brand.getImage().getId());
+        mediaAttachmentService.synchronizeAttachments(
+                brandOwner(brand), MediaPurpose.BRAND_LOGO, currentImageIds, List.of());
+        brand.setImage(null);
         try {
             brandRepository.delete(brand);
             brandRepository.flush();
@@ -263,6 +266,10 @@ public class BrandServiceImpl extends AbstractImageUpdatableService implements B
 
     private static String normalizeName(String name) {
         return name.trim();
+    }
+
+    private static MediaOwner brandOwner(Brand brand) {
+        return new MediaOwner(MediaOwnerType.BRAND, brand.getId().toString());
     }
 
     /**

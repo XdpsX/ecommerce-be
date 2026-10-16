@@ -9,15 +9,17 @@ import org.junit.jupiter.api.Test;
 class MediaTest {
 
     @Test
-    void activate_ShouldMoveTemporaryToActive() {
+    void attach_ShouldMoveTemporaryToActiveAndBindOwnerPermanently() {
         // Arrange
         Media media = uploadedMedia("mediaId", MediaAttachmentStatus.TEMPORARY);
 
         // Act
-        media.activate();
+        media.attach(MediaOwnerType.PRODUCT, "12");
 
         // Assert
         assertEquals(MediaAttachmentStatus.ACTIVE, media.getAttachmentStatus());
+        assertEquals(MediaOwnerType.PRODUCT, media.getAttachmentOwnerType());
+        assertEquals("12", media.getAttachmentOwnerId());
     }
 
     @Test
@@ -26,29 +28,30 @@ class MediaTest {
         Media media = uploadedMedia("mediaId", MediaAttachmentStatus.ACTIVE);
 
         // Act + Assert
-        assertThrows(IllegalStateException.class, media::activate);
+        assertThrows(IllegalStateException.class, () -> media.attach(MediaOwnerType.PRODUCT, "12"));
         assertEquals(MediaAttachmentStatus.ACTIVE, media.getAttachmentStatus());
     }
 
     @Test
-    void markPendingDeletion_ShouldBeIdempotentForTemporaryMediaAndAllowAggregateDeletionOfActiveMedia() {
+    void detach_ShouldRequireMatchingOwnerAndRetainOwnerAsHistory() {
         // Arrange
         Media temporary = Media.builder()
                 .id("temp")
                 .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .build();
-        Media active = Media.builder()
-                .id("active")
-                .attachmentStatus(MediaAttachmentStatus.ACTIVE)
-                .build();
+        Media active = uploadedMedia("active", MediaAttachmentStatus.TEMPORARY);
+        active.attach(MediaOwnerType.PRODUCT, "10");
 
         // Act
         temporary.markPendingDeletion();
-        active.markPendingDeletion();
+        active.detach(MediaOwnerType.PRODUCT, "10");
 
         // Assert
         assertEquals(MediaAttachmentStatus.PENDING_DELETE, temporary.getAttachmentStatus());
         assertEquals(MediaAttachmentStatus.PENDING_DELETE, active.getAttachmentStatus());
+        assertEquals(MediaOwnerType.PRODUCT, active.getAttachmentOwnerType());
+        assertEquals("10", active.getAttachmentOwnerId());
+        assertThrows(IllegalStateException.class, () -> active.attach(MediaOwnerType.PRODUCT, "11"));
     }
 
     @Test
@@ -87,7 +90,7 @@ class MediaTest {
     }
 
     @Test
-    void activate_ShouldRejectPendingUploadAndPendingDelete() {
+    void attach_ShouldRejectPendingUploadPendingDeleteAndWrongPurpose() {
         Media pending = Media.createPendingUpload(
                 "pending", "product/pending", 42L, MediaPurpose.PRODUCT_IMAGE, "image/png", 10, LocalDateTime.now());
         Media deleted = Media.builder()
@@ -100,8 +103,17 @@ class MediaTest {
                 .build();
         deleted.markPendingDeletion();
 
-        assertThrows(IllegalStateException.class, pending::activate);
-        assertThrows(IllegalStateException.class, deleted::activate);
+        assertThrows(IllegalStateException.class, () -> pending.attach(MediaOwnerType.PRODUCT, "1"));
+        assertThrows(IllegalStateException.class, () -> deleted.attach(MediaOwnerType.PRODUCT, "1"));
+        Media categoryImage = Media.builder()
+                .id("category-image")
+                .externalId("category-public")
+                .url("https://example.test/category.png")
+                .contentType("image/png")
+                .purpose(MediaPurpose.CATEGORY_IMAGE)
+                .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
+                .build();
+        assertThrows(IllegalStateException.class, () -> categoryImage.attach(MediaOwnerType.PRODUCT, "1"));
     }
 
     @Test
@@ -113,7 +125,7 @@ class MediaTest {
                 .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
                 .build();
 
-        assertThrows(IllegalStateException.class, invalid::activate);
+        assertThrows(IllegalStateException.class, () -> invalid.attach(MediaOwnerType.PRODUCT, "1"));
         assertEquals(MediaAttachmentStatus.TEMPORARY, invalid.getAttachmentStatus());
     }
 
@@ -168,6 +180,12 @@ class MediaTest {
         media.markPendingDeletion();
         assertFalse(media.applyWebhookProcessingOutcome(true, null));
         assertEquals(MediaAttachmentStatus.PENDING_DELETE, media.getAttachmentStatus());
+    }
+
+    @Test
+    void ownerType_ShouldMapOnlySupportedPurposes() {
+        assertTrue(MediaOwnerType.PRODUCT.supports(MediaPurpose.PRODUCT_DESCRIPTION_IMAGE));
+        assertFalse(MediaOwnerType.CATEGORY.supports(MediaPurpose.PRODUCT_IMAGE));
     }
 
     private static Media.MediaBuilder pendingMedia() {

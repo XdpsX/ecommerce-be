@@ -7,6 +7,7 @@ import java.util.Optional;
 
 import jakarta.persistence.LockModeType;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -15,7 +16,6 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.xdpsx.ecommerce.media.domain.Media;
-import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 
 public interface MediaRepository extends CrudRepository<Media, String> {
@@ -23,20 +23,29 @@ public interface MediaRepository extends CrudRepository<Media, String> {
     @Query("SELECT m FROM Media m WHERE m.id IN :ids ORDER BY m.id")
     List<Media> findAllByIdInForUpdate(@Param("ids") Collection<String> ids);
 
-    @Query("SELECT m FROM Media m WHERE m.attachmentStatus = :status AND "
-            + "(m.uploadAuthorizationExpiresAt IS NULL OR m.uploadAuthorizationExpiresAt <= :replayBoundary)")
-    List<Media> findAllByAttachmentStatusBeforeReplayBoundary(
-            @Param("status") MediaAttachmentStatus status, @Param("replayBoundary") LocalDateTime replayBoundary);
+    @Query("""
+            SELECT m FROM Media m
+            WHERE m.attachmentStatus = com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus.PENDING_DELETE
+              AND (m.cleanupNextAttemptAt IS NULL OR m.cleanupNextAttemptAt <= :now)
+              AND (m.uploadAuthorizationExpiresAt IS NULL OR m.uploadAuthorizationExpiresAt <= :replayBoundary)
+            ORDER BY COALESCE(m.cleanupNextAttemptAt, COALESCE(m.uploadedAt, m.createdAt)), m.id
+            """)
+    List<Media> findPendingDeletionCleanupCandidates(
+            @Param("now") LocalDateTime now, @Param("replayBoundary") LocalDateTime replayBoundary, Pageable pageable);
 
     @Query("""
-		SELECT m FROM Media m
-		WHERE m.attachmentStatus = com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus.TEMPORARY
-			AND m.uploadStatus = com.xdpsx.ecommerce.media.domain.MediaUploadStatus.UPLOADED
-			AND m.createdAt < :expiryTime
-			AND (m.uploadAuthorizationExpiresAt IS NULL OR m.uploadAuthorizationExpiresAt <= :replayBoundary)
-		""")
-    List<Media> findExpiredTemporaryMedia(
-            @Param("expiryTime") LocalDateTime expiryTime, @Param("replayBoundary") LocalDateTime replayBoundary);
+            SELECT m FROM Media m
+            WHERE m.attachmentStatus = com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus.TEMPORARY
+              AND m.uploadStatus = com.xdpsx.ecommerce.media.domain.MediaUploadStatus.UPLOADED
+              AND m.attachmentOwnerType IS NULL AND m.attachmentOwnerId IS NULL
+              AND COALESCE(m.uploadedAt, m.createdAt) <= :temporaryExpiry
+              AND (m.uploadAuthorizationExpiresAt IS NULL OR m.uploadAuthorizationExpiresAt <= :replayBoundary)
+            ORDER BY COALESCE(m.cleanupNextAttemptAt, COALESCE(m.uploadedAt, m.createdAt)), m.id
+            """)
+    List<Media> findExpiredTemporaryCleanupCandidates(
+            @Param("temporaryExpiry") LocalDateTime temporaryExpiry,
+            @Param("replayBoundary") LocalDateTime replayBoundary,
+            Pageable pageable);
 
     /**
      * Atomically claims a temporary Media for deletion. The update is deliberately short-lived so the storage
@@ -62,8 +71,13 @@ public interface MediaRepository extends CrudRepository<Media, String> {
                     + "WHERE m.id = :id "
                     + "AND m.attachmentStatus = com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus.TEMPORARY "
                     + "AND m.uploadStatus = com.xdpsx.ecommerce.media.domain.MediaUploadStatus.UPLOADED "
-                    + "AND m.createdAt < :expiryTime")
-    int claimExpiredTemporaryForDeletion(@Param("id") String id, @Param("expiryTime") LocalDateTime expiryTime);
+                    + "AND COALESCE(m.uploadedAt, m.createdAt) <= :expiryTime "
+                    + "AND (m.uploadAuthorizationExpiresAt IS NULL OR m.uploadAuthorizationExpiresAt <= :replayBoundary) "
+                    + "AND m.attachmentOwnerType IS NULL AND m.attachmentOwnerId IS NULL")
+    int claimExpiredTemporaryForDeletion(
+            @Param("id") String id,
+            @Param("expiryTime") LocalDateTime expiryTime,
+            @Param("replayBoundary") LocalDateTime replayBoundary);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
