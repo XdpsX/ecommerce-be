@@ -410,7 +410,7 @@ Nên có:
 - theo dõi Cloudinary notification retry và failure reason;
 - dashboard cho upload failure và orphan cleanup.
 
-Implementation hiện tại trả `503` khi webhook đến trước transaction insert để tận dụng retry của Cloudinary. Tuy nhiên, nếu tất cả retry đều hết mà media vẫn `PROCESSING`, hệ thống hiện chưa có reconciliation job. Đây là follow-up vận hành nên cân nhắc nếu production có traffic đáng kể.
+Webhook hiện tương quan theo `public_id` và giữ `asset_id` bất biến. Callback eager có thể đến trước complete; webhook chỉ cập nhật processing state, không xác minh upload hoặc chuyển upload thành `UPLOADED`. Với legacy batch-only callback, `503` chỉ được dùng trong race window ngắn nếu original event timestamp còn mới. Nếu callback thất lạc, reconciliation có thể inspect lại state đã persist.
 
 ## 9. Checklist nhanh
 
@@ -438,6 +438,37 @@ Implementation hiện tại trả `503` khi webhook đến trước transaction 
 - [ ] CORS chỉ chứa origin frontend.
 - [ ] Có log, metric và cảnh báo processing stuck.
 - [ ] Đã chạy production smoke test.
+
+## 10. PR D — webhook recovery và reconciliation
+
+Reconciliation scheduler mặc định tắt. Chỉ bật có kiểm soát bằng `MEDIA_RECONCILIATION_ENABLED=true`; trong M1 chỉ bật trên **một application instance**. Webhook tiếp tục chạy độc lập khi scheduler tắt.
+
+Các giới hạn mặc định dưới `media.reconciliation`:
+
+- fixed delay 1 phút; tối đa 10 candidate mỗi nhóm và 20 Admin API requests mỗi tick;
+- tối đa 2 derived pages cho mỗi asset, mỗi page tối đa 100 entries;
+- processing timeout 10 phút; exponential retry từ 5 phút, provider/inconclusive tối thiểu 15 phút, cap 24 giờ;
+- processing reconciliation dừng inspect tự động sau 7 ngày nhưng giữ `PROCESSING`; late signed webhook vẫn được áp dụng;
+- pending upload recovery bắt đầu sau authorization expiry + completion grace; khi provider outage retry sau mỗi 15 phút trong 24 giờ đầu, sau đó tối đa mỗi 24 giờ.
+
+Để bật scheduler, cấu hình deployment/environment rồi restart. Không bật trước khi xác nhận MySQL changeset `013-media-reconciliation.sql` đã chạy. Tắt lại bằng `MEDIA_RECONCILIATION_ENABLED=false` nếu Admin API quota hoặc provider behavior bất thường; webhook vẫn nhận callback.
+
+Read-only query tìm Media còn `PROCESSING` quá recovery horizon (không tự chuyển chúng sang `FAILED`):
+
+```sql
+SELECT id, external_id, asset_id, upload_status, attachment_status,
+       processing_status, uploaded_at, created_at,
+       processing_reconciliation_attempts, reconciliation_next_attempt_at
+FROM media
+WHERE upload_status = 'UPLOADED'
+  AND processing_status = 'PROCESSING'
+  AND attachment_status IN ('TEMPORARY', 'ACTIVE')
+  AND COALESCE(uploaded_at, created_at) < UTC_TIMESTAMP(6) - INTERVAL 7 DAY
+ORDER BY COALESCE(uploaded_at, created_at), id
+LIMIT 100;
+```
+
+Các row trong kết quả cần điều tra bằng Cloudinary Admin API/logs. Không sửa counter hoặc đánh dấu `FAILED` thủ công chỉ vì đã hết retry/horizon; chỉ bằng chứng provider failure rõ ràng mới tạo terminal `FAILED`. Reconciliation không phát hiện asset mồ côi ngoài DB và không thay thế replay-aware cleanup.
 
 ## Tài liệu tham khảo
 

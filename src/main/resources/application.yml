@@ -17,6 +17,10 @@ logging:
     # Renders the MDC value published by CorrelationIdFilter; empty when no request context is bound.
     correlation: "[correlationId=%X{correlationId:-}] "
 
+cloudinary:
+  http:
+    timeout: ${CLOUDINARY_HTTP_TIMEOUT:10}
+
 app:
   store:
     currency: ${APP_STORE_CURRENCY:VND}
@@ -58,3 +62,18 @@ media:
   cloudinary:
     eager-notification-url: ${CLOUDINARY_EAGER_NOTIFICATION_URL:}
     webhook-timestamp-tolerance: ${CLOUDINARY_WEBHOOK_TIMESTAMP_TOLERANCE:2h}
+  reconciliation:
+    enabled: ${MEDIA_RECONCILIATION_ENABLED:false}
+    fixed-delay: ${MEDIA_RECONCILIATION_FIXED_DELAY:1m}
+    processing-timeout: ${MEDIA_RECONCILIATION_PROCESSING_TIMEOUT:10m}
+    batch-size: ${MEDIA_RECONCILIATION_BATCH_SIZE:10}
+    max-provider-requests-per-run: ${MEDIA_RECONCILIATION_MAX_PROVIDER_REQUESTS_PER_RUN:20}
+    max-derived-pages-per-asset: ${MEDIA_RECONCILIATION_MAX_DERIVED_PAGES_PER_ASSET:2}
+    retry-delay: ${MEDIA_RECONCILIATION_RETRY_DELAY:5m}
+    provider-error-backoff: ${MEDIA_RECONCILIATION_PROVIDER_ERROR_BACKOFF:15m}
+    max-retry-delay: ${MEDIA_RECONCILIATION_MAX_RETRY_DELAY:24h}
+    processing-recovery-horizon: ${MEDIA_RECONCILIATION_PROCESSING_RECOVERY_HORIZON:7d}
+    pending-upload-retry-window: ${MEDIA_RECONCILIATION_PENDING_UPLOAD_RETRY_WINDOW:24h}
+    pending-upload-retry-delay: ${MEDIA_RECONCILIATION_PENDING_UPLOAD_RETRY_DELAY:15m}
+    pending-upload-retry-max-delay: ${MEDIA_RECONCILIATION_PENDING_UPLOAD_RETRY_MAX_DELAY:24h}
+    legacy-lookup-race-window: ${MEDIA_RECONCILIATION_LEGACY_LOOKUP_RACE_WINDOW:10m}

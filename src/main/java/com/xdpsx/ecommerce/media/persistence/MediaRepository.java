@@ -93,4 +93,62 @@ public interface MediaRepository extends CrudRepository<Media, String> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT m FROM Media m WHERE m.processingReference = :reference")
     Optional<Media> findByProcessingReferenceForUpdate(@Param("reference") String reference);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT m FROM Media m WHERE m.externalId = :publicId")
+    Optional<Media> findByExternalIdForUpdate(@Param("publicId") String publicId);
+
+    @Query(value = """
+            SELECT * FROM media
+            WHERE upload_status = 'PENDING_UPLOAD'
+              AND attachment_status = 'TEMPORARY'
+              AND upload_authorization_issued_at IS NOT NULL
+              AND upload_authorization_expires_at IS NOT NULL
+              AND upload_authorization_expires_at <= :initialDueCutoff
+              AND (reconciliation_next_attempt_at IS NULL OR reconciliation_next_attempt_at <= :now)
+            ORDER BY COALESCE(reconciliation_next_attempt_at,
+                              DATE_ADD(upload_authorization_expires_at, INTERVAL :completionGraceSeconds SECOND)), id
+            LIMIT :batchSize
+            """, nativeQuery = true)
+    List<Media> findPendingUploadReconciliationCandidates(
+            @Param("initialDueCutoff") LocalDateTime initialDueCutoff,
+            @Param("now") LocalDateTime now,
+            @Param("completionGraceSeconds") long completionGraceSeconds,
+            @Param("batchSize") int batchSize);
+
+    @Query(value = """
+            SELECT * FROM media
+            WHERE upload_status = 'UPLOADED'
+              AND processing_status = 'PROCESSING'
+              AND attachment_status IN ('TEMPORARY', 'ACTIVE')
+              AND COALESCE(uploaded_at, created_at) <= :initialDueCutoff
+              AND COALESCE(uploaded_at, created_at) >= :horizonCutoff
+              AND (reconciliation_next_attempt_at IS NULL OR reconciliation_next_attempt_at <= :now)
+            ORDER BY COALESCE(reconciliation_next_attempt_at,
+                              DATE_ADD(COALESCE(uploaded_at, created_at), INTERVAL :processingTimeoutSeconds SECOND)), id
+            LIMIT :batchSize
+            """, nativeQuery = true)
+    List<Media> findProcessingReconciliationCandidates(
+            @Param("initialDueCutoff") LocalDateTime initialDueCutoff,
+            @Param("horizonCutoff") LocalDateTime horizonCutoff,
+            @Param("now") LocalDateTime now,
+            @Param("processingTimeoutSeconds") long processingTimeoutSeconds,
+            @Param("batchSize") int batchSize);
+
+    @Query(value = """
+            SELECT * FROM media
+            WHERE upload_status = 'UPLOADED'
+              AND processing_status = 'PROCESSING'
+              AND attachment_status IN ('TEMPORARY', 'ACTIVE')
+              AND COALESCE(uploaded_at, created_at) < :horizonCutoff
+            ORDER BY COALESCE(uploaded_at, created_at), id
+            LIMIT :batchSize
+            """, nativeQuery = true)
+    List<Media> findProcessingPastRecoveryHorizon(
+            @Param("horizonCutoff") LocalDateTime horizonCutoff, @Param("batchSize") int batchSize);
+
+    @Modifying
+    @Transactional
+    @Query("UPDATE Media m SET m.processingReference = :batchId WHERE m.id = :id AND m.processingReference IS NULL")
+    int bindProcessingReferenceIfAbsent(@Param("id") String id, @Param("batchId") String batchId);
 }

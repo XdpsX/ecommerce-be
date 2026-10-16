@@ -1,59 +1,56 @@
 package com.xdpsx.ecommerce.media.application;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import com.xdpsx.ecommerce.media.domain.Media;
-import com.xdpsx.ecommerce.media.domain.MediaProcessingStatus;
 import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryEagerNotification;
-import com.xdpsx.ecommerce.media.persistence.MediaRepository;
+import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryEagerOutcomeEvaluator;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import tools.jackson.databind.ObjectMapper;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class CloudinaryEagerWebhookHandler {
     private final ObjectMapper objectMapper;
-    private final MediaRepository mediaRepository;
+    private final CloudinaryWebhookPersistence persistence;
+    private final CloudinaryEagerOutcomeEvaluator outcomeEvaluator;
+    private final CloudinaryBatchReferenceBinder batchReferenceBinder;
 
-    @Transactional
+    public CloudinaryEagerWebhookHandler(
+            ObjectMapper objectMapper,
+            CloudinaryWebhookPersistence persistence,
+            CloudinaryEagerOutcomeEvaluator outcomeEvaluator,
+            CloudinaryBatchReferenceBinder batchReferenceBinder) {
+        this.objectMapper = objectMapper;
+        this.persistence = persistence;
+        this.outcomeEvaluator = outcomeEvaluator;
+        this.batchReferenceBinder = batchReferenceBinder;
+    }
+
     public Result handle(String rawBody) {
         CloudinaryEagerNotification notification = parse(rawBody);
-        Media media = mediaRepository
-                .findByProcessingReferenceForUpdate(notification.batchId())
-                .orElse(null);
-        if (media == null) {
-            log.warn(
-                    "Cloudinary eager notification arrived before media persistence, batchId={}",
-                    notification.batchId());
-            return Result.NOT_VISIBLE_YET;
+        if (!notification.isValidEagerType()
+                || !notification.hasIdentity()
+                || (notification.publicId() != null && notification.publicId().isBlank())) {
+            throw new IllegalArgumentException("Invalid Cloudinary eager notification identity");
         }
-
-        CloudinaryEagerNotification.Outcome outcome = notification.outcome();
-        if (media.getProcessingStatus() == MediaProcessingStatus.PROCESSING) {
-            if (outcome == CloudinaryEagerNotification.Outcome.READY) {
-                media.markProcessingReady();
-            } else {
-                media.markProcessingFailed(notification.failureReason());
+        final CloudinaryWebhookPersistence.MergeResult merged;
+        try {
+            merged = persistence.merge(notification, outcomeEvaluator);
+        } catch (DataIntegrityViolationException exception) {
+            log.warn("Ignoring Cloudinary callback that conflicts with an existing asset identity");
+            return Result.DUPLICATE_OR_CONFLICT;
+        }
+        if (merged.batchReferenceToBind() != null) {
+            try {
+                batchReferenceBinder.bindIfAbsent(merged.mediaId(), merged.batchReferenceToBind());
+            } catch (RuntimeException exception) {
+                // The primary identity and processing merge is already committed. Batch ID is trace-only.
+                log.warn("Unable to bind optional Cloudinary batch reference, mediaId={}", merged.mediaId());
             }
-            return Result.APPLIED;
         }
-
-        if ((media.getProcessingStatus() == MediaProcessingStatus.READY
-                        && outcome == CloudinaryEagerNotification.Outcome.FAILED)
-                || (media.getProcessingStatus() == MediaProcessingStatus.FAILED
-                        && outcome == CloudinaryEagerNotification.Outcome.READY)) {
-            log.warn(
-                    "Ignoring conflicting Cloudinary eager notification, mediaId={}, batchId={}, currentStatus={}, incomingOutcome={}",
-                    media.getId(),
-                    notification.batchId(),
-                    media.getProcessingStatus(),
-                    outcome);
-        }
-        return Result.DUPLICATE_OR_CONFLICT;
+        return merged.result();
     }
 
     private CloudinaryEagerNotification parse(String rawBody) {
@@ -70,6 +67,7 @@ public class CloudinaryEagerWebhookHandler {
     public enum Result {
         APPLIED,
         DUPLICATE_OR_CONFLICT,
+        IGNORED,
         NOT_VISIBLE_YET
     }
 }

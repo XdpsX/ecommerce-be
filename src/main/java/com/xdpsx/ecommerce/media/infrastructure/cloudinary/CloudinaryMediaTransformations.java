@@ -8,10 +8,10 @@ import com.xdpsx.ecommerce.media.application.storage.MediaVariant;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 
 /** Centralizes Cloudinary's representation of the approved media preset catalog. */
-final class CloudinaryMediaTransformations {
+public final class CloudinaryMediaTransformations {
     private CloudinaryMediaTransformations() {}
 
-    static List<Transformation<?>> eagerFor(MediaPurpose purpose) {
+    public static List<Transformation<?>> eagerFor(MediaPurpose purpose) {
         List<Transformation<?>> transformations = new ArrayList<>();
         for (MediaVariant variant : MediaVariant.forPurpose(purpose)) {
             transformations.add(forVariant(variant));
@@ -19,7 +19,7 @@ final class CloudinaryMediaTransformations {
         return List.copyOf(transformations);
     }
 
-    static Transformation<?> forVariant(MediaVariant variant) {
+    public static Transformation<?> forVariant(MediaVariant variant) {
         return switch (variant) {
             case PRODUCT_CARD ->
                 auto(new Transformation<>().width(600).height(600).crop("fill").gravity("auto"));
@@ -31,6 +31,10 @@ final class CloudinaryMediaTransformations {
             case BRAND_LOGO ->
                 auto(new Transformation<>().width(400).height(400).crop("fit"));
         };
+    }
+
+    public static List<String> eagerStringsFor(MediaPurpose purpose) {
+        return eagerFor(purpose).stream().map(Transformation::generate).toList();
     }
 
     private static Transformation<?> auto(Transformation<?> transformation) {

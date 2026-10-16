@@ -111,6 +111,15 @@ public class Media extends AuditEntity {
     @Column(name = "processing_failure_reason", length = 500)
     private String processingFailureReason;
 
+    @Column(name = "reconciliation_next_attempt_at")
+    @Setter(AccessLevel.NONE)
+    private LocalDateTime reconciliationNextAttemptAt;
+
+    @Builder.Default
+    @Column(name = "processing_reconciliation_attempts", nullable = false)
+    @Setter(AccessLevel.NONE)
+    private int processingReconciliationAttempts = 0;
+
     @Column(name = "processing_reference", length = 255, unique = true)
     private String processingReference;
 
@@ -288,7 +297,57 @@ public class Media extends AuditEntity {
         if (processingStatus == MediaProcessingStatus.PENDING) {
             processingStatus = MediaProcessingStatus.PROCESSING;
         }
+        reconciliationNextAttemptAt = null;
         validateState();
+    }
+
+    /** Binds immutable provider identity received from a trusted, signature-verified eager notification. */
+    public boolean bindWebhookIdentity(String verifiedAssetId) {
+        if (verifiedAssetId == null || verifiedAssetId.isBlank()) return false;
+        if (assetId != null && !assetId.equals(verifiedAssetId)) return false;
+        if (attachmentStatus == MediaAttachmentStatus.PENDING_DELETE) return false;
+        assetId = verifiedAssetId;
+        return true;
+    }
+
+    /** Applies a trusted eager terminal outcome before or after upload verification; first terminal result wins. */
+    public boolean applyWebhookProcessingOutcome(boolean ready, String reason) {
+        if (attachmentStatus == MediaAttachmentStatus.PENDING_DELETE
+                || (processingStatus != MediaProcessingStatus.PENDING
+                        && processingStatus != MediaProcessingStatus.PROCESSING)) return false;
+        if (ready) {
+            processingStatus = MediaProcessingStatus.READY;
+            processingFailureReason = null;
+        } else {
+            processingStatus = MediaProcessingStatus.FAILED;
+            processingFailureReason = sanitizeFailureReason(reason);
+        }
+        reconciliationNextAttemptAt = null;
+        return true;
+    }
+
+    public boolean applyVerifiedReconciliationReady(String verifiedAssetId) {
+        if (!bindWebhookIdentity(verifiedAssetId)) return false;
+        return applyWebhookProcessingOutcome(true, null);
+    }
+
+    /** Records one provider inspection without interpreting retry count as processing failure evidence. */
+    public void scheduleProcessingReconciliation(LocalDateTime nextAttemptAt) {
+        if (uploadStatus != MediaUploadStatus.UPLOADED
+                || processingStatus != MediaProcessingStatus.PROCESSING
+                || attachmentStatus == MediaAttachmentStatus.PENDING_DELETE) return;
+        if (processingReconciliationAttempts < Integer.MAX_VALUE) processingReconciliationAttempts++;
+        reconciliationNextAttemptAt = nextAttemptAt;
+    }
+
+    public void scheduleUploadReconciliation(LocalDateTime nextAttemptAt) {
+        if (uploadStatus == MediaUploadStatus.PENDING_UPLOAD && attachmentStatus == MediaAttachmentStatus.TEMPORARY) {
+            reconciliationNextAttemptAt = nextAttemptAt;
+        }
+    }
+
+    public void clearReconciliationSchedule() {
+        reconciliationNextAttemptAt = null;
     }
 
     /** Records a definitive provider-policy rejection and retains the row as a replay-safe tombstone. */
@@ -300,6 +359,7 @@ public class Media extends AuditEntity {
         }
         uploadFailureReason = sanitizeFailureReason(reason);
         attachmentStatus = MediaAttachmentStatus.PENDING_DELETE;
+        reconciliationNextAttemptAt = null;
     }
 
     /**
@@ -331,6 +391,7 @@ public class Media extends AuditEntity {
             throw new IllegalStateException("Media attachment status is not set");
         }
         attachmentStatus = MediaAttachmentStatus.PENDING_DELETE;
+        reconciliationNextAttemptAt = null;
     }
 
     public boolean isSignedUpload() {

@@ -50,4 +50,15 @@ class CloudinaryWebhookControllerTest {
 
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
     }
+
+    @Test
+    void eagerNotification_ShouldRequestRetryWhenPersistenceIsUnavailable() {
+        when(signatureVerifier.isValid("valid", "123", "{}")).thenReturn(true);
+        when(webhookHandler.handle("{}"))
+                .thenThrow(new org.springframework.dao.TransientDataAccessResourceException("database unavailable"));
+
+        var response = controller.eagerNotification("valid", "123", "{}".getBytes(StandardCharsets.UTF_8));
+
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
+    }
 }

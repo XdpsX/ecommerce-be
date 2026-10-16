@@ -47,11 +47,13 @@ class MediaDirectUploadServiceTest {
 
     @BeforeEach
     void setUp() {
+        MediaUploadProperties uploadProperties = new MediaUploadProperties();
         service = new MediaDirectUploadService(
                 persistence,
                 inspector,
                 userIdProvider,
-                new MediaUploadProperties(),
+                uploadProperties,
+                new MediaUploadedAssetValidator(uploadProperties),
                 urlGenerator,
                 Clock.fixed(Instant.parse("2026-10-15T02:30:00Z"), ZoneOffset.UTC));
         when(userIdProvider.getRequiredUserId()).thenReturn(42L);

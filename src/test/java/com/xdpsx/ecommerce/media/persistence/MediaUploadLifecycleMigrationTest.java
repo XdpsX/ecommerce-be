@@ -3,6 +3,9 @@ package com.xdpsx.ecommerce.media.persistence;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceContext;
@@ -108,7 +111,7 @@ class MediaUploadLifecycleMigrationTest {
     @Test
     void activeBaseline_ShouldApplyUploadLifecycleSchemaAndPersistIntent() {
         assertThat(jdbcTemplate.queryForList("SELECT id FROM DATABASECHANGELOG ORDER BY orderexecuted", String.class))
-                .contains("media-upload-lifecycle", "media-direct-upload-verification");
+                .contains("media-upload-lifecycle", "media-direct-upload-verification", "media-reconciliation");
         assertThat(jdbcTemplate.queryForObject(
                         "SELECT is_nullable FROM information_schema.columns "
                                 + "WHERE table_schema = DATABASE() AND table_name = 'media' "
@@ -253,5 +256,89 @@ class MediaUploadLifecycleMigrationTest {
                         "asset-unique-two",
                         "product/asset-unique-two",
                         "provider-asset-id"));
+    }
+
+    @Test
+    void reconciliationBaseline_ShouldPersistDefaultsAndExecuteBoundedCandidateQueries() {
+        LocalDateTime now =
+                LocalDateTime.ofInstant(java.time.Instant.now(), ZoneOffset.UTC).withNano(0);
+        insertPending("recon-pending-initial", now.minusHours(2), null);
+        insertPending("recon-pending-retry", now.minusHours(3), now.minusHours(1));
+        insertPending("recon-pending-future", now.minusHours(4), now.plusHours(1));
+
+        insertUploadedProcessing("recon-process-initial", now.minusHours(2), null);
+        insertUploadedProcessing("recon-process-retry", now.minusHours(3), now.minusHours(1));
+        insertUploadedProcessing("recon-process-future", now.minusHours(4), now.plusHours(1));
+        insertUploadedProcessing("recon-process-horizon", now.minusDays(8), null);
+
+        var pending = mediaRepository.findPendingUploadReconciliationCandidates(now.minusMinutes(10), now, 600, 100);
+        var processing = mediaRepository.findProcessingReconciliationCandidates(
+                now.minusMinutes(10), now.minusDays(7), now, 600, 100);
+
+        assertThat(pending)
+                .extracting(Media::getId)
+                .contains("recon-pending-initial", "recon-pending-retry")
+                .doesNotContain("recon-pending-future");
+        assertThat(processing)
+                .extracting(Media::getId)
+                .contains("recon-process-initial", "recon-process-retry")
+                .doesNotContain("recon-process-future", "recon-process-horizon");
+        java.util.List<String> pendingIds = pending.stream().map(Media::getId).toList();
+        java.util.List<String> processingIds =
+                processing.stream().map(Media::getId).toList();
+        assertThat(pendingIds.indexOf("recon-pending-initial")).isLessThan(pendingIds.indexOf("recon-pending-retry"));
+        assertThat(processingIds.indexOf("recon-process-initial"))
+                .isLessThan(processingIds.indexOf("recon-process-retry"));
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT processing_reconciliation_attempts FROM media WHERE id = 'recon-process-initial'",
+                        Integer.class))
+                .isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT reconciliation_next_attempt_at FROM media WHERE id = 'recon-process-initial'",
+                        java.sql.Timestamp.class))
+                .isNull();
+    }
+
+    @Test
+    void reconciliationAttemptConstraint_ShouldRejectNegativeCounters() {
+        assertThrows(
+                org.springframework.dao.DataAccessException.class,
+                () -> jdbcTemplate.update(
+                        "INSERT INTO media (id, external_id, purpose, upload_status, attachment_status, "
+                                + "processing_status, processing_reconciliation_attempts) "
+                                + "VALUES ('negative-attempt', 'negative-attempt', 'PRODUCT_IMAGE', 'UPLOADED', "
+                                + "'TEMPORARY', 'PROCESSING', -1)"));
+    }
+
+    private void insertPending(String id, LocalDateTime expiresAt, LocalDateTime nextAttemptAt) {
+        jdbcTemplate.update(
+                "INSERT INTO media (id, external_id, purpose, upload_status, attachment_status, processing_status, "
+                        + "created_at, intent_expires_at, expected_content_type, expected_size_bytes, "
+                        + "upload_authorization_issued_at, upload_authorization_expires_at, reconciliation_next_attempt_at) "
+                        + "VALUES (?, ?, 'PRODUCT_IMAGE', 'PENDING_UPLOAD', 'TEMPORARY', 'PENDING', CURRENT_TIMESTAMP(6), "
+                        + "?, 'image/png', 1024, ?, ?, ?)",
+                id,
+                id,
+                expiresAt.plusHours(1),
+                expiresAt.minusHours(1),
+                expiresAt,
+                nextAttemptAt);
+    }
+
+    private void insertUploadedProcessing(String id, LocalDateTime uploadedAt, LocalDateTime nextAttemptAt) {
+        jdbcTemplate.update(
+                "INSERT INTO media (id, external_id, purpose, upload_status, attachment_status, processing_status, "
+                        + "created_at, url, content_type, upload_authorization_issued_at, upload_authorization_expires_at, "
+                        + "uploaded_at, asset_id, bytes, width, height, format, reconciliation_next_attempt_at) "
+                        + "VALUES (?, ?, 'PRODUCT_IMAGE', 'UPLOADED', 'TEMPORARY', 'PROCESSING', ?, "
+                        + "'https://cdn.example.test/a.png', 'image/png', ?, ?, ?, ?, 1024, 800, 600, 'png', ?)",
+                id,
+                id,
+                uploadedAt,
+                uploadedAt.minusHours(1),
+                uploadedAt.plusHours(1),
+                uploadedAt,
+                "asset-" + id,
+                nextAttemptAt);
     }
 }

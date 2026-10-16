@@ -2,8 +2,10 @@ package com.xdpsx.ecommerce.media.api;
 
 import java.nio.charset.StandardCharsets;
 
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.TransactionException;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -12,15 +14,18 @@ import org.springframework.web.bind.annotation.RestController;
 import com.xdpsx.ecommerce.media.application.CloudinaryEagerWebhookHandler;
 import com.xdpsx.ecommerce.media.infrastructure.cloudinary.NotificationSignatureVerifier;
 
-import lombok.RequiredArgsConstructor;
-
 @RestController
-@RequiredArgsConstructor
 public class CloudinaryWebhookController implements CloudinaryWebhookApi {
     public static final String EAGER_PATH = "/webhooks/cloudinary/eager";
 
     private final NotificationSignatureVerifier signatureVerifier;
     private final CloudinaryEagerWebhookHandler webhookHandler;
+
+    public CloudinaryWebhookController(
+            NotificationSignatureVerifier signatureVerifier, CloudinaryEagerWebhookHandler webhookHandler) {
+        this.signatureVerifier = signatureVerifier;
+        this.webhookHandler = webhookHandler;
+    }
 
     @PostMapping(EAGER_PATH)
     public ResponseEntity<Void> eagerNotification(
@@ -37,6 +42,8 @@ public class CloudinaryWebhookController implements CloudinaryWebhookApi {
             result = webhookHandler.handle(rawBody);
         } catch (IllegalArgumentException exception) {
             return ResponseEntity.badRequest().build();
+        } catch (DataAccessException | TransactionException exception) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
         }
         if (result == CloudinaryEagerWebhookHandler.Result.NOT_VISIBLE_YET) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();

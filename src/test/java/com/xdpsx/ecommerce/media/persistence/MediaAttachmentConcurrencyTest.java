@@ -459,6 +459,60 @@ class MediaAttachmentConcurrencyTest {
     }
 
     @Test
+    void directFinalize_ShouldRejectAssetBoundByEarlyWebhookAfterSnapshot() {
+        Media pending = pendingDirectMedia("webhook-identity-race");
+        mediaRepository.save(pending);
+        var staleSnapshot = directUploadPersistence.snapshot(pending.getId(), 42L);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            Media locked = mediaRepository
+                    .findByExternalIdForUpdate(pending.getExternalId())
+                    .orElseThrow();
+            assertThat(locked.bindWebhookIdentity("asset-from-webhook")).isTrue();
+            assertThat(locked.applyWebhookProcessingOutcome(true, null)).isTrue();
+        });
+
+        var result = directUploadPersistence.finalizeUpload(
+                staleSnapshot, 42L, verifiedAsset(pending.getExternalId(), "different-admin-api-asset"), "image/png");
+
+        Media stored = mediaRepository.findById(pending.getId()).orElseThrow();
+        assertThat(result.uploadStatus()).isEqualTo(MediaUploadStatus.PENDING_UPLOAD);
+        assertThat(result.attachmentStatus()).isEqualTo(MediaAttachmentStatus.PENDING_DELETE);
+        assertThat(stored.getAssetId()).isEqualTo("asset-from-webhook");
+        assertThat(stored.getUrl()).isNull();
+        assertThat(stored.getProcessingStatus()).isEqualTo(MediaProcessingStatus.READY);
+    }
+
+    @Test
+    void absentRecovery_ShouldIgnoreStaleAbsenceAfterWebhookBindsReadyAsset() {
+        Media pending = pendingDirectMedia("absent-webhook-race");
+        mediaRepository.save(pending);
+        var staleSnapshot = directUploadPersistence.snapshot(pending.getId(), 42L);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            Media locked = mediaRepository
+                    .findByExternalIdForUpdate(pending.getExternalId())
+                    .orElseThrow();
+            assertThat(locked.bindWebhookIdentity("asset-uploaded-during-inspection"))
+                    .isTrue();
+            assertThat(locked.applyWebhookProcessingOutcome(true, null)).isTrue();
+        });
+
+        LocalDateTime afterReplayBoundary =
+                pending.getUploadAuthorizationExpiresAt().plusMinutes(20).plusSeconds(1);
+        var result = directUploadPersistence.claimAbsentRecovery(
+                staleSnapshot, afterReplayBoundary, afterReplayBoundary.plusMinutes(15));
+
+        assertThat(result.attachmentStatus()).isEqualTo(MediaAttachmentStatus.TEMPORARY);
+        assertThat(result.processingStatus()).isEqualTo(MediaProcessingStatus.READY);
+        assertThat(result.assetId()).isEqualTo("asset-uploaded-during-inspection");
+        Media stored = mediaRepository.findById(pending.getId()).orElseThrow();
+        assertThat(stored.getAttachmentStatus()).isEqualTo(MediaAttachmentStatus.TEMPORARY);
+        assertThat(stored.getProcessingStatus()).isEqualTo(MediaProcessingStatus.READY);
+        assertThat(stored.getAssetId()).isEqualTo("asset-uploaded-during-inspection");
+    }
+
+    @Test
     void directFinalize_ShouldClaimExpiredIntentWhenGraceEndsDuringProviderInspection() {
         Instant beforeInspection = Instant.parse("2026-10-15T03:00:00Z");
         clock.setInstant(beforeInspection);

@@ -18,11 +18,18 @@ public class CloudinaryConfig {
     @Value("${cloudinary.cloud.name}")
     private String cloudName;
 
+    @Value("${cloudinary.http.timeout:10}")
+    private int timeoutSeconds;
+
     @Bean
     public Cloudinary cloudinary() {
+        if (timeoutSeconds <= 0) {
+            throw new IllegalStateException("cloudinary.http.timeout must be positive to bound provider calls");
+        }
         return new Cloudinary(ObjectUtils.asMap(
                 "cloud_name", cloudName,
                 "api_key", apiKey,
-                "api_secret", apiSecret));
+                "api_secret", apiSecret,
+                "timeout", timeoutSeconds));
     }
 }

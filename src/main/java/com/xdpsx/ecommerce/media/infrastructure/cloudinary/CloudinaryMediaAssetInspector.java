@@ -3,8 +3,10 @@ package com.xdpsx.ecommerce.media.infrastructure.cloudinary;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.stereotype.Component;
 
@@ -28,7 +30,11 @@ public class CloudinaryMediaAssetInspector implements MediaAssetInspector {
     public InspectedMediaAsset inspect(String storedPublicId) {
         Map<?, ?> resource;
         try {
-            resource = cloudinary.api().resource(storedPublicId, ObjectUtils.asMap("context", true));
+            resource = cloudinary
+                    .api()
+                    .resource(
+                            storedPublicId,
+                            ObjectUtils.asMap("resource_type", "image", "type", "upload", "context", true));
         } catch (ApiException exception) {
             if (exception.getMessage() != null
                     && exception.getMessage().toLowerCase().contains("not found")) {
@@ -67,6 +73,68 @@ public class CloudinaryMediaAssetInspector implements MediaAssetInspector {
         } catch (Exception exception) {
             throw new InvalidMediaAssetResponseException("Cloudinary resource response is malformed", exception);
         }
+    }
+
+    @Override
+    public ProcessingInspection inspectProcessing(
+            String storedPublicId, int maxPages, Set<String> expectedTransformations) {
+        if (maxPages < 1) throw new IllegalArgumentException("maxPages must be positive");
+        Set<String> transformations = new HashSet<>();
+        Map<?, ?> resource = null;
+        String cursor = null;
+        int pagesRead = 0;
+        try {
+            do {
+                Map<String, Object> options = ObjectUtils.asMap(
+                        "resource_type",
+                        "image",
+                        "type",
+                        "upload",
+                        "context",
+                        true,
+                        "derived",
+                        true,
+                        "max_results",
+                        100);
+                if (cursor != null) options.put("derived_next_cursor", cursor);
+                pagesRead++;
+                resource = cloudinary.api().resource(storedPublicId, options);
+                if (resource == null) return null;
+                Object derivedValue = resource.get("derived");
+                if (derivedValue instanceof Iterable<?> derived) {
+                    for (Object item : derived) {
+                        if (!(item instanceof Map<?, ?> derivedResource)) continue;
+                        Object transformation = derivedResource.get("transformation");
+                        if (transformation instanceof String value && !value.isBlank()) {
+                            transformations.add(value.trim());
+                        }
+                    }
+                }
+                Object nextCursor = resource.get("derived_next_cursor");
+                cursor = nextCursor == null || nextCursor.toString().isBlank() ? null : nextCursor.toString();
+                if (transformations.containsAll(expectedTransformations)) break;
+            } while (cursor != null && pagesRead < maxPages);
+        } catch (ApiException exception) {
+            if (exception.getMessage() != null
+                    && exception.getMessage().toLowerCase().contains("not found")) {
+                return new ProcessingInspection(null, null, null, null, Set.of(), false, pagesRead, false);
+            }
+            throw new MediaAssetProviderException(
+                    "Cloudinary processing inspection failed", exception, Math.max(1, pagesRead));
+        } catch (Exception exception) {
+            if (exception instanceof MediaAssetProviderException providerException) throw providerException;
+            throw new MediaAssetProviderException(
+                    "Cloudinary processing inspection failed", exception, Math.max(1, pagesRead));
+        }
+        return new ProcessingInspection(
+                string(resource, "public_id"),
+                string(resource, "asset_id"),
+                string(resource, "resource_type"),
+                string(resource, "type"),
+                Set.copyOf(transformations),
+                cursor == null,
+                pagesRead,
+                true);
     }
 
     private static String string(Map<?, ?> resource, String key) {

@@ -14,7 +14,7 @@ interface CloudinaryWebhookApi {
                 @ApiResponse(responseCode = "200", description = "Notification acknowledged"),
                 @ApiResponse(responseCode = "400", description = "Malformed notification"),
                 @ApiResponse(responseCode = "401", description = "Invalid signature"),
-                @ApiResponse(responseCode = "503", description = "Referenced media is not visible yet")
+                @ApiResponse(responseCode = "503", description = "Recent legacy batch callback may precede persistence")
             })
     ResponseEntity<Void> eagerNotification(String signature, String timestamp, byte[] body);
 }

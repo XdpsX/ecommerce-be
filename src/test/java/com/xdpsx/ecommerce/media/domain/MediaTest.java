@@ -117,6 +117,59 @@ class MediaTest {
         assertEquals(MediaAttachmentStatus.TEMPORARY, invalid.getAttachmentStatus());
     }
 
+    @Test
+    void webhookIdentity_ShouldBeImmutableAndAllowTerminalProcessingBeforeUploadComplete() {
+        Media pending = Media.createSignedPendingUpload(
+                "pending-webhook",
+                "product/pending-webhook",
+                7L,
+                MediaPurpose.PRODUCT_IMAGE,
+                "image/png",
+                1024,
+                LocalDateTime.of(2026, 1, 2, 0, 0),
+                LocalDateTime.of(2026, 1, 1, 0, 0),
+                LocalDateTime.of(2026, 1, 1, 1, 0));
+
+        assertTrue(pending.bindWebhookIdentity("asset-1"));
+        assertFalse(pending.bindWebhookIdentity("asset-2"));
+        assertTrue(pending.applyWebhookProcessingOutcome(true, null));
+        assertEquals(MediaProcessingStatus.READY, pending.getProcessingStatus());
+        assertEquals(MediaUploadStatus.PENDING_UPLOAD, pending.getUploadStatus());
+
+        pending.completeUpload(
+                "asset-1",
+                "https://cdn.example.test/image.png",
+                "image/png",
+                1024,
+                800,
+                600,
+                "png",
+                LocalDateTime.of(2026, 1, 1, 0, 1));
+        assertEquals(MediaProcessingStatus.READY, pending.getProcessingStatus());
+        assertEquals(MediaUploadStatus.UPLOADED, pending.getUploadStatus());
+    }
+
+    @Test
+    void webhookAndRetryTransitions_ShouldNotResurrectDeleteOrOverflowSchedulingCounter() {
+        Media media = Media.builder()
+                .id("retry")
+                .externalId("public-retry")
+                .url("https://example.test/retry.png")
+                .contentType("image/png")
+                .purpose(MediaPurpose.PRODUCT_IMAGE)
+                .uploadStatus(MediaUploadStatus.UPLOADED)
+                .processingStatus(MediaProcessingStatus.PROCESSING)
+                .attachmentStatus(MediaAttachmentStatus.TEMPORARY)
+                .processingReconciliationAttempts(Integer.MAX_VALUE)
+                .build();
+        media.scheduleProcessingReconciliation(LocalDateTime.now().plusMinutes(5));
+        assertEquals(Integer.MAX_VALUE, media.getProcessingReconciliationAttempts());
+
+        media.markPendingDeletion();
+        assertFalse(media.applyWebhookProcessingOutcome(true, null));
+        assertEquals(MediaAttachmentStatus.PENDING_DELETE, media.getAttachmentStatus());
+    }
+
     private static Media.MediaBuilder pendingMedia() {
         return Media.builder()
                 .id("pending-active")
