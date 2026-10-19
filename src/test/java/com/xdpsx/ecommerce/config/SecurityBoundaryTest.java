@@ -315,6 +315,36 @@ class SecurityBoundaryTest {
     }
 
     @Test
+    void directMediaOperations_ShouldRejectAnonymousAndNonAdminBeforeApplicationWork() throws Exception {
+        String request = """
+                {"purpose":"PRODUCT_IMAGE","filename":"front.png","contentType":"image/png","sizeBytes":2048}
+                """;
+        mockMvc.perform(post("/media/upload-intents")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/media/upload-intents")
+                        .with(user("customer@example.test").roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/media/upload-id/complete")).andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/media/upload-id/complete")
+                        .with(user("customer@example.test").roles("USER")))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/media/upload-id")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/media/upload-id")
+                        .with(user("customer@example.test").roles("USER")))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(delete("/media/upload-id")).andExpect(status().isUnauthorized());
+        mockMvc.perform(delete("/media/upload-id")
+                        .with(user("customer@example.test").roles("USER")))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(mediaUploadIntentService, mediaDirectUploadService);
+    }
+
+    @Test
     void orderAdministration_ShouldRequireAdmin() throws Exception {
         mockMvc.perform(get("/orders").with(user("customer@example.test").roles("USER")))
                 .andExpect(status().isForbidden());

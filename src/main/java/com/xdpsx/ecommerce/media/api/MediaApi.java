@@ -23,51 +23,100 @@ public interface MediaApi {
 
     @Operation(
             summary = "Create a signed media upload intent",
+            description = "Creates a persisted, uploader-owned Media record and short-lived Cloudinary upload "
+                    + "instructions. Send the exact returned fields with the file directly to the returned URL; "
+                    + "do not send backend credentials to Cloudinary. intentExpiresAt is the application intent "
+                    + "lifetime; uploadAuthorizationExpiresAt is the provider signature lifetime. Both are UTC. "
+                    + "After provider upload, call complete so the backend inspects the stored provider identity.",
+            requestBody =
+                    @RequestBody(
+                            description =
+                                    "File metadata and the Media purpose; this endpoint does not receive file bytes.",
+                            required = true,
+                            content =
+                                    @Content(schema = @Schema(implementation = CreateMediaUploadIntentRequest.class))),
             responses = {
                 @ApiResponse(
                         responseCode = "201",
-                        description = "Upload authorization created",
+                        description = "Intent persisted and provider upload instructions created",
                         content = @Content(schema = @Schema(implementation = MediaUploadIntentResponse.class))),
                 @ApiResponse(
                         responseCode = "400",
-                        description = "Invalid request",
-                        content = @Content(schema = @Schema(implementation = ValidationProblemSchema.class)))
+                        description =
+                                "Unsupported purpose or invalid upload metadata; validation errors return HTTP 400",
+                        content = @Content(schema = @Schema(implementation = ValidationProblemSchema.class))),
+                @ApiResponse(
+                        responseCode = "401",
+                        description = "Authentication required",
+                        content = @Content(schema = @Schema(implementation = ApiProblemSchema.class))),
+                @ApiResponse(
+                        responseCode = "403",
+                        description = "ADMIN role required",
+                        content = @Content(schema = @Schema(implementation = ApiProblemSchema.class))),
             })
     MediaUploadIntentResponse createUploadIntent(CreateMediaUploadIntentRequest request);
 
     @Operation(
             summary = "Verify and complete a direct media upload",
+            description = "Inspects Cloudinary using the public ID persisted with this caller's intent; provider "
+                    + "response data supplied by the client is not accepted as proof. A verified UPLOADED Media "
+                    + "can be attached while processing is PROCESSING or FAILED; Catalog attachment guards still "
+                    + "apply. READY is not required. Repeating complete is supported only while Media remains "
+                    + "TEMPORARY; after attachment, use GET status. Cross-uploader access is reported as 404.",
             responses = {
                 @ApiResponse(
                         responseCode = "200",
-                        description = "Verified media status",
+                        description = "Provider-verified upload and current processing status",
                         content = @Content(schema = @Schema(implementation = MediaDirectStatusResponse.class))),
+                @ApiResponse(
+                        responseCode = "401",
+                        description = "Authentication required",
+                        content = @Content(schema = @Schema(implementation = ApiProblemSchema.class))),
+                @ApiResponse(
+                        responseCode = "403",
+                        description = "ADMIN role required",
+                        content = @Content(schema = @Schema(implementation = ApiProblemSchema.class))),
                 @ApiResponse(
                         responseCode = "404",
                         description = "Media not found",
                         content = @Content(schema = @Schema(implementation = ApiProblemSchema.class))),
                 @ApiResponse(
                         responseCode = "409",
-                        description = "Upload is not completable",
+                        description = "MEDIA_UPLOAD_CONFLICT or MEDIA_UPLOAD_EXPIRED; inspect current status and "
+                                + "do not retry every 409",
                         content = @Content(schema = @Schema(implementation = ApiProblemSchema.class))),
                 @ApiResponse(
                         responseCode = "422",
-                        description = "Provider asset rejected",
+                        description = "MEDIA_ASSET_INVALID; the signed upload was rejected",
                         content = @Content(schema = @Schema(implementation = ApiProblemSchema.class))),
                 @ApiResponse(
                         responseCode = "503",
-                        description = "Provider unavailable",
+                        description = "MEDIA_PROVIDER_UNAVAILABLE; a bounded retry of complete may be attempted "
+                                + "on the same usable intent",
                         content = @Content(schema = @Schema(implementation = ApiProblemSchema.class)))
             })
     MediaDirectStatusResponse completeUpload(String id);
 
     @Operation(
             summary = "Get media upload and processing status",
+            description = "Returns lifecycle status for the authenticated uploader's Media. originalUrl may be "
+                    + "null before a verified upload. variants is empty until uploadStatus is UPLOADED and "
+                    + "processingStatus is READY. PROCESSING or FAILED does not prevent Catalog attachment after "
+                    + "successful complete; attachment purpose, owner, and lifecycle checks still apply. ADMIN "
+                    + "is required and another uploader receives 404.",
             responses = {
                 @ApiResponse(
                         responseCode = "200",
                         description = "Media status",
                         content = @Content(schema = @Schema(implementation = MediaDirectStatusResponse.class))),
+                @ApiResponse(
+                        responseCode = "401",
+                        description = "Authentication required",
+                        content = @Content(schema = @Schema(implementation = ApiProblemSchema.class))),
+                @ApiResponse(
+                        responseCode = "403",
+                        description = "ADMIN role required",
+                        content = @Content(schema = @Schema(implementation = ApiProblemSchema.class))),
                 @ApiResponse(
                         responseCode = "404",
                         description = "Media not found",
@@ -77,7 +126,9 @@ public interface MediaApi {
 
     @Operation(
             summary = "Upload image",
-            description = "Uploads an image file and schedules Cloudinary eager variants. The original source URL "
+            description = "Compatibility multipart path for existing clients. New clients should use the signed "
+                    + "direct upload intent and complete flow. This endpoint is retained and is not deprecated. "
+                    + "Uploads an image file and schedules Cloudinary eager variants. The original source URL "
                     + "remains in url; named variants are returned under variants. Max file size: 2MB. "
                     + "Supported resources: category, brand, product, product-description. The authenticated "
                     + "uploader is recorded as the owner of the temporary Media.",
@@ -131,8 +182,16 @@ public interface MediaApi {
             responses = {
                 @ApiResponse(responseCode = "204", description = "No Content", content = @Content),
                 @ApiResponse(
+                        responseCode = "401",
+                        description = "Authentication required",
+                        content = @Content(schema = @Schema(implementation = ApiProblemSchema.class))),
+                @ApiResponse(
+                        responseCode = "403",
+                        description = "ADMIN role required",
+                        content = @Content(schema = @Schema(implementation = ApiProblemSchema.class))),
+                @ApiResponse(
                         responseCode = "404",
-                        description = "Not Found",
+                        description = "Media not found or belongs to another uploader",
                         content = @Content(schema = @Schema(implementation = ApiProblemSchema.class))),
                 @ApiResponse(
                         responseCode = "409",

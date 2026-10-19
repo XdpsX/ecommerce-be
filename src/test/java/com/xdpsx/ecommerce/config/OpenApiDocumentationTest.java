@@ -589,6 +589,26 @@ class OpenApiDocumentationTest {
                         .at("/paths/~1media~1image-upload/post/responses/201/content/*~1*/schema/$ref")
                         .asString())
                 .isEqualTo("#/components/schemas/UploadedMediaDTO");
+        JsonNode intent = backofficeOpenApi.at("/paths/~1media~1upload-intents/post");
+        JsonNode status = backofficeOpenApi.at("/paths/~1media~1{id}/get");
+        JsonNode intentProperties = backofficeOpenApi.at("/components/schemas/MediaUploadIntentResponse/properties");
+        JsonNode statusProperties = backofficeOpenApi.at("/components/schemas/MediaDirectStatusResponse/properties");
+        assertThat(intent.path("description").asString()).contains("persisted", "UTC", "complete");
+        assertThat(intent.path("responses").has("400")).isTrue();
+        assertThat(intent.path("responses").has("422")).isFalse();
+        assertThat(intentProperties.path("intentExpiresAt").path("format").asString())
+                .isEqualTo("date-time");
+        assertThat(intentProperties
+                        .path("uploadAuthorizationExpiresAt")
+                        .path("format")
+                        .asString())
+                .isEqualTo("date-time");
+        assertThat(status.path("description").asString()).contains("PROCESSING", "FAILED", "404");
+        assertThat(statusProperties.has("originalUrl")).isTrue();
+        assertThat(statusProperties.has("variants")).isTrue();
+        JsonNode multipart = backofficeOpenApi.at("/paths/~1media~1image-upload/post");
+        assertThat(multipart.path("deprecated").asBoolean(false)).isFalse();
+        assertThat(multipart.path("description").asString()).contains("Compatibility", "not deprecated");
     }
 
     @Test

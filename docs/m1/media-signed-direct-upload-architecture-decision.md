@@ -548,29 +548,21 @@ Acceptance:
 Rollback: owner columns giữ additive. Nếu rollback application, dừng attachment writes mới và giữ cleanup
 worker phiên bản tương thích cho tới khi pending deletions hết.
 
-### PR F — FE handoff và rollout
+### PR F — FE contract and rollout preparation
 
-Phạm vi:
+Current decision for PR F (2026-10-16): direct upload is preferred for new clients; `/media/image-upload` remains available as the legacy multipart compatibility path and is not deprecated. Deprecation requires a separate consumer inventory and migration-policy decision. This supersedes earlier D18/PR F proposals in this historical ADR.
 
-- final OpenAPI/FE examples, polling/fallback behavior và runbook;
-- staged rollout, metrics/logs, smoke test;
-- sau khi FE chuyển ổn định, đánh dấu legacy proxy endpoint deprecated trong Java/OpenAPI nhưng tiếp tục giữ nó
-  hoạt động như compatibility/reference flow;
-- direct upload là flow mặc định cho client mới; legacy flow giữ authorization, validation, lifecycle và test đại
-  diện hiện có, nhưng không nhận thêm capability mới;
-- không xóa legacy endpoint trong CR này. Removal, nếu cần, là một CR và quyết định riêng sau khi xác nhận không
-  còn consumer.
+Scope is OpenAPI contract/examples, FE handoff, integration and security tests, operational runbook, manual smoke checklist, and staged rollout/rollback guidance. The backend does not contain the FE application.
 
-Acceptance:
+Verified behavior and limits:
 
-- end-to-end signed direct upload + early/normal webhook smoke test;
-- FE hiển thị original fallback khi processing chưa ready/failed;
-- orphan, stuck processing và cleanup failures quan sát được;
-- legacy catalog Media vẫn hoạt động.
+- Intent, complete, status, and delete require ADMIN; status/complete/delete are uploader-scoped and cross-uploader access returns 404.
+- Complete inspects the stored provider identity. `UPLOADED` permits attachment when other purpose/owner/lifecycle guards pass; processing `PROCESSING` or `FAILED` does not block Catalog save. Variants are exposed only at `UPLOADED + READY`; `originalUrl` may be null before verification.
+- Multipart remains functional and retains its existing contract. No `@Deprecated` or OpenAPI deprecated flag is added in PR F.
+- Reconciliation and cleanup defaults remain disabled. Signed `PENDING_DELETE` rows remain tombstones for retention/reinspection; automatic purge and orphan sweeping are separate follow-ups.
+- Rich-text parsing/sanitization and description attachment synchronization are separate follow-ups.
 
-Rollback: FE quay lại legacy multipart API còn được giữ; direct endpoints có thể disable ở routing/config. Không
-drop columns hoặc xóa legacy endpoint trong cùng rollout.
-
+Code-complete and rollout-verified are separate milestones. Browser/Cloudinary smoke, owner audit/repair evidence, and controlled worker activation are required for rollout verification; mocks and code completion do not substitute for that evidence. Rollback may return a consumer to multipart; no direct-upload feature flag is assumed to exist.
 ## 13. Remaining decisions and risks
 
 ADR chốt D06–D10 và D13. Các giá trị sau vẫn cần chốt trong implementation plan:
