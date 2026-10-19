@@ -12,8 +12,8 @@ import org.junit.jupiter.api.Test;
 
 import com.cloudinary.Cloudinary;
 import com.xdpsx.ecommerce.config.MediaUploadProperties;
-import com.xdpsx.ecommerce.media.application.MediaUploadAuthorizer.UploadAuthorization;
-import com.xdpsx.ecommerce.media.application.MediaUploadAuthorizer.UploadAuthorizationRequest;
+import com.xdpsx.ecommerce.media.application.upload.MediaUploadAuthorizer.UploadAuthorization;
+import com.xdpsx.ecommerce.media.application.upload.MediaUploadAuthorizer.UploadAuthorizationRequest;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 
 class CloudinaryUploadAuthorizerTest {

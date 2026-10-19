@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.xdpsx.ecommerce.media.application.CloudinaryEagerWebhookHandler;
+import com.xdpsx.ecommerce.media.application.processing.CloudinaryEagerWebhookHandler;
 import com.xdpsx.ecommerce.media.infrastructure.cloudinary.NotificationSignatureVerifier;
 
 @RestController

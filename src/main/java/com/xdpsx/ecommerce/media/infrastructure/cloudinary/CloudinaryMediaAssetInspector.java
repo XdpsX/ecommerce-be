@@ -13,9 +13,9 @@ import org.springframework.stereotype.Component;
 import com.cloudinary.Cloudinary;
 import com.cloudinary.api.exceptions.ApiException;
 import com.cloudinary.utils.ObjectUtils;
-import com.xdpsx.ecommerce.media.application.InvalidMediaAssetResponseException;
-import com.xdpsx.ecommerce.media.application.MediaAssetInspector;
-import com.xdpsx.ecommerce.media.application.MediaAssetProviderException;
+import com.xdpsx.ecommerce.media.application.processing.InvalidMediaAssetResponseException;
+import com.xdpsx.ecommerce.media.application.processing.MediaAssetInspector;
+import com.xdpsx.ecommerce.media.application.processing.MediaAssetProviderException;
 
 /** Reads the authoritative Cloudinary Admin API resource identified by the stored public ID. */
 @Component
@@ -85,17 +85,12 @@ public class CloudinaryMediaAssetInspector implements MediaAssetInspector {
         int pagesRead = 0;
         try {
             do {
-                Map<String, Object> options = ObjectUtils.asMap(
-                        "resource_type",
-                        "image",
-                        "type",
-                        "upload",
-                        "context",
-                        true,
-                        "derived",
-                        true,
-                        "max_results",
-                        100);
+                Map<String, Object> options = new LinkedHashMap<>();
+                options.put("resource_type", "image");
+                options.put("type", "upload");
+                options.put("context", true);
+                options.put("derived", true);
+                options.put("max_results", 100);
                 if (cursor != null) options.put("derived_next_cursor", cursor);
                 pagesRead++;
                 resource = cloudinary.api().resource(storedPublicId, options);

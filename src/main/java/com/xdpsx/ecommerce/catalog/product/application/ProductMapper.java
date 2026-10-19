@@ -2,33 +2,34 @@ package com.xdpsx.ecommerce.catalog.product.application;
 
 import java.util.List;
 
-import org.mapstruct.Mapper;
-import org.mapstruct.Mapping;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
 
 import com.xdpsx.ecommerce.catalog.brand.api.dto.BrandNoCatsDTO;
 import com.xdpsx.ecommerce.catalog.category.api.dto.CategorySummaryResponse;
 import com.xdpsx.ecommerce.catalog.product.api.dto.*;
 import com.xdpsx.ecommerce.catalog.product.domain.Product;
 import com.xdpsx.ecommerce.config.StorePricingProperties;
-import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
+import com.xdpsx.ecommerce.media.application.delivery.MediaUrlResolver;
 import com.xdpsx.ecommerce.media.application.storage.MediaVariant;
 
-@Mapper(componentModel = "spring")
-public abstract class ProductMapper {
-    @Autowired
-    protected StorePricingProperties storePricingProperties;
+@Component
+public class ProductMapper {
+    private final StorePricingProperties storePricingProperties;
+    private final MediaUrlResolver mediaUrlResolver;
 
-    @Autowired
-    protected MediaUrlResolver mediaUrlResolver;
+    public ProductMapper(StorePricingProperties storePricingProperties, MediaUrlResolver mediaUrlResolver) {
+        this.storePricingProperties = storePricingProperties;
+        this.mediaUrlResolver = mediaUrlResolver;
+    }
 
-    @Mapping(target = "id", ignore = true)
-    @Mapping(target = "published", constant = "false")
-    @Mapping(target = "category", ignore = true)
-    @Mapping(target = "brand", ignore = true)
-    @Mapping(target = "images", ignore = true)
-    @Mapping(target = "variants", ignore = true)
-    public abstract Product fromCreateRequestToEntity(ProductCreateRequest request);
+    public Product fromCreateRequestToEntity(ProductCreateRequest request) {
+        return Product.builder()
+                .name(request.getName())
+                .slug(request.getSlug())
+                .description(request.getDescription())
+                .published(false)
+                .build();
+    }
 
     public StorefrontProductSummaryResponse toStorefrontSummary(
             Product entity, boolean inStock, java.math.BigDecimal minimumPrice, java.math.BigDecimal maximumPrice) {

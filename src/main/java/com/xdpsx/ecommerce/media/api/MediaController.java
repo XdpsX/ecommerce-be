@@ -17,11 +17,11 @@ import com.xdpsx.ecommerce.media.api.dto.CreateMediaUploadIntentRequest;
 import com.xdpsx.ecommerce.media.api.dto.MediaDirectStatusResponse;
 import com.xdpsx.ecommerce.media.api.dto.MediaUploadIntentResponse;
 import com.xdpsx.ecommerce.media.api.dto.UploadedMediaDTO;
-import com.xdpsx.ecommerce.media.application.CreateUploadIntentCommand;
-import com.xdpsx.ecommerce.media.application.MediaDirectUploadService;
-import com.xdpsx.ecommerce.media.application.MediaService;
-import com.xdpsx.ecommerce.media.application.MediaUploadIntentService;
-import com.xdpsx.ecommerce.media.application.UploadIntentView;
+import com.xdpsx.ecommerce.media.application.upload.CreateUploadIntentCommand;
+import com.xdpsx.ecommerce.media.application.upload.MediaDirectUploadService;
+import com.xdpsx.ecommerce.media.application.upload.MediaService;
+import com.xdpsx.ecommerce.media.application.upload.MediaUploadIntentService;
+import com.xdpsx.ecommerce.media.application.upload.UploadIntentView;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 
 import lombok.RequiredArgsConstructor;

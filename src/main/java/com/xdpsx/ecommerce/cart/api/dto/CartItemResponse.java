@@ -20,5 +20,6 @@ public class CartItemResponse {
     private String currency;
     private CartAvailability availability;
     /** @deprecated use availability. */
+    @Deprecated
     private boolean available;
 }

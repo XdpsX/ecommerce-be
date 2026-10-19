@@ -45,10 +45,10 @@ import com.xdpsx.ecommerce.checkout.api.CheckoutController;
 import com.xdpsx.ecommerce.checkout.application.CheckoutService;
 import com.xdpsx.ecommerce.media.api.CloudinaryWebhookController;
 import com.xdpsx.ecommerce.media.api.MediaController;
-import com.xdpsx.ecommerce.media.application.CloudinaryEagerWebhookHandler;
-import com.xdpsx.ecommerce.media.application.MediaDirectUploadService;
-import com.xdpsx.ecommerce.media.application.MediaService;
-import com.xdpsx.ecommerce.media.application.MediaUploadIntentService;
+import com.xdpsx.ecommerce.media.application.processing.CloudinaryEagerWebhookHandler;
+import com.xdpsx.ecommerce.media.application.upload.MediaDirectUploadService;
+import com.xdpsx.ecommerce.media.application.upload.MediaService;
+import com.xdpsx.ecommerce.media.application.upload.MediaUploadIntentService;
 import com.xdpsx.ecommerce.media.infrastructure.cloudinary.NotificationSignatureVerifier;
 import com.xdpsx.ecommerce.order.api.AdminOrderController;
 import com.xdpsx.ecommerce.order.api.OrderController;
@@ -728,8 +728,9 @@ class OpenApiDocumentationTest {
         assertThat(integrationOpenApi.at("/paths/~1products/get").isMissingNode())
                 .isTrue();
 
-        assertThat(backofficeOpenApi.at("/paths/~1orders/get/tags/0").asText()).isEqualTo("Admin Order API");
-        assertThat(storefrontOpenApi.at("/paths/~1orders~1me/get/tags/0").asText())
+        assertThat(backofficeOpenApi.at("/paths/~1orders/get/tags/0").asString())
+                .isEqualTo("Admin Order API");
+        assertThat(storefrontOpenApi.at("/paths/~1orders~1me/get/tags/0").asString())
                 .isEqualTo("Order API");
     }
 

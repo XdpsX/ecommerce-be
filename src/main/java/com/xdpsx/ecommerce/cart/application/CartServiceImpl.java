@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,7 +49,6 @@ public class CartServiceImpl implements CartService {
     private final GuestCartCredentialService guestCredentialService;
     private final CartProperties cartProperties;
 
-    @Autowired
     public CartServiceImpl(
             CartItemMapper cartItemMapper,
             UserRepository userRepository,

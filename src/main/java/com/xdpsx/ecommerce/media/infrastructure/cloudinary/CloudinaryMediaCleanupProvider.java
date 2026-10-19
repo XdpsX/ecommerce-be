@@ -9,8 +9,8 @@ import org.springframework.stereotype.Component;
 import com.cloudinary.Cloudinary;
 import com.cloudinary.api.exceptions.ApiException;
 import com.cloudinary.utils.ObjectUtils;
-import com.xdpsx.ecommerce.media.application.MediaCleanupProvider;
-import com.xdpsx.ecommerce.media.application.MediaCleanupProviderException;
+import com.xdpsx.ecommerce.media.application.cleanup.MediaCleanupProvider;
+import com.xdpsx.ecommerce.media.application.cleanup.MediaCleanupProviderException;
 
 /** Performs exact Cloudinary Admin API inspection/deletion within the authorized Media identity scope. */
 @Component

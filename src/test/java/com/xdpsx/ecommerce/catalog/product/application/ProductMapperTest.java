@@ -5,34 +5,52 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.List;
 import java.util.Map;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mapstruct.factory.Mappers;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
 import com.xdpsx.ecommerce.catalog.brand.domain.BrandStatus;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.product.api.dto.AdminProductSummaryResponse;
+import com.xdpsx.ecommerce.catalog.product.api.dto.ProductCreateRequest;
 import com.xdpsx.ecommerce.catalog.product.api.dto.StorefrontProductDetailResponse;
 import com.xdpsx.ecommerce.catalog.product.api.dto.StorefrontProductSummaryResponse;
 import com.xdpsx.ecommerce.catalog.product.domain.Product;
 import com.xdpsx.ecommerce.catalog.product.domain.ProductImage;
-import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
+import com.xdpsx.ecommerce.config.StorePricingProperties;
+import com.xdpsx.ecommerce.media.application.delivery.MediaUrlResolver;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 
 class ProductMapperTest {
-    private final ProductMapper productMapper = Mappers.getMapper(ProductMapper.class);
     private final MediaUrlResolver mediaUrlResolver = new MediaUrlResolver((externalId, purpose) -> Map.of(
             "productCard", "https://cdn.example.test/product-card.jpg",
             "productDetail", "https://cdn.example.test/product-detail.jpg"));
+    private final ProductMapper productMapper = new ProductMapper(new StorePricingProperties(), mediaUrlResolver);
 
-    @BeforeEach
-    void injectMediaUrlResolver() {
-        ReflectionTestUtils.setField(productMapper, "mediaUrlResolver", mediaUrlResolver);
+    @Test
+    void fromCreateRequestToEntity_ShouldMapEditableFieldsAndLeaveRelationsForService() {
+        ProductCreateRequest request = ProductCreateRequest.builder()
+                .name("Shirt")
+                .slug("shirt")
+                .description("Cotton shirt")
+                .categoryId(2)
+                .brandId(3)
+                .imageIds(List.of("image-id"))
+                .build();
+
+        Product product = productMapper.fromCreateRequestToEntity(request);
+
+        assertThat(product.getName()).isEqualTo("Shirt");
+        assertThat(product.getSlug()).isEqualTo("shirt");
+        assertThat(product.getDescription()).isEqualTo("Cotton shirt");
+        assertThat(product.isPublished()).isFalse();
+        assertThat(product.getId()).isNull();
+        assertThat(product.getCategory()).isNull();
+        assertThat(product.getBrand()).isNull();
+        assertThat(product.getImages()).isEmpty();
+        assertThat(product.getVariants()).isEmpty();
     }
 
     @Test

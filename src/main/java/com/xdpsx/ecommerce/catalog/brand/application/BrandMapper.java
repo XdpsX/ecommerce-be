@@ -9,7 +9,7 @@ import com.xdpsx.ecommerce.catalog.brand.api.dto.BrandNoCatsDTO;
 import com.xdpsx.ecommerce.catalog.brand.api.dto.CreateBrandRequest;
 import com.xdpsx.ecommerce.catalog.brand.api.dto.StorefrontBrandResponse;
 import com.xdpsx.ecommerce.catalog.brand.domain.Brand;
-import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
+import com.xdpsx.ecommerce.media.application.delivery.MediaUrlResolver;
 import com.xdpsx.ecommerce.media.application.storage.MediaVariant;
 
 @Mapper

@@ -8,6 +8,7 @@ Improve the code incrementally. Existing code is not automatically the desired d
 - Preserve existing API behavior unless the issue changes it.
 - Add a new Liquibase changeset for database changes; do not edit an applied changeset.
 - Avoid new dependencies and abstractions until a concrete need exists.
+- Follow [code organization](code-organization.md): group by module and responsibility; keep small packages flat and split by use case when needed.
 
 ## OpenAPI contracts
 

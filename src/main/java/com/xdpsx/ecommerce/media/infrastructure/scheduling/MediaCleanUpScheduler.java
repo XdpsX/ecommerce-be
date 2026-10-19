@@ -4,7 +4,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import com.xdpsx.ecommerce.media.application.MediaCleanupService;
+import com.xdpsx.ecommerce.media.application.cleanup.MediaCleanupService;
 
 import lombok.RequiredArgsConstructor;
 

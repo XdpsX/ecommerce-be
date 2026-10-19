@@ -37,6 +37,7 @@ import com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus;
 import com.xdpsx.ecommerce.catalog.product.persistence.ProductVariantRepository;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.config.CartProperties;
+import com.xdpsx.ecommerce.config.StorePricingProperties;
 import com.xdpsx.ecommerce.inventory.domain.InventoryBalance;
 import com.xdpsx.ecommerce.inventory.persistence.InventoryBalanceRepository;
 import com.xdpsx.ecommerce.user.domain.User;
@@ -136,7 +137,9 @@ class CartRenewedServiceImplTest {
     @Test
     void addItem_WhenCustomerCartIsAbsent_ShouldLockTheUserBeforeCreatingIt() {
         Cart created = Cart.builder().id(12L).user(user).build();
-        when(cartRepository.findByUserIdForUpdate(user.getId())).thenReturn(Optional.empty(), Optional.empty());
+        when(cartRepository.findByUserIdForUpdate(user.getId()))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.empty());
         when(userRepository.findByIdForUpdate(user.getId())).thenReturn(Optional.of(user));
         when(cartRepository.save(any(Cart.class))).thenReturn(created);
         when(variantRepository.findEligibleStorefrontVariant(variant.getId())).thenReturn(Optional.of(variant));
@@ -178,7 +181,7 @@ class CartRenewedServiceImplTest {
         variant.setCombinationKey("shirt");
 
         service = new CartServiceImpl(
-                new CartItemMapper() {},
+                new CartItemMapper(new StorePricingProperties(), Clock.systemUTC()),
                 userRepository,
                 cartRepository,
                 cartItemRepository,

@@ -13,8 +13,8 @@ import com.cloudinary.Api;
 import com.cloudinary.Cloudinary;
 import com.cloudinary.api.ApiResponse;
 import com.cloudinary.api.exceptions.ApiException;
-import com.xdpsx.ecommerce.media.application.MediaCleanupProvider.CleanupScope;
-import com.xdpsx.ecommerce.media.application.MediaCleanupProviderException;
+import com.xdpsx.ecommerce.media.application.cleanup.MediaCleanupProvider.CleanupScope;
+import com.xdpsx.ecommerce.media.application.cleanup.MediaCleanupProviderException;
 
 class CloudinaryMediaCleanupProviderTest {
     @Test

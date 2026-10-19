@@ -37,9 +37,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.config.MediaUploadProperties;
-import com.xdpsx.ecommerce.media.application.MediaAssetInspector;
-import com.xdpsx.ecommerce.media.application.MediaAttachmentService;
-import com.xdpsx.ecommerce.media.application.MediaDirectUploadPersistence;
+import com.xdpsx.ecommerce.media.application.attachment.MediaAttachmentService;
+import com.xdpsx.ecommerce.media.application.processing.MediaAssetInspector;
+import com.xdpsx.ecommerce.media.application.upload.MediaDirectUploadPersistence;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaOwnerType;
@@ -256,7 +256,7 @@ class MediaAttachmentConcurrencyTest {
         Future<Void> first = executor.submit(() -> {
             transactionTemplate.executeWithoutResult(status -> {
                 attachmentService.synchronizeAttachments(
-                        new com.xdpsx.ecommerce.media.application.MediaOwner(MediaOwnerType.PRODUCT, "101"),
+                        new com.xdpsx.ecommerce.media.application.attachment.MediaOwner(MediaOwnerType.PRODUCT, "101"),
                         MediaPurpose.PRODUCT_IMAGE,
                         java.util.List.of(),
                         java.util.List.of("second-upload"));
@@ -270,7 +270,7 @@ class MediaAttachmentConcurrencyTest {
         Future<Throwable> competing = executor.submit(() -> {
             try {
                 transactionTemplate.executeWithoutResult(status -> attachmentService.synchronizeAttachments(
-                        new com.xdpsx.ecommerce.media.application.MediaOwner(MediaOwnerType.PRODUCT, "202"),
+                        new com.xdpsx.ecommerce.media.application.attachment.MediaOwner(MediaOwnerType.PRODUCT, "202"),
                         MediaPurpose.PRODUCT_IMAGE,
                         java.util.List.of(),
                         java.util.List.of("second-upload")));
@@ -311,7 +311,7 @@ class MediaAttachmentConcurrencyTest {
                 catalogPreloaded.countDown();
                 await(webhookCommitted);
                 attachmentService.synchronizeAttachments(
-                        new com.xdpsx.ecommerce.media.application.MediaOwner(MediaOwnerType.PRODUCT, "303"),
+                        new com.xdpsx.ecommerce.media.application.attachment.MediaOwner(MediaOwnerType.PRODUCT, "303"),
                         MediaPurpose.PRODUCT_IMAGE,
                         java.util.List.of("preloaded-detach"),
                         java.util.List.of());

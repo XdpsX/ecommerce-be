@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 
 import com.cloudinary.Cloudinary;
 import com.xdpsx.ecommerce.config.MediaUploadProperties;
-import com.xdpsx.ecommerce.media.application.MediaUploadAuthorizer;
+import com.xdpsx.ecommerce.media.application.upload.MediaUploadAuthorizer;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 
 /** Signs only server-selected Cloudinary upload fields before the corresponding intent is persisted. */

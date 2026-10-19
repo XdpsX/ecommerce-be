@@ -4,26 +4,28 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 
-import org.mapstruct.Mapper;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
 
 import com.xdpsx.ecommerce.cart.api.dto.CartAvailability;
 import com.xdpsx.ecommerce.cart.api.dto.CartItemResponse;
 import com.xdpsx.ecommerce.cart.domain.CartItem;
 import com.xdpsx.ecommerce.config.StorePricingProperties;
 
-@Mapper(componentModel = "spring")
-public abstract class CartItemMapper {
-    @Autowired
-    private StorePricingProperties pricingProperties;
+@Component
+public class CartItemMapper {
+    private final StorePricingProperties pricingProperties;
+    private final Clock pricingClock;
 
-    @Autowired
-    private Clock pricingClock;
-
-    public CartItemResponse fromEntityToResponse(CartItem entity) {
-        return fromEntityToResponse(entity, (pricingClock == null ? Clock.systemUTC() : pricingClock).instant());
+    public CartItemMapper(StorePricingProperties pricingProperties, Clock pricingClock) {
+        this.pricingProperties = pricingProperties;
+        this.pricingClock = pricingClock;
     }
 
+    public CartItemResponse fromEntityToResponse(CartItem entity) {
+        return fromEntityToResponse(entity, pricingClock.instant());
+    }
+
+    @SuppressWarnings("deprecation") // Keep the deprecated `available` JSON alias in sync for contract compatibility.
     public CartItemResponse fromEntityToResponse(CartItem entity, Instant now) {
         var variant = entity.getVariant();
         var product = variant == null ? null : variant.getProduct();
@@ -57,7 +59,7 @@ public abstract class CartItemMapper {
     }
 
     private String currency() {
-        if (pricingProperties == null || pricingProperties.getCurrency() == null) return "VND";
+        if (pricingProperties.getCurrency() == null) return "VND";
         return pricingProperties.getCurrency();
     }
 }

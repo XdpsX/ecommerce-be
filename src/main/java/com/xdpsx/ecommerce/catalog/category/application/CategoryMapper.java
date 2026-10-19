@@ -9,7 +9,7 @@ import com.xdpsx.ecommerce.catalog.category.api.dto.CategorySummaryResponse;
 import com.xdpsx.ecommerce.catalog.category.api.dto.CategoryTreeResponse;
 import com.xdpsx.ecommerce.catalog.category.api.dto.StorefrontCategoryResponse;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
-import com.xdpsx.ecommerce.media.application.MediaUrlResolver;
+import com.xdpsx.ecommerce.media.application.delivery.MediaUrlResolver;
 import com.xdpsx.ecommerce.media.application.storage.MediaVariant;
 
 @Mapper

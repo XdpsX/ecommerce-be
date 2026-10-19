@@ -12,7 +12,7 @@ import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 
-import com.xdpsx.ecommerce.media.application.CloudinaryEagerWebhookHandler;
+import com.xdpsx.ecommerce.media.application.processing.CloudinaryEagerWebhookHandler;
 import com.xdpsx.ecommerce.media.infrastructure.cloudinary.NotificationSignatureVerifier;
 
 class CloudinaryWebhookControllerTest {

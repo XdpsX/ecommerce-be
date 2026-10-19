@@ -13,6 +13,7 @@ import com.xdpsx.ecommerce.cart.domain.CartItemId;
 import com.xdpsx.ecommerce.catalog.product.domain.Product;
 import com.xdpsx.ecommerce.catalog.product.domain.ProductVariant;
 import com.xdpsx.ecommerce.catalog.product.domain.ProductVariantStatus;
+import com.xdpsx.ecommerce.config.StorePricingProperties;
 
 class CartItemMapperTest {
     private static final Instant NOW = Instant.parse("2026-01-01T12:00:00Z");
@@ -35,7 +36,8 @@ class CartItemMapperTest {
                 .quantity(2)
                 .build();
 
-        CartItemResponse response = new CartItemMapper() {}.fromEntityToResponse(item, NOW);
+        CartItemResponse response = new CartItemMapper(new StorePricingProperties(), java.time.Clock.systemUTC())
+                .fromEntityToResponse(item, NOW);
 
         assertThat(response.getBasePrice()).isEqualByComparingTo("100.00");
         assertThat(response.getDiscountAmount()).isEqualByComparingTo("20.00");

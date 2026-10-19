@@ -14,9 +14,9 @@ import com.cloudinary.Api;
 import com.cloudinary.Cloudinary;
 import com.cloudinary.api.ApiResponse;
 import com.cloudinary.api.exceptions.ApiException;
-import com.xdpsx.ecommerce.media.application.InvalidMediaAssetResponseException;
-import com.xdpsx.ecommerce.media.application.MediaAssetInspector.InspectedMediaAsset;
-import com.xdpsx.ecommerce.media.application.MediaAssetProviderException;
+import com.xdpsx.ecommerce.media.application.processing.InvalidMediaAssetResponseException;
+import com.xdpsx.ecommerce.media.application.processing.MediaAssetInspector.InspectedMediaAsset;
+import com.xdpsx.ecommerce.media.application.processing.MediaAssetProviderException;
 
 class CloudinaryMediaAssetInspectorTest {
     @Test
@@ -112,7 +112,7 @@ class CloudinaryMediaAssetInspectorTest {
         assertEquals(2, result.pagesRead());
         assertEquals(Set.of("c_fill,w_1", "c_fit,w_2"), result.generatedTransformations());
         assertTrue(result.inventoryComplete());
-        org.mockito.ArgumentCaptor<Map<String, Object>> options = org.mockito.ArgumentCaptor.forClass(Map.class);
+        org.mockito.ArgumentCaptor<Map<String, Object>> options = org.mockito.ArgumentCaptor.captor();
         verify(api, times(2)).resource(eq("product/media-1"), options.capture());
         assertEquals("image", options.getAllValues().getFirst().get("resource_type"));
         assertEquals("upload", options.getAllValues().getFirst().get("type"));

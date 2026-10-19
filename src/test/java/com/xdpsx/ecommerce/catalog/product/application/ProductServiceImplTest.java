@@ -41,7 +41,7 @@ import com.xdpsx.ecommerce.catalog.variantoption.persistence.VariantOptionValueR
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.inventory.persistence.InventoryBalanceRepository;
-import com.xdpsx.ecommerce.media.application.MediaAttachmentService;
+import com.xdpsx.ecommerce.media.application.attachment.MediaAttachmentService;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
@@ -406,7 +406,7 @@ class ProductServiceImplTest {
         when(productSpecification.getStorefrontFiltersSpec(
                         any(), any(), any(), any(), any(), any(), any(), any(), any(Instant.class)))
                 .thenReturn((root, query, criteriaBuilder) -> criteriaBuilder.conjunction());
-        when(productRepository.findAll(any(Specification.class), any(Pageable.class)))
+        when(productRepository.findAll(org.mockito.ArgumentMatchers.<Specification<Product>>any(), any(Pageable.class)))
                 .thenReturn(page);
         when(page.getContent()).thenReturn(List.of(first, second));
         when(productVariantRepository.findEligiblePriceRanges(eq(List.of(1L, 2L)), any(Instant.class)))
@@ -474,7 +474,7 @@ class ProductServiceImplTest {
         Page<Product> page = mock(Page.class);
         when(productSpecification.getAdminFiltersSpec(eq("draft"), eq("name"), eq(false), any(Instant.class)))
                 .thenReturn((root, query, criteriaBuilder) -> criteriaBuilder.conjunction());
-        when(productRepository.findAll(any(Specification.class), any(Pageable.class)))
+        when(productRepository.findAll(org.mockito.ArgumentMatchers.<Specification<Product>>any(), any(Pageable.class)))
                 .thenReturn(page);
         when(page.getContent()).thenReturn(List.of(draft));
         when(productVariantRepository.findAdminPriceRanges(eq(List.of(1L)), any(Instant.class)))

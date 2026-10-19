@@ -43,9 +43,9 @@ import org.testcontainers.mysql.MySQLContainer;
 
 import com.xdpsx.ecommerce.EcommerceApplication;
 import com.xdpsx.ecommerce.auth.application.CurrentUserIdProvider;
-import com.xdpsx.ecommerce.media.application.MediaAssetInspector;
-import com.xdpsx.ecommerce.media.application.MediaAssetInspector.InspectedMediaAsset;
-import com.xdpsx.ecommerce.media.application.MediaUploadAuthorizer;
+import com.xdpsx.ecommerce.media.application.processing.MediaAssetInspector;
+import com.xdpsx.ecommerce.media.application.processing.MediaAssetInspector.InspectedMediaAsset;
+import com.xdpsx.ecommerce.media.application.upload.MediaUploadAuthorizer;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryEagerNotification;
 import com.xdpsx.ecommerce.media.infrastructure.cloudinary.CloudinaryMediaTransformations;

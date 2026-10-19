@@ -4,7 +4,7 @@ import static org.mockito.Mockito.*;
 
 import org.junit.jupiter.api.Test;
 
-import com.xdpsx.ecommerce.media.application.MediaCleanupService;
+import com.xdpsx.ecommerce.media.application.cleanup.MediaCleanupService;
 
 class MediaCleanUpSchedulerTest {
     @Test

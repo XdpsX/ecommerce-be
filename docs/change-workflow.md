@@ -48,4 +48,6 @@ main
 - Summarize the change and verification performed.
 - Merge after acceptance criteria pass and blocking review findings are resolved.
 
-Keep plans and decisions in the issue or PR. Add permanent documentation only when it will be useful for future changes.
+Keep change plans and implementation reviews in the issue or PR. Remove temporary document copies after the change
+is complete. Keep durable contracts, architecture decisions and runbooks in topic directories under `docs/`;
+see `docs/README.md`. `docs/m1/` is for local working notes and is ignored by Git.

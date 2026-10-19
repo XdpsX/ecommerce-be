@@ -100,3 +100,8 @@ Stop the local database without deleting its data:
 ```powershell
 docker compose -f compose.local.yml down
 ```
+
+## Documentation
+
+See the [documentation index](docs/README.md) for business scope, API contracts, Media architecture and runbooks.
+Milestone working notes under `docs/m1/` are local and ignored by Git.

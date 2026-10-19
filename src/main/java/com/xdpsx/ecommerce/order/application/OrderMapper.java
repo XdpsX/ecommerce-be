@@ -20,6 +20,13 @@ public abstract class OrderMapper {
     @Mapping(target = "username", source = "entity.user.name")
     @Mapping(target = "items", ignore = true)
     @Mapping(target = "refund", ignore = true)
+    @Mapping(target = "recipientName", ignore = true)
+    @Mapping(target = "phoneNumber", ignore = true)
+    @Mapping(target = "addressLine", ignore = true)
+    @Mapping(target = "wardCommune", ignore = true)
+    @Mapping(target = "district", ignore = true)
+    @Mapping(target = "provinceCity", ignore = true)
+    @Mapping(target = "postalCode", ignore = true)
     abstract OrderDetailsDTO toDetails(Order entity);
 
     public OrderDetailsDTO fromEntityToDetails(Order entity) {
