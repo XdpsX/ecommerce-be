@@ -35,3 +35,6 @@ build/
 
 ### Local milestone working documents ###
 /docs/m1/
+
+### Temporary local CR plans and review walkthroughs ###
+/docs/local/

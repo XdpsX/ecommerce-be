@@ -24,3 +24,5 @@ Remain read-only. Do not create or edit files, branches, commits, issues, or pul
 ## Output
 
 Lead with the recommended scope and approach. Include current behavior, implementation steps, the smallest meaningful test set, migration/compatibility impact, risks, and blocking questions. Do not propose exhaustive acceptance criteria or tests.
+
+This stage belongs to **Sol**. Follow the handoff format in `../../../docs/change-workflow.md`: end with the next model and a ready-to-copy prompt. Once the scope is approved, hand off to **Luna / `$cr-implement`**, including the plan path, comparison base and constraints. If approval or a blocking decision is pending, keep the next action with Sol to resolve it before implementation. Do not switch models or spawn agents automatically.

@@ -12,3 +12,7 @@
 - Do not create branches, commit, push, or open a PR unless asked.
 
 Use `$cr-plan`, `$cr-implement`, and `$cr-review` for the corresponding CR stage.
+
+- Use Sol for planning/review and Luna for implementation/fixes. Follow the model handoff and smoke-to-commit steps in `docs/change-workflow.md`; end each stage with the next model and a ready-to-copy prompt.
+- Implementation must produce a temporary, Git-ignored Markdown walkthrough readable by a non-programmer. Do not stage this document.
+- After review passes, provide a small main-flow smoke checklist with a justified Postman/UI choice. After the user confirms smoke passed, provide scoped `git add` and `git commit` commands for the user to run; do not execute them automatically.
