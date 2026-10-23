@@ -44,6 +44,10 @@ import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
+import com.xdpsx.ecommerce.user.domain.AuthProvider;
+import com.xdpsx.ecommerce.user.domain.Role;
+import com.xdpsx.ecommerce.user.domain.User;
+import com.xdpsx.ecommerce.user.persistence.UserRepository;
 
 /**
  * Executes the storefront read model against a real (in-memory) database.
@@ -60,10 +64,12 @@ import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 @SpringJUnitConfig(CategoryStorefrontPersistenceTest.PersistenceConfig.class)
 class CategoryStorefrontPersistenceTest {
 
+    private static final ThreadLocal<Long> TEST_ACTOR = ThreadLocal.withInitial(() -> 42L);
+
     @org.springframework.context.annotation.Configuration
     @EnableTransactionManagement
-    @EnableJpaAuditing
-    @EnableJpaRepositories(basePackageClasses = {CategoryRepository.class, MediaRepository.class})
+    @EnableJpaAuditing(auditorAwareRef = "testAuditor", modifyOnCreate = true)
+    @EnableJpaRepositories(basePackageClasses = {CategoryRepository.class, MediaRepository.class, UserRepository.class})
     static class PersistenceConfig {
 
         @Bean
@@ -82,7 +88,9 @@ class CategoryStorefrontPersistenceTest {
             factory.setDataSource(dataSource);
             // The Category aggregate plus the entities it associates with (image -> Media).
             factory.setPackagesToScan(
-                    "com.xdpsx.ecommerce.catalog.category.domain", "com.xdpsx.ecommerce.media.domain");
+                    "com.xdpsx.ecommerce.catalog.category.domain",
+                    "com.xdpsx.ecommerce.media.domain",
+                    "com.xdpsx.ecommerce.user.domain");
             factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
             factory.getJpaPropertyMap().put("hibernate.hbm2ddl.auto", "create-drop");
             // Query-count assertions need the statistics registry, which is off by default.
@@ -109,9 +117,21 @@ class CategoryStorefrontPersistenceTest {
         }
 
         @Bean
+        com.xdpsx.ecommerce.auth.application.CurrentUserIdProvider currentUserIdProvider() {
+            return () -> 42L;
+        }
+
+        @Bean
+        org.springframework.data.domain.AuditorAware<Long> testAuditor() {
+            return () -> java.util.Optional.of(TEST_ACTOR.get());
+        }
+
+        @Bean
         CategoryServiceImpl categoryService(
                 CategoryRepository categoryRepository,
                 MediaAttachmentService mediaAttachmentService,
+                com.xdpsx.ecommerce.auth.application.CurrentUserIdProvider currentUserIdProvider,
+                UserRepository userRepository,
                 TransactionTemplate transactionTemplate) {
             return new CategoryServiceImpl(
                     categoryRepository,
@@ -119,12 +139,17 @@ class CategoryStorefrontPersistenceTest {
                     new MediaUrlResolver((externalId, purpose) ->
                             java.util.Map.of("categoryCard", "https://derived.example.test/" + externalId)),
                     new CategoryHierarchy(categoryRepository),
+                    currentUserIdProvider,
+                    userRepository,
                     transactionTemplate);
         }
     }
 
     @Autowired
     private CategoryRepository categoryRepository;
+
+    @Autowired
+    private UserRepository userRepository;
 
     @Autowired
     private MediaRepository mediaRepository;
@@ -145,6 +170,7 @@ class CategoryStorefrontPersistenceTest {
 
     @BeforeEach
     void setUp() {
+        TEST_ACTOR.set(42L);
         statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         transactionTemplate.execute(status -> {
             categoryRepository.deleteAll();
@@ -155,6 +181,7 @@ class CategoryStorefrontPersistenceTest {
 
     @AfterEach
     void cleanup() {
+        TEST_ACTOR.set(42L);
         transactionTemplate.execute(status -> {
             categoryRepository.deleteAll();
             mediaRepository.deleteAll();
@@ -265,6 +292,14 @@ class CategoryStorefrontPersistenceTest {
 
     @Test
     void adminPage_ShouldDeriveEffectiveFlags_WithoutPerRowLazyLoads() {
+        User categoryAdmin = userRepository.saveAndFlush(User.builder()
+                .name("Category Admin")
+                .email("category-admin@example.test")
+                .password("encoded")
+                .authProvider(AuthProvider.LOCAL)
+                .role(Role.ADMIN)
+                .build());
+        TEST_ACTOR.set(categoryAdmin.getId());
         // Arrange: several image-backed rows, so a missing image fetch would show up as one secondary select per
         // row. The stored-ACTIVE child under an INACTIVE parent must read as stored active but effectively inactive.
         Integer electronics = persist("Electronics", CategoryStatus.INACTIVE, 0, null, "img-electronics");
@@ -284,9 +319,11 @@ class CategoryStorefrontPersistenceTest {
         assertThat(byName.get("Fashion").effectivelyActive()).isTrue();
         // The image was fetched, not lazily selected per row.
         assertThat(byName.get("Fashion").image()).isEqualTo("https://example.test/img-fashion");
+        assertThat(byName.get("Fashion").createdByName()).isEqualTo("Category Admin");
+        assertThat(byName.get("Fashion").updatedByName()).isEqualTo("Category Admin");
 
-        // Bounded reads: the page query plus at most MAX_DEPTH - 1 chain-resolution queries — never one per row.
-        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(3);
+        // Bounded reads: page, actor-name batch, and at most MAX_DEPTH - 1 chain batches — never one per row.
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(4);
     }
 
     private void persistImage(String id) {

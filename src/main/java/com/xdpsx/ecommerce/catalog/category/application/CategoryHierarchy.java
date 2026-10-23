@@ -25,21 +25,22 @@ import com.xdpsx.ecommerce.common.error.ErrorCode;
 /**
  * Hierarchy invariants for Category writes: sibling-group ordering, the three-level limit and cycle prevention.
  *
- * <p>Every mutation must run inside the caller's transaction and must lock the sibling groups it touches through this
- * component, so validation and renumbering happen on the same snapshot. The database has no unique constraint on
+ * <p>Every hierarchy mutation must run inside the caller's transaction and must lock the sibling groups it touches
+ * through this component, so validation and renumbering happen on the same snapshot. Metadata-only category updates
+ * use the category row lock and version check without taking the hierarchy anchor. The database has no unique constraint on
  * {@code (parent_id, display_order)} on purpose; this component is what keeps the order continuous and unique.
  */
 @Component
 public class CategoryHierarchy {
     /**
-     * Retry budget for a deadlock or lock-wait timeout. The hierarchy anchor already removes the known cycles, so this
-     * is a safety net for contention that is not covered by the design (for example a foreign-key gap lock); a
-     * first-attempt win never retries.
+     * Retry budget for a deadlock or lock-wait timeout. Hierarchy writes share the anchor; metadata updates also use
+     * this bounded retry for row/media lock contention. A stale request version is an application conflict and is
+     * never retried; a first-attempt win never retries.
      */
     private static final int DEFAULT_MAX_WRITE_ATTEMPTS = 3;
 
     /**
-     * Serializes hierarchy writes. A category write locks a node first and whole sibling groups second, so two writers
+     * Serializes hierarchy writes. A hierarchy write locks a node first and whole sibling groups second, so two writers
      * of the same group would otherwise take the two sides in opposite order.
      *
      * <p>Taking the anchor row {@code SELECT ... FOR UPDATE} at the very start of every write makes the lock graph a
@@ -47,8 +48,8 @@ public class CategoryHierarchy {
      * nothing. A per-group anchor could not do that, because a move spans two groups, and a root group has no row of its
      * own to lock.
      *
-     * <p>The cost is that hierarchy writes serialize with each other. That is acceptable for admin-managed taxonomy
-     * (rare, small, and already locked group-wide) and buys a deadlock-free contract instead of a retry-dependent one.
+     * <p>The cost is that hierarchy writes serialize with each other. Metadata-only updates do not take this anchor and
+     * coordinate through their category row, version and media locks.
      *
      * <p>Deliberately not {@code GET_LOCK}: a MySQL named lock is bound to the physical session, is not released by
      * commit or rollback, and would therefore leak into the connection pool. A row lock has transaction lifetime.

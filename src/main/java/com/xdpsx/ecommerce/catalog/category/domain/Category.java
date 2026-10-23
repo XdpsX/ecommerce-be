@@ -2,6 +2,9 @@ package com.xdpsx.ecommerce.catalog.category.domain;
 
 import jakarta.persistence.*;
 
+import org.springframework.data.annotation.CreatedBy;
+import org.springframework.data.annotation.LastModifiedBy;
+
 import com.xdpsx.ecommerce.common.persistence.AuditEntity;
 import com.xdpsx.ecommerce.media.domain.Media;
 
@@ -39,6 +42,16 @@ public class Category extends AuditEntity {
     @Version
     @Column(nullable = false)
     private Long version;
+
+    /** Stable account id that created this category; legacy rows may be null. */
+    @CreatedBy
+    @Column(name = "created_by", updatable = false)
+    private Long createdBy;
+
+    /** Stable account id that last changed this category; legacy rows may be null. */
+    @LastModifiedBy
+    @Column(name = "updated_by")
+    private Long updatedBy;
 
     /**
      * Zero-based position inside the sibling group. Root categories (no parent)

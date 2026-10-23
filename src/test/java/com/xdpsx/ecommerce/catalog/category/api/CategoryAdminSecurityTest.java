@@ -238,7 +238,12 @@ class CategoryAdminSecurityTest {
                 true,
                 2,
                 null,
-                new AdminCategoryResponse.CategoryDTO(7, "Electronics"));
+                new AdminCategoryResponse.CategoryDTO(7, "Electronics"),
+                null,
+                42L,
+                42L,
+                null,
+                null);
         when(categoryService.moveCategory(anyInt(), any(MoveCategoryRequest.class)))
                 .thenReturn(response);
 
@@ -318,8 +323,8 @@ class CategoryAdminSecurityTest {
 
     @Test
     void createCategory_ShouldReturnCreated_WithLocationHeader() throws Exception {
-        AdminCategoryResponse response =
-                new AdminCategoryResponse(3, "Laptops", "laptops", CategoryStatus.ACTIVE, 0L, true, 2, null, null);
+        AdminCategoryResponse response = new AdminCategoryResponse(
+                3, "Laptops", "laptops", CategoryStatus.ACTIVE, 0L, true, 2, null, null, null, null, null, null, null);
         when(categoryService.createCategory(any(CreateCategoryRequest.class))).thenReturn(response);
 
         mockMvc.perform(post("/admin/categories")
@@ -335,8 +340,21 @@ class CategoryAdminSecurityTest {
 
     @Test
     void updateCategory_ShouldReturnUpdatedCategory() throws Exception {
-        AdminCategoryResponse response =
-                new AdminCategoryResponse(3, "Laptops", "laptops", CategoryStatus.INACTIVE, 1L, false, 2, null, null);
+        AdminCategoryResponse response = new AdminCategoryResponse(
+                3,
+                "Laptops",
+                "laptops",
+                CategoryStatus.INACTIVE,
+                1L,
+                false,
+                2,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
         when(categoryService.updateCategory(anyInt(), any(UpdateCategoryRequest.class)))
                 .thenReturn(response);
 
@@ -377,8 +395,8 @@ class CategoryAdminSecurityTest {
     void updateCategory_ShouldIgnoreUnknownParentIdField() throws Exception {
         // The parent is no longer part of the update contract; an old client payload
         // must not change the hierarchy.
-        AdminCategoryResponse response =
-                new AdminCategoryResponse(3, "Laptops", "laptops", CategoryStatus.ACTIVE, 0L, true, 2, null, null);
+        AdminCategoryResponse response = new AdminCategoryResponse(
+                3, "Laptops", "laptops", CategoryStatus.ACTIVE, 0L, true, 2, null, null, null, null, null, null, null);
         when(categoryService.updateCategory(anyInt(), any(UpdateCategoryRequest.class)))
                 .thenReturn(response);
         String body = """

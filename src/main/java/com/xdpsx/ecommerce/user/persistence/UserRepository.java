@@ -1,5 +1,7 @@
 package com.xdpsx.ecommerce.user.persistence;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 import jakarta.persistence.LockModeType;
@@ -13,6 +15,12 @@ import com.xdpsx.ecommerce.user.domain.AuthProvider;
 import com.xdpsx.ecommerce.user.domain.User;
 
 public interface UserRepository extends JpaRepository<User, Long> {
+    interface UserNameView {
+        Long getId();
+
+        String getName();
+    }
+
     boolean existsByEmail(String email);
 
     Optional<User> findByEmail(String email);
@@ -22,6 +30,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByEmailForUpdate(@Param("email") String email);
 
     Optional<User> findByEmailAndAuthProvider(String email, AuthProvider authProvider);
+
+    @Query("SELECT u.id AS id, u.name AS name FROM User u WHERE u.id IN :userIds")
+    List<UserNameView> findNamesByIdIn(@Param("userIds") Collection<Long> userIds);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT u FROM User u WHERE u.id = :userId")

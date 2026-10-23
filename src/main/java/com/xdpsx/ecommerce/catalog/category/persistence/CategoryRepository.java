@@ -26,9 +26,9 @@ public interface CategoryRepository extends JpaRepository<Category, Integer>, Jp
     Optional<Category> findByIdWithParent(@Param("id") Integer id);
 
     /**
-     * Row-locked lookup used by every hierarchy mutation. Locking the node itself
-     * serializes two moves of the same
-     * category before any parent or order is read.
+     * Row-locked lookup used by category update, move and delete. Locking the node
+     * serializes writes to the same category before any parent, order or metadata
+     * is read. Metadata updates do not take the hierarchy anchor.
      *
      * <p>
      * {@code LEFT JOIN FETCH} cannot be combined with a lock query, so only the
@@ -89,7 +89,9 @@ public interface CategoryRepository extends JpaRepository<Category, Integer>, Jp
     }
 
     /**
-     * Takes a transaction-scoped write lock on the hierarchy anchor row.
+     * Takes a transaction-scoped write lock on the hierarchy anchor row. Used by
+     * create, move, reorder and delete operations that mutate sibling groups, not
+     * metadata-only updates.
      *
      * <p>
      * This row is what makes hierarchy writes serialize. It exists because a

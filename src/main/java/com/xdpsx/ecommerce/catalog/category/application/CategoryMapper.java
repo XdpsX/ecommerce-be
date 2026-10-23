@@ -17,6 +17,7 @@ public interface CategoryMapper {
     CategoryMapper INSTANCE = Mappers.getMapper(CategoryMapper.class);
 
     @Mapping(target = "image", source = "entity.image.url")
+    @Mapping(target = "imageId", source = "entity.image.id")
     @Mapping(target = "parent", source = "entity.parent")
     @Mapping(target = "effectivelyActive", expression = "java(entity.isEffectivelyActive())")
     AdminCategoryResponse toAdminCategoryResponse(Category entity);

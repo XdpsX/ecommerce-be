@@ -15,13 +15,13 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
 
+import com.xdpsx.ecommerce.auth.application.CurrentUserIdProvider;
 import com.xdpsx.ecommerce.catalog.category.api.dto.*;
 import com.xdpsx.ecommerce.catalog.category.domain.Category;
 import com.xdpsx.ecommerce.catalog.category.domain.CategorySlug;
 import com.xdpsx.ecommerce.catalog.category.domain.CategoryStatus;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategoryRepository;
 import com.xdpsx.ecommerce.catalog.category.persistence.CategorySpecification;
-import com.xdpsx.ecommerce.catalog.shared.application.PageMapper;
 import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.common.pagination.PageResponse;
@@ -31,6 +31,7 @@ import com.xdpsx.ecommerce.media.application.delivery.MediaUrlResolver;
 import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaOwnerType;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
+import com.xdpsx.ecommerce.user.persistence.UserRepository;
 
 import lombok.RequiredArgsConstructor;
 
@@ -41,6 +42,8 @@ public class CategoryServiceImpl implements CategoryService {
     private final MediaAttachmentService mediaAttachmentService;
     private final MediaUrlResolver mediaUrlResolver;
     private final CategoryHierarchy categoryHierarchy;
+    private final CurrentUserIdProvider currentUserIdProvider;
+    private final UserRepository userRepository;
 
     /**
      * Opens one transaction per write attempt. Programmatic instead of
@@ -65,7 +68,16 @@ public class CategoryServiceImpl implements CategoryService {
         // resolve those chains for the
         // whole page before mapping instead of letting each row lazy-load its parents.
         resolveAncestorChains(categoryPage.getContent());
-        return PageMapper.toPageResponse(categoryPage, CategoryMapper.INSTANCE::toAdminCategoryResponse);
+        Map<Long, String> actorNames = resolveActorNames(categoryPage.getContent());
+        List<AdminCategoryResponse> rows = categoryPage.getContent().stream()
+                .map(category -> toAdminCategoryResponse(category, actorNames))
+                .collect(Collectors.toList());
+        return PageResponse.of(
+                rows,
+                categoryPage.getNumber() + 1,
+                categoryPage.getSize(),
+                categoryPage.getTotalElements(),
+                categoryPage.getTotalPages());
     }
 
     /**
@@ -95,7 +107,7 @@ public class CategoryServiceImpl implements CategoryService {
                 .findByIdWithAncestry(categoryId)
                 .orElseThrow(() -> new ApplicationException(
                         ErrorCode.RESOURCE_NOT_FOUND, Map.of("resourceType", "category", "resourceId", categoryId)));
-        return CategoryMapper.INSTANCE.toAdminCategoryResponse(category);
+        return toAdminCategoryResponse(category);
     }
 
     @Override
@@ -169,6 +181,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     private AdminCategoryResponse createCategoryAttempt(CreateCategoryRequest request) {
+        currentUserIdProvider.getRequiredUserId();
         categoryHierarchy.lockHierarchy();
 
         if (categoryRepository.existsByName(request.name())) {
@@ -217,7 +230,7 @@ public class CategoryServiceImpl implements CategoryService {
             savedCategory.setImage(desiredImages.get(0));
             savedCategory = categoryRepository.saveAndFlush(savedCategory);
         }
-        return CategoryMapper.INSTANCE.toAdminCategoryResponse(savedCategory);
+        return toAdminCategoryResponse(savedCategory);
     }
 
     @Override
@@ -227,6 +240,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     private AdminCategoryResponse moveCategoryAttempt(Integer id, MoveCategoryRequest request) {
+        currentUserIdProvider.getRequiredUserId();
         categoryHierarchy.lockHierarchy();
 
         MoveTargets targets = lockForMove(id, request.parentId());
@@ -259,7 +273,7 @@ public class CategoryServiceImpl implements CategoryService {
 
         Category savedCategory = categoryRepository.save(category);
         categoryRepository.flush();
-        return CategoryMapper.INSTANCE.toAdminCategoryResponse(savedCategory);
+        return toAdminCategoryResponse(savedCategory);
     }
 
     /**
@@ -292,6 +306,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     private void reorderCategoriesAttempt(ReorderCategoriesRequest request) {
+        currentUserIdProvider.getRequiredUserId();
         categoryHierarchy.lockHierarchy();
 
         if (request.parentId() != null) {
@@ -336,14 +351,11 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     private AdminCategoryResponse updateCategoryAttempt(Integer id, UpdateCategoryRequest request) {
-        // Locked like every other hierarchy write: Hibernate flushes the whole loaded
-        // entity, so an update that read
-        // the
-        // row before a concurrent move would write the old parent/displayOrder back
-        // over it. The hierarchy anchor serializes update against
-        // move; locking the row as well keeps this operation correct on its own if the
-        // anchor strategy ever changes.
-        categoryHierarchy.lockHierarchy();
+        currentUserIdProvider.getRequiredUserId();
+        // Lock the category row before reading any metadata or media state. A
+        // concurrent move either finishes first and this transaction sees the new
+        // parent/order, or waits behind this update. The request version rejects a
+        // form opened against the older row.
         Category category = categoryRepository
                 .findByIdForUpdate(id)
                 .orElseThrow(() -> new ApplicationException(
@@ -392,7 +404,7 @@ public class CategoryServiceImpl implements CategoryService {
 
         // Flush before mapping so the response carries the version incremented by Hibernate.
         Category savedCategory = categoryRepository.saveAndFlush(category);
-        return CategoryMapper.INSTANCE.toAdminCategoryResponse(savedCategory);
+        return toAdminCategoryResponse(savedCategory);
     }
 
     @Override
@@ -404,6 +416,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     private void deleteCategoryAttempt(Integer id, DeleteCategoryRequest request) {
+        currentUserIdProvider.getRequiredUserId();
         categoryHierarchy.lockHierarchy();
 
         Category category = categoryRepository
@@ -469,5 +482,49 @@ public class CategoryServiceImpl implements CategoryService {
 
     private static MediaOwner categoryOwner(Category category) {
         return new MediaOwner(MediaOwnerType.CATEGORY, category.getId().toString());
+    }
+
+    private AdminCategoryResponse toAdminCategoryResponse(Category category) {
+        return toAdminCategoryResponse(category, resolveActorNames(List.of(category)));
+    }
+
+    private AdminCategoryResponse toAdminCategoryResponse(Category category, Map<Long, String> actorNames) {
+        AdminCategoryResponse response = CategoryMapper.INSTANCE.toAdminCategoryResponse(category);
+        String createdByName = actorName(category.getCreatedBy(), actorNames);
+        String updatedByName = actorName(category.getUpdatedBy(), actorNames);
+        return new AdminCategoryResponse(
+                response.id(),
+                response.name(),
+                response.slug(),
+                response.status(),
+                response.version(),
+                response.effectivelyActive(),
+                response.displayOrder(),
+                response.image(),
+                response.parent(),
+                response.imageId(),
+                response.createdBy(),
+                response.updatedBy(),
+                createdByName,
+                updatedByName,
+                response.createdAt(),
+                response.updatedAt());
+    }
+
+    private Map<Long, String> resolveActorNames(List<Category> categories) {
+        List<Long> actorIds = categories.stream()
+                .flatMap(category -> java.util.stream.Stream.of(category.getCreatedBy(), category.getUpdatedBy()))
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (actorIds.isEmpty()) return Map.of();
+
+        return userRepository.findNamesByIdIn(actorIds).stream()
+                .filter(view -> view.getName() != null && !view.getName().isBlank())
+                .collect(Collectors.toMap(UserRepository.UserNameView::getId, UserRepository.UserNameView::getName));
+    }
+
+    private static String actorName(Long actorId, Map<Long, String> actorNames) {
+        return actorId == null ? null : actorNames.get(actorId);
     }
 }

@@ -1,5 +1,6 @@
 package com.xdpsx.ecommerce.catalog.category.application;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -16,6 +17,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionOperations;
@@ -40,6 +44,7 @@ import com.xdpsx.ecommerce.media.domain.Media;
 import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
 import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
+import com.xdpsx.ecommerce.user.persistence.UserRepository;
 
 /**
  * Guards the Category write behavior: create appends to the locked sibling
@@ -68,6 +73,9 @@ class CategoryServiceImplTest {
     @Mock
     private MediaUrlResolver mediaUrlResolver;
 
+    @Mock
+    private UserRepository userRepository;
+
     private CategoryServiceImpl categoryService;
 
     @BeforeEach
@@ -89,6 +97,8 @@ class CategoryServiceImplTest {
                 mediaAttachmentService,
                 mediaUrlResolver,
                 new CategoryHierarchy(categoryRepository),
+                currentUserIdProvider,
+                userRepository,
                 inlineTransaction);
         lenient().when(categoryRepository.saveAndFlush(any(Category.class))).thenAnswer(invocation -> {
             Category category = invocation.getArgument(0);
@@ -109,6 +119,42 @@ class CategoryServiceImplTest {
                 .displayOrder(displayOrder)
                 .version(0L)
                 .build();
+    }
+
+    @Test
+    void adminCategoryPage_shouldResolveDistinctActorNamesInOneBatchAndLeaveMissingUsersNull() {
+        Category first = category(1, "First", "first", 0);
+        first.setCreatedBy(11L);
+        first.setUpdatedBy(12L);
+        Category second = category(2, "Second", "second", 1);
+        second.setCreatedBy(11L);
+        second.setUpdatedBy(99L);
+        when(categoryRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(first, second)));
+        when(userRepository.findNamesByIdIn(any())).thenReturn(List.of(userName(11L, "Avery"), userName(12L, "Blair")));
+
+        var page = categoryService.getAdminCategories(
+                new com.xdpsx.ecommerce.catalog.category.api.dto.AdminCategoryFilter());
+
+        assertThat(page.data()).extracting(AdminCategoryResponse::createdByName).containsExactly("Avery", "Avery");
+        assertThat(page.data()).extracting(AdminCategoryResponse::updatedByName).containsExactly("Blair", null);
+        ArgumentCaptor<java.util.Collection<Long>> ids = ArgumentCaptor.forClass(java.util.Collection.class);
+        verify(userRepository, times(1)).findNamesByIdIn(ids.capture());
+        assertThat(ids.getValue()).containsExactlyInAnyOrder(11L, 12L, 99L);
+    }
+
+    private static UserRepository.UserNameView userName(Long id, String name) {
+        return new UserRepository.UserNameView() {
+            @Override
+            public Long getId() {
+                return id;
+            }
+
+            @Override
+            public String getName() {
+                return name;
+            }
+        };
     }
 
     /**
@@ -394,6 +440,8 @@ class CategoryServiceImplTest {
         // renumbers a sibling group.
         verify(categoryRepository, never()).findRootsForUpdate();
         verify(categoryRepository, never()).findChildrenForUpdate(any());
+        verify(categoryRepository, never()).lockHierarchyAnchor();
+        verify(currentUserIdProvider).getRequiredUserId();
     }
 
     @Test

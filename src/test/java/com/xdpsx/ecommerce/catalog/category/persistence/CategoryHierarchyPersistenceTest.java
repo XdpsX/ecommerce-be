@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -20,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
@@ -46,16 +48,20 @@ import com.xdpsx.ecommerce.common.error.ApplicationException;
 import com.xdpsx.ecommerce.common.error.ErrorCode;
 import com.xdpsx.ecommerce.media.application.attachment.MediaAttachmentService;
 import com.xdpsx.ecommerce.media.application.delivery.MediaUrlResolver;
+import com.xdpsx.ecommerce.media.domain.Media;
+import com.xdpsx.ecommerce.media.domain.MediaAttachmentStatus;
+import com.xdpsx.ecommerce.media.domain.MediaPurpose;
 import com.xdpsx.ecommerce.media.persistence.MediaRepository;
 import com.xdpsx.ecommerce.testsupport.MySqlTestContainerFactory;
+import com.xdpsx.ecommerce.user.persistence.UserRepository;
 
 /**
  * Runs the Category hierarchy write queries against a real MySQL server.
  *
  * <p>These queries cannot be protected by an H2 substitute or a mocked repository: the ordered sibling lock relies on
- * {@code ORDER BY (parent_id, display_order)} plus {@code SELECT ... FOR UPDATE}, the root group is anchored with a
- * MySQL named lock, and an empty root group has no row to lock at all. The concurrent cases below are what prove the
- * create and move paths serialize instead of racing.
+ * {@code ORDER BY (parent_id, display_order)} plus {@code SELECT ... FOR UPDATE}, the root group and empty groups are
+ * coordinated by a transaction-scoped anchor row. The concurrent cases below exercise hierarchy serialization,
+ * metadata row locking, optimistic version checks and actor auditing on MySQL.
  *
  * <p>The schema is built by the real Liquibase changesets rather than by Hibernate, so the queries run against the same
  * {@code idx_category_parent_order} index and restrictive parent FK as production. The Category aggregate associates
@@ -65,13 +71,15 @@ import com.xdpsx.ecommerce.testsupport.MySqlTestContainerFactory;
 @SpringJUnitConfig(CategoryHierarchyPersistenceTest.PersistenceConfig.class)
 class CategoryHierarchyPersistenceTest {
 
+    private static final ThreadLocal<Long> TEST_ACTOR = ThreadLocal.withInitial(() -> 42L);
+
     @Container
     private static final MySQLContainer MYSQL = MySqlTestContainerFactory.create(
             "category_hierarchy", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci");
 
     @org.springframework.context.annotation.Configuration
     @EnableTransactionManagement
-    @EnableJpaAuditing
+    @EnableJpaAuditing(auditorAwareRef = "testAuditor", modifyOnCreate = true)
     @EnableJpaRepositories(basePackageClasses = {CategoryRepository.class, MediaRepository.class})
     static class PersistenceConfig {
 
@@ -157,15 +165,34 @@ class CategoryHierarchyPersistenceTest {
         }
 
         @Bean
+        com.xdpsx.ecommerce.auth.application.CurrentUserIdProvider currentUserIdProvider() {
+            return TEST_ACTOR::get;
+        }
+
+        @Bean
+        org.springframework.data.domain.AuditorAware<Long> testAuditor() {
+            return () -> java.util.Optional.of(TEST_ACTOR.get());
+        }
+
+        @Bean
+        UserRepository userRepository() {
+            return org.mockito.Mockito.mock(UserRepository.class);
+        }
+
+        @Bean
         CategoryServiceImpl categoryService(
                 CategoryRepository categoryRepository,
                 MediaAttachmentService mediaAttachmentService,
+                com.xdpsx.ecommerce.auth.application.CurrentUserIdProvider currentUserIdProvider,
+                UserRepository userRepository,
                 TransactionTemplate transactionTemplate) {
             return new CategoryServiceImpl(
                     categoryRepository,
                     mediaAttachmentService,
                     new MediaUrlResolver((externalId, purpose) -> java.util.Map.of()),
                     new CategoryHierarchy(categoryRepository, 1),
+                    currentUserIdProvider,
+                    userRepository,
                     transactionTemplate);
         }
     }
@@ -174,7 +201,13 @@ class CategoryHierarchyPersistenceTest {
     private CategoryRepository categoryRepository;
 
     @Autowired
+    private MediaRepository mediaRepository;
+
+    @Autowired
     private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    private javax.sql.DataSource dataSource;
 
     // Injected as the interface: @EnableTransactionManagement proxies the bean, so the concrete type is not
     // resolvable for injection.
@@ -183,16 +216,20 @@ class CategoryHierarchyPersistenceTest {
 
     @BeforeEach
     void seed() {
+        TEST_ACTOR.set(42L);
         transactionTemplate.execute(status -> {
             categoryRepository.deleteAll();
+            mediaRepository.deleteAll();
             return null;
         });
     }
 
     @AfterEach
     void cleanup() {
+        TEST_ACTOR.set(42L);
         transactionTemplate.execute(status -> {
             categoryRepository.deleteAll();
+            mediaRepository.deleteAll();
             return null;
         });
     }
@@ -213,6 +250,26 @@ class CategoryHierarchyPersistenceTest {
     private Long version(Integer categoryId) {
         return transactionTemplate.execute(
                 status -> categoryRepository.findById(categoryId).orElseThrow().getVersion());
+    }
+
+    private String persistTemporaryCategoryImage(String id) {
+        return transactionTemplate.execute(status -> mediaRepository
+                .save(Media.createUploaded(
+                        id,
+                        "external-" + id,
+                        "https://cdn.example.test/" + id + ".png",
+                        null,
+                        "image/png",
+                        MediaPurpose.CATEGORY_IMAGE,
+                        42L,
+                        MediaAttachmentStatus.TEMPORARY,
+                        null))
+                .getId());
+    }
+
+    private Media media(String id) {
+        return transactionTemplate.execute(
+                status -> mediaRepository.findById(id).orElseThrow());
     }
 
     @Test
@@ -261,6 +318,113 @@ class CategoryHierarchyPersistenceTest {
         String persistedName = transactionTemplate.execute(
                 status -> categoryRepository.findById(categoryId).orElseThrow().getName());
         assertThat(persistedName).isEqualTo("Updated Category");
+    }
+
+    @Test
+    void concurrentUpdatesWithSameVersionAndDifferentImages_ShouldAttachOnlyTheWinner() throws Exception {
+        String originalImageId = persistTemporaryCategoryImage("original-category-image");
+        String firstReplacementId = persistTemporaryCategoryImage("first-replacement-image");
+        String secondReplacementId = persistTemporaryCategoryImage("second-replacement-image");
+        AdminCategoryResponse created = categoryService.createCategory(
+                new CreateCategoryRequest("Concurrent Image Category", CategoryStatus.ACTIVE, originalImageId, null));
+
+        List<Integer> outcomes = runConcurrently(
+                () -> updateCategoryWithImage(
+                        created.id(), created.version(), "Concurrent Image A", firstReplacementId),
+                () -> updateCategoryWithImage(
+                        created.id(), created.version(), "Concurrent Image B", secondReplacementId));
+
+        assertThat(outcomes).containsExactlyInAnyOrder(1, -1);
+        Category persisted = transactionTemplate.execute(
+                status -> categoryRepository.findById(created.id()).orElseThrow());
+        String winningImageId = persisted.getImage().getId();
+        String losingImageId = winningImageId.equals(firstReplacementId) ? secondReplacementId : firstReplacementId;
+
+        assertThat(persisted.getVersion()).isEqualTo(created.version() + 1);
+        assertThat(persisted.getName()).isIn("Concurrent Image A", "Concurrent Image B");
+        assertThat(media(originalImageId).getAttachmentStatus()).isEqualTo(MediaAttachmentStatus.PENDING_DELETE);
+        assertThat(media(winningImageId).getAttachmentStatus()).isEqualTo(MediaAttachmentStatus.ACTIVE);
+        assertThat(media(losingImageId).getAttachmentStatus()).isEqualTo(MediaAttachmentStatus.TEMPORARY);
+    }
+
+    private Integer updateCategoryWithImage(Integer categoryId, Long version, String name, String imageId) {
+        try {
+            categoryService.updateCategory(
+                    categoryId, new UpdateCategoryRequest(name, CategoryStatus.ACTIVE, null, imageId, version));
+            return 1;
+        } catch (ApplicationException exception) {
+            if (exception.getCode() == ErrorCode.CONCURRENT_MODIFICATION) return -1;
+            throw exception;
+        }
+    }
+
+    @Test
+    void categoryActorAudit_ShouldPersistCreatorAndLastEditorFromTheAuthenticatedActor() {
+        TEST_ACTOR.set(17L);
+        AdminCategoryResponse created = categoryService.createCategory(
+                new CreateCategoryRequest("Audited Category", CategoryStatus.ACTIVE, null, null));
+        assertThat(created.createdBy()).isEqualTo(17L);
+        assertThat(created.updatedBy()).isEqualTo(17L);
+        assertThat(created.createdAt()).isNotNull();
+
+        TEST_ACTOR.set(23L);
+        categoryService.updateCategory(
+                created.id(),
+                new UpdateCategoryRequest(
+                        "Audited Category Renamed", CategoryStatus.ACTIVE, null, null, created.version()));
+
+        Category persisted = transactionTemplate.execute(
+                status -> categoryRepository.findById(created.id()).orElseThrow());
+        assertThat(persisted.getCreatedBy()).isEqualTo(17L);
+        assertThat(persisted.getUpdatedBy()).isEqualTo(23L);
+        assertThat(persisted.getCreatedAt()).isEqualTo(created.createdAt());
+        assertThat(persisted.getUpdatedAt()).isNotNull();
+
+        TEST_ACTOR.set(31L);
+        assertThatThrownBy(() -> categoryService.updateCategory(
+                        created.id(),
+                        new UpdateCategoryRequest("Stale Actor Draft", CategoryStatus.ACTIVE, null, null, 0L)))
+                .isInstanceOf(ApplicationException.class)
+                .satisfies(exception -> assertThat(((ApplicationException) exception).getCode())
+                        .isEqualTo(ErrorCode.CONCURRENT_MODIFICATION));
+        Category afterStaleWrite = transactionTemplate.execute(
+                status -> categoryRepository.findById(created.id()).orElseThrow());
+        assertThat(afterStaleWrite.getName()).isEqualTo("Audited Category Renamed");
+        assertThat(afterStaleWrite.getUpdatedBy()).isEqualTo(23L);
+    }
+
+    @Test
+    void hierarchyRenumbering_ShouldAuditEverySiblingActuallyChanged() {
+        Integer first = persist("Audit First", 0, null);
+        Integer second = persist("Audit Second", 1, null);
+
+        TEST_ACTOR.set(77L);
+        categoryService.moveCategory(second, new MoveCategoryRequest(null, 0));
+
+        Map<Integer, Category> categories =
+                transactionTemplate.execute(status -> categoryRepository.findAllById(List.of(first, second)).stream()
+                        .collect(java.util.stream.Collectors.toMap(Category::getId, category -> category)));
+        assertThat(categories.get(first).getDisplayOrder()).isEqualTo(1);
+        assertThat(categories.get(second).getDisplayOrder()).isEqualTo(0);
+        assertThat(categories.get(first).getUpdatedBy()).isEqualTo(77L);
+        assertThat(categories.get(second).getUpdatedBy()).isEqualTo(77L);
+        assertThat(categories.get(first).getCreatedBy()).isEqualTo(42L);
+    }
+
+    @Test
+    void legacyCategoryWithUnknownCreator_ShouldRemainEditableWithoutInventingCreatedBy() {
+        Integer categoryId = persist("Legacy Category", 0, null);
+        new JdbcTemplate(dataSource)
+                .update("UPDATE categories SET created_by = NULL, updated_by = NULL WHERE id = ?", categoryId);
+
+        TEST_ACTOR.set(88L);
+        categoryService.updateCategory(
+                categoryId, new UpdateCategoryRequest("Legacy Category Edited", CategoryStatus.ACTIVE, null, null, 0L));
+
+        Category persisted = transactionTemplate.execute(
+                status -> categoryRepository.findById(categoryId).orElseThrow());
+        assertThat(persisted.getCreatedBy()).isNull();
+        assertThat(persisted.getUpdatedBy()).isEqualTo(88L);
     }
 
     private List<String> namesOf(List<Category> categories) {
@@ -387,9 +551,8 @@ class CategoryHierarchyPersistenceTest {
     }
 
     /**
-     * A metadata update must not write back the parent/order it read before a concurrent move. The update flushes the
-     * whole entity, and the entity has no {@code @Version}/{@code @DynamicUpdate}, so the row lock is what protects the
-     * move from being silently undone.
+     * A metadata update must not write back the parent/order it read before a concurrent move. The category row lock
+     * serializes the writes, and the request version rejects a form made stale by whichever operation commits first.
      */
     @Test
     void concurrentUpdateAndMove_ShouldNotLoseTheMove() throws Exception {
@@ -407,6 +570,32 @@ class CategoryHierarchyPersistenceTest {
         assertThat(persisted.getName()).isIn("Laptops Renamed", "Laptops");
         if (persisted.getName().equals("Laptops")) {
             assertThat(outcomes).contains(-1);
+        }
+    }
+
+    @Test
+    void updateMetadata_ShouldNotWaitForTheHierarchyAnchor() throws Exception {
+        Integer categoryId = persist("Independent Metadata", 0, null);
+        AtomicReference<Future<AdminCategoryResponse>> update = new AtomicReference<>();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            transactionTemplate.execute(status -> {
+                categoryRepository.lockHierarchyAnchor();
+                update.set(executor.submit(() -> categoryService.updateCategory(
+                        categoryId,
+                        new UpdateCategoryRequest(
+                                "Independent Metadata Updated", CategoryStatus.ACTIVE, null, null, 0L))));
+                try {
+                    assertThat(update.get().get(5, TimeUnit.SECONDS).name()).isEqualTo("Independent Metadata Updated");
+                } catch (Exception exception) {
+                    throw new AssertionError(
+                            "Metadata update should not be blocked by the hierarchy anchor", exception);
+                }
+                status.setRollbackOnly();
+                return null;
+            });
+        } finally {
+            executor.shutdownNow();
         }
     }
 

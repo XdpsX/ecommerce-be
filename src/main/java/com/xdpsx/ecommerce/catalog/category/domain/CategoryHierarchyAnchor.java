@@ -15,7 +15,8 @@ import lombok.Getter;
  * ({@code SELECT ... FOR UPDATE}) gives every writer something to contend on, and because it is a plain InnoDB row
  * lock it is released exactly when the transaction ends.
  *
- * <p>The table holds exactly one row and is never updated. It exists only to be locked.
+ * <p>The table holds exactly one row and is never updated. It exists only to be locked by create, move, reorder and
+ * delete operations that inspect or change sibling groups. Metadata-only category updates do not lock this row.
  */
 @Getter
 @Entity

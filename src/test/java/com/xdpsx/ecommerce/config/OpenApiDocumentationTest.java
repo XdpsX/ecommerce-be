@@ -535,8 +535,25 @@ class OpenApiDocumentationTest {
         assertThat(properties.has("status")).isTrue();
         assertThat(properties.has("version")).isTrue();
         assertThat(properties.has("effectivelyActive")).isTrue();
+        assertThat(properties.has("imageId")).isTrue();
+        assertThat(properties.has("image")).isTrue();
+        assertThat(properties.has("createdBy")).isTrue();
+        assertThat(properties.has("updatedBy")).isTrue();
+        assertThat(properties.has("createdByName")).isTrue();
+        assertThat(properties.has("updatedByName")).isTrue();
+        assertThat(properties.has("createdAt")).isTrue();
+        assertThat(properties.has("updatedAt")).isTrue();
+
+        JsonNode storefrontProperties = openApi.at("/components/schemas/StorefrontCategoryResponse/properties");
+        assertThat(storefrontProperties.has("createdBy")).isFalse();
+        assertThat(storefrontProperties.has("updatedBy")).isFalse();
+        assertThat(storefrontProperties.has("imageId")).isFalse();
+        assertThat(storefrontProperties.has("createdByName")).isFalse();
+        assertThat(storefrontProperties.has("updatedByName")).isFalse();
 
         JsonNode updateProperties = openApi.at("/components/schemas/UpdateCategoryRequest/properties");
+        assertThat(updateProperties.has("createdByName")).isFalse();
+        assertThat(updateProperties.has("updatedByName")).isFalse();
         assertThat(updateProperties.has("version")).isTrue();
         assertThat(updateProperties.has("lastRetrievedAt")).isFalse();
 
